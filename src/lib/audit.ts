@@ -8,7 +8,7 @@ import * as s from '@/db/schema';
 export async function logAudit(input: {
   actorId?: string | null;
   actorName?: string;
-  action: 'create' | 'update' | 'delete' | 'approve' | 'reject' | 'pay' | 'complete' | 'revise' | 'reset' | 'role' | 'invite' | 'cron';
+  action: 'create' | 'update' | 'delete' | 'approve' | 'reject' | 'pay' | 'complete' | 'revise' | 'reset' | 'role' | 'invite' | 'cron' | 'login' | 'logout' | 'upload';
   entity: string;
   entityId?: string | null;
   summary: string;

@@ -1,4 +1,5 @@
 import { requireUser, createAuthClient, isConfigured } from '@/lib/auth';
+import { logAudit } from '@/lib/audit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -7,8 +8,9 @@ export const dynamic = 'force-dynamic';
 // Body: multipart FormData { file }. Mengembalikan { path } untuk disimpan
 // ke handovers.photo_urls saat BAST dibuat. Maks 5 MB, hanya gambar.
 export async function POST(request: Request) {
+  let user: { id: string; fullName: string };
   try {
-    await requireUser(['admin', 'operations', 'operator']);
+    user = await requireUser(['admin', 'operations', 'operator']);
   } catch (error) {
     if (((error as Error).message || '').includes('NEXT_REDIRECT')) throw error;
     return Response.json({ message: 'Anda tidak memiliki izin.' }, { status: 403 });
@@ -26,5 +28,6 @@ export async function POST(request: Request) {
   const supabase = await createAuthClient();
   const { error } = await supabase.storage.from('bast-photos').upload(path, await file.arrayBuffer(), { contentType: file.type, upsert: false });
   if (error) return Response.json({ message: 'Unggahan gagal. Coba lagi.' }, { status: 500 });
+  await logAudit({ actorId: user.id, actorName: user.fullName, action: 'upload', entity: 'bast', entityId: path, summary: `Mengunggah foto BAST: ${safe} (${Math.max(1, Math.round(file.size / 1024))} KB)` });
   return Response.json({ path });
 }

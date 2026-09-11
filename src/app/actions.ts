@@ -359,8 +359,10 @@ export async function resetDatabase(confirmation:string): Promise<ActionResult> 
 
 export async function signIn(form:FormData) {
  if(!isConfigured())return {success:false,message:'Autentikasi Supabase belum dikonfigurasi. Hubungi administrator.'};
- const auth=await createAuthClient();const {error}=await auth.auth.signInWithPassword({email:text(form,'email'),password:text(form,'password')});
+ const auth=await createAuthClient();const {data,error}=await auth.auth.signInWithPassword({email:text(form,'email'),password:text(form,'password')});
  if(error)return {success:false,message:'Surel atau kata sandi tidak sesuai.'};
+ const [profile]=await db.select().from(s.profiles).where(eq(s.profiles.id,data.user.id));
+ await logAudit({actorId:data.user.id,actorName:profile?.fullName||data.user.email||'Pengguna',action:'login',entity:'profiles',entityId:data.user.id,summary:`Masuk: ${data.user.email||'pengguna'}`});
  redirect('/dashboard');
 }
-export async function signOut(){if(isConfigured()){const auth=await createAuthClient();await auth.auth.signOut();}redirect('/login');}
+export async function signOut(){if(isConfigured()){const auth=await createAuthClient();try{const {data:{user}}=await auth.auth.getUser();if(user){const [profile]=await db.select().from(s.profiles).where(eq(s.profiles.id,user.id));await logAudit({actorId:user.id,actorName:profile?.fullName||user.email||'Pengguna',action:'logout',entity:'profiles',entityId:user.id,summary:`Keluar: ${user.email||'pengguna'}`});}}catch{/* audit logout best-effort */}await auth.auth.signOut();}redirect('/login');}

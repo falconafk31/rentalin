@@ -18,7 +18,7 @@ export function AccessDenied() {
 
 const actionLabels: Record<string, string> = {
   create: 'Membuat', update: 'Mengubah', delete: 'Menghapus', approve: 'Menyetujui', reject: 'Menolak',
-  pay: 'Pembayaran', complete: 'Menyelesaikan', revise: 'Merevisi', reset: 'Mereset', role: 'Ubah peran', invite: 'Mengundang', cron: 'Otomatis',
+  pay: 'Pembayaran', complete: 'Menyelesaikan', revise: 'Merevisi', reset: 'Mereset', role: 'Ubah peran', invite: 'Mengundang', cron: 'Otomatis', login: 'Masuk', logout: 'Keluar', upload: 'Mengunggah foto',
 };
 const entityLabels: Record<string, string> = {
   fleet: 'Armada', clients: 'Klien', contracts: 'Kontrak', timesheets: 'Timesheet', bast: 'BAST',
