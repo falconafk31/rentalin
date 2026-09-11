@@ -32,6 +32,8 @@ export function Shell({ data, children }: { data: ShellData; children: React.Rea
   const [notifications, setNotifications] = useState(false);
   const [profile, setProfile] = useState(false);
   const [help, setHelp] = useState(false);
+  // Zona waktu kalender perusahaan untuk label tanggal (WIB default).
+  const tz = data.settings.timezone;
   // O-A: angka badge/pemberitahuan berasal dari count SQL (data.counts) —
   // shell tidak lagi menerima koleksi penuh untuk menghitungnya di client.
   const { pendingTimesheets: pending, unpaidInvoices: unpaid, overdueInvoices: overdue, expiringFleet } = data.counts;
@@ -144,7 +146,7 @@ export function Shell({ data, children }: { data: ShellData; children: React.Rea
           <p>4. Catat 3. Timesheet Harian lalu minta persetujuan.</p>
           <p>5. Terbitkan 4. Penagihan Invoice dari jam approved, lalu catat pembayaran.</p>
           <p>6. Buat BAST Demobilisasi lalu selesaikan kontrak.</p>
-          <small>Terakhir diperbarui: {dateLabel(new Date())}</small>
+          <small>Terakhir diperbarui: {dateLabel(new Date(), tz)}</small>
         </div>
       </Modal>
     </div>

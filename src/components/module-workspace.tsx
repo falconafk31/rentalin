@@ -43,8 +43,8 @@ type RevisionRow = Awaited<ReturnType<typeof getRevisionHistory>>[number];
 
 // Ambang peringatan (hari) kini konfigurasi, bukan hardcode 30 — perbandingan
 // memakai aritmetika kalender TZ-aman agar tidak geser ±1 hari di WIB.
-const isExpiringFleet = (f: Pick<FleetRow, 'sikoExpiry' | 'insuranceExpiry'>, warnDays = 30) =>
-  [f.sikoExpiry, f.insuranceExpiry].some(d => isExpiringSoon(d, warnDays));
+const isExpiringFleet = (f: Pick<FleetRow, 'sikoExpiry' | 'insuranceExpiry'>, warnDays = 30, tz?: string) =>
+  [f.sikoExpiry, f.insuranceExpiry].some(d => isExpiringSoon(d, warnDays, tz));
 
 function PdfLink({ kind, id }: { kind: string; id: string }) {
   return <a className="icon-button" href={`/api/documents/${kind}/${id}`} target="_blank" rel="noreferrer" title="Unduh dokumen PDF" aria-label="Unduh dokumen PDF"><FileDown size={17} />Unduh</a>;
@@ -84,6 +84,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
     prev.map(r => r.id === u.id ? ({ ...r, status: u.status } as ModuleRow) : r));
   const ppnRate = Number(data.settings.ppnRate ?? 11);
   const warnDays = Number(data.settings.expiryWarningDays ?? 30) || 30;
+  const tz = data.settings.timezone;
   const c = config[module];
   const { headers, statuses } = tableMeta[module];
 
@@ -197,7 +198,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
       return (optRows as FleetRow[]).map(f => ({
         id: f.id, status: f.status, raw: f as unknown as EditableRecord,
         cells: [
-          <div className="unit-cell" key="unit"><span className="unit-icon"><EquipmentIcon /></span><span><b>{f.brandModel}</b><small>{f.unitCode}{isExpiringFleet(f, warnDays) && <TriangleAlert size={12} className="amber-text" />}</small></span></div>,
+          <div className="unit-cell" key="unit"><span className="unit-icon"><EquipmentIcon /></span><span><b>{f.brandModel}</b><small>{f.unitCode}{isExpiringFleet(f, warnDays, tz) && <TriangleAlert size={12} className="amber-text" />}</small></span></div>,
           <div key="category">{f.category}<small className="cell-sub">Tahun {f.year}</small></div>,
           f.currentLocation || '—', money(f.hourlyRate), <Badge status={f.status} key="status" />,
           canWrite ? <div className="row-actions" key="edit"><button className="icon-button" aria-label={`Ubah ${f.unitCode}`} title="Ubah unit" onClick={() => edit(f)}><Pencil size={15} />Ubah</button></div> : <span key="read">—</span>,
@@ -220,9 +221,9 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
       return (optRows as ContractRow[]).map(contract => ({
         id: contract.id, status: contract.status, raw: contract as unknown as EditableRecord,
         cells: [
-          <div key="number"><b className="document-number">{contract.contractNumber}</b><small className="cell-sub">Dibuat {dateTimeLabel(contract.createdAt)}</small></div>,
+          <div key="number"><b className="document-number">{contract.contractNumber}</b><small className="cell-sub">Dibuat {dateTimeLabel(contract.createdAt, tz)}</small></div>,
           <div key="client"><b>{contract.clientName}</b><small className="cell-sub">{contract.unitCode} · {contract.unitModel}</small></div>,
-          <div key="dates">{dateLabel(contract.startDate)}<small className="cell-sub">s.d. {dateLabel(contract.endDate)}</small></div>,
+          <div key="dates">{dateLabel(contract.startDate, tz)}<small className="cell-sub">s.d. {dateLabel(contract.endDate, tz)}</small></div>,
           money(contract.ratePerHour), <Badge key="status" status={contract.status} />,
           <div className="row-actions" key="actions"><PdfLink kind="sph" id={contract.id} />{canWrite && contract.status === 'active' && <button className="icon-button" aria-label="Revisi kontrak" title="Revisi kontrak" onClick={() => startRevise(contract as unknown as EditableRecord)}><Pencil size={15} />Revisi</button>}{canWrite && contract.status === 'active' && <button className="icon-button green" aria-label="Selesaikan kontrak" title="Selesaikan kontrak" onClick={() => askStatus(contract.id, 'completed')}><CircleCheck size={17} />Selesai</button>}</div>,
         ],
@@ -232,7 +233,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
       return (optRows as TimesheetRow[]).map(t => ({
         id: t.id, status: t.status, raw: t as unknown as EditableRecord,
         cells: [
-          <div key="date"><b>{dateLabel(t.date)}</b><small className="cell-sub">{t.contractNumber} · {timeLabel(t.createdAt)}</small></div>,
+          <div key="date"><b>{dateLabel(t.date, tz)}</b><small className="cell-sub">{t.contractNumber} · {timeLabel(t.createdAt, tz)}</small></div>,
           <div key="unit">{t.unitModel}<small className="cell-sub">{t.unitCode}</small></div>,
           `${Number(t.startHm).toLocaleString('id-ID')} → ${Number(t.endHm).toLocaleString('id-ID')}`,
           <div key="hours"><b>{Number(t.effectiveHours).toLocaleString('id-ID')} jam</b><small className="cell-sub">Kerusakan: {Number(t.breakdownHours)} jam</small></div>,
@@ -248,9 +249,9 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
         return {
           id: h.id, status: h.type, raw: h as unknown as EditableRecord,
           cells: [
-            <div key="number"><b className="document-number">{h.documentNumber}</b><small className="cell-sub">Dicatat {dateTimeLabel(h.createdAt)}{h.photoUrls.length > 0 && ` · ${h.photoUrls.length} foto`}</small></div>,
+            <div key="number"><b className="document-number">{h.documentNumber}</b><small className="cell-sub">Dicatat {dateTimeLabel(h.createdAt, tz)}{h.photoUrls.length > 0 && ` · ${h.photoUrls.length} foto`}</small></div>,
             <div key="contract">{h.contractNumber}<small className="cell-sub">{h.clientName}</small></div>,
-            dateLabel(h.date), <Badge key="type" status={h.type} />,
+            dateLabel(h.date, tz), <Badge key="type" status={h.type} />,
             <span key="condition" className={ok ? 'green' : 'amber-text'}>{ok ? 'Seluruh komponen baik' : 'Perlu perhatian'}</span>,
             <div className="row-actions" key="doc"><PdfLink kind="bast" id={h.id} /></div>,
           ],
@@ -261,21 +262,21 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
       return (optRows as InvoiceRow[]).map(i => {
         const paid = i.paidAmount;
         const remaining = remainingBalance(i.totalAmount, paid);
-        const displayStatus = i.status !== 'paid' && isPastDue(i.dueDate) ? 'overdue' : i.status;
+        const displayStatus = i.status !== 'paid' && isPastDue(i.dueDate, tz) ? 'overdue' : i.status;
         return {
           id: i.id, status: displayStatus, raw: i as unknown as EditableRecord,
           cells: [
-            <div key="number"><b className="document-number">{i.invoiceNumber}</b><small className="cell-sub">Terbit {dateLabel(i.issueDate)} · {timeLabel(i.createdAt)}</small></div>,
+            <div key="number"><b className="document-number">{i.invoiceNumber}</b><small className="cell-sub">Terbit {dateLabel(i.issueDate, tz)} · {timeLabel(i.createdAt, tz)}</small></div>,
             <div key="client">{i.clientName}<small className="cell-sub">{i.contractNumber}</small></div>,
             <div key="amount"><b>{money(i.totalAmount)}</b><small className="cell-sub">Termasuk PPN {Number(i.taxRate ?? ppnRate)}%{i.status !== 'paid' && paid > 0 && ` · Dibayar ${money(paid)}`}{i.status !== 'paid' && ` · Sisa ${money(remaining)}`}</small></div>,
-            dateLabel(i.dueDate), <Badge key="status" status={displayStatus} />,
+            dateLabel(i.dueDate, tz), <Badge key="status" status={displayStatus} />,
             <div className="row-actions" key="actions">{['admin', 'finance', 'operations'].includes(data.user.role) && <PdfLink kind="invoice" id={i.id} />}{canWrite && <button className="icon-button green" aria-label={i.status === 'paid' ? `Riwayat pembayaran ${i.invoiceNumber}` : `Catat pembayaran ${i.invoiceNumber}`} title={i.status === 'paid' ? 'Riwayat pembayaran' : 'Catat pembayaran'} onClick={() => openPayments(i)}><Wallet size={16} />{i.status === 'paid' ? 'Riwayat' : 'Bayar'}</button>}</div>,
           ],
         };
       });
     }
     return [];
-  }, [module, optRows, canWrite, operational, warnDays, ppnRate, pending, edit, askStatus, startRevise, openPayments, data.user.role]);
+  }, [module, optRows, canWrite, operational, warnDays, ppnRate, pending, edit, askStatus, startRevise, openPayments, data.user.role, tz]);
 
   const submit = useCallback((e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -377,6 +378,8 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
                 <label className="form-field"><span>Nomor Telepon <i>*</i></span><input name="phone" required defaultValue={data.settings.phone} disabled={!canWrite} />{formErrors?.phone && <small className="field-error">{formErrors.phone}</small>}</label>
                 <label className="form-field"><span>Nama Penandatangan</span><input name="signerName" defaultValue={data.settings.signerName} disabled={!canWrite} placeholder="Nama lengkap penandatangan dokumen" /></label>
                 <label className="form-field"><span>Jabatan Penandatangan</span><input name="signerTitle" defaultValue={data.settings.signerTitle} disabled={!canWrite} placeholder="Contoh: Manajer Operasional" /></label>
+                <label className="form-field"><span>Kota Penandatanganan <i>*</i></span><input name="city" required maxLength={100} defaultValue={data.settings.city} disabled={!canWrite} placeholder="Contoh: Jakarta" />{formErrors?.city ? <small className="field-error">{formErrors.city}</small> : <small className="cell-sub">Muncul di baris &quot;Kota, tanggal&quot; dokumen PDF.</small>}</label>
+                <label className="form-field"><span>Zona Waktu Dokumen <i>*</i></span><select name="timezone" defaultValue={data.settings.timezone} disabled={!canWrite}>{(['WIB', 'WITA', 'WIT'] as const).map(z => <option key={z} value={z}>{labels[z]}</option>)}</select>{formErrors?.timezone ? <small className="field-error">{formErrors.timezone}</small> : <small className="cell-sub">Kalender &quot;hari ini&quot; untuk badge jatuh tempo & tanggal dokumen.</small>}</label>
                 <label className="form-field"><span>Tarif PPN (%) <i>*</i></span><input name="ppnRate" type="number" required min={0} max={100} step="0.01" defaultValue={data.settings.ppnRate} disabled={!canWrite} />{formErrors?.ppnRate ? <small className="field-error">{formErrors.ppnRate}</small> : <small className="cell-sub">Berlaku untuk invoice baru; invoice lama tidak berubah.</small>}</label>
                 <label className="form-field"><span>Ambang Peringatan Dokumen (hari) <i>*</i></span><input name="expiryWarningDays" type="number" required min={1} max={180} step={1} defaultValue={data.settings.expiryWarningDays} disabled={!canWrite} />{formErrors?.expiryWarningDays ? <small className="field-error">{formErrors.expiryWarningDays}</small> : <small className="cell-sub">SIKO/asuransi dalam rentang ini ikut badge peringatan.</small>}</label>
               </div>
@@ -469,7 +472,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
         />
       )}
 
-      {paying && <PaymentsModal invoice={paying} payments={payments} onClose={() => setPaying(null)} onPay={submitPayment} />}
+      {paying && <PaymentsModal invoice={paying} payments={payments} tz={tz} onClose={() => setPaying(null)} onPay={submitPayment} />}
 
       <Modal open={!!confirm} onOpenChange={v => { if (!v && !pending) setConfirm(null); }} title={confirm?.title || 'Konfirmasi'} description={confirm?.text}>
         <div className="form-footer">
@@ -500,6 +503,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
 }) {
   const c = config[module];
   const warnDays = Number(settings.expiryWarningDays ?? 30) || 30;
+  const tz = settings.timezone;
   const ferr = (n: string) => formErrors?.[n] ? <small className="field-error">{formErrors[n]}</small> : null;
   const [contractId, setContractId] = useState('');
   const [meter, setMeter] = useState({ start: 0, end: 0, breakdown: 0 });
@@ -524,7 +528,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
   const field = (name: string, label: string, type = 'text', required = true, extra?: Record<string, string | number>) => (
     <label className="form-field" key={name}>
       <span>{label}{required && <i> *</i>}</span>
-      <input name={name} type={type} required={required} defaultValue={editing?.[name] != null ? String(editing[name]) : type === 'date' && required ? todayISO() : undefined} {...extra} />
+      <input name={name} type={type} required={required} defaultValue={editing?.[name] != null ? String(editing[name]) : type === 'date' && required ? todayISO(tz) : undefined} {...extra} />
       {ferr(name)}
     </label>
   );
@@ -583,7 +587,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
               {field('currentLocation', 'Lokasi Saat Ini', 'text', false)}
               {field('sikoExpiry', 'Tanggal Berakhir SIKO', 'date', false)}
               {field('insuranceExpiry', 'Tanggal Berakhir Asuransi', 'date', false)}
-              {editing && isExpiringFleet(editing as unknown as FleetRow, warnDays) && <div className="info-callout span-2"><TriangleAlert size={18} /><p>Dokumen unit mendekati atau telah melewati masa berlaku. Perbarui tanggal setelah perpanjangan selesai.</p></div>}
+              {editing && isExpiringFleet(editing as unknown as FleetRow, warnDays, tz) && <div className="info-callout span-2"><TriangleAlert size={18} /><p>Dokumen unit mendekati atau telah melewati masa berlaku. Perbarui tanggal setelah perpanjangan selesai.</p></div>}
             </>
           )}
 
@@ -610,7 +614,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
               {revisionHistory.length > 0 && (
                 <div className="invoice-preview span-2">
                   <h4>Riwayat Amandemen ({revisionHistory.length})</h4>
-                  {revisionHistory.map(r => <div key={r.id}><span>Rev {r.revisionNumber} · {dateLabel(r.createdAt)}</span><b>{money(r.prevRate)} → {money(r.newRate)}</b></div>)}
+                  {revisionHistory.map(r => <div key={r.id}><span>Rev {r.revisionNumber} · {dateLabel(r.createdAt, tz)}</span><b>{money(r.prevRate)} → {money(r.newRate)}</b></div>)}
                   <div><span>Alasan terakhir</span><b>{latestReason}</b></div>
                 </div>
               )}
@@ -631,7 +635,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
           {module === 'timesheets' && (
             <>
               {selectContract}
-              {field('date', 'Tanggal Operasional', 'date', true, { max: todayISO() })}
+              {field('date', 'Tanggal Operasional', 'date', true, { max: todayISO(tz) })}
               <div />
               {[['startHm', 'HM Awal', 'start'], ['endHm', 'HM Akhir', 'end'], ['breakdownHours', 'Durasi Kerusakan (Jam)', 'breakdown']].map(([name, label, key]) => (
                 <label className="form-field" key={name}>
@@ -664,7 +668,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
           {module === 'invoices' && (
             <>
               {selectContract}
-              {field('dueDate', 'Tanggal Jatuh Tempo', 'date', true, { min: todayISO() })}
+              {field('dueDate', 'Tanggal Jatuh Tempo', 'date', true, { min: todayISO(tz) })}
               <div className="invoice-preview span-2">
                 <h4>Ringkasan Tagihan</h4>
                 <div><span>Jam kerja disetujui, belum ditagihkan</span><b>{billable === null ? '…' : billable.toLocaleString('id-ID')} jam</b></div>
@@ -716,9 +720,10 @@ function ResetModal({ pending, onOpenChange, onCancel, onReset }: {
 // O-A: riwayat pembayaran invoice ini diambil saat modal dibuka
 // (getInvoicePayments), bukan berasal dari seluruh tabel payments.
 // ---------------------------------------------------------------------------
-function PaymentsModal({ invoice, payments, onClose, onPay }: {
+function PaymentsModal({ invoice, payments, tz, onClose, onPay }: {
   invoice: InvoiceRow;
   payments: PaymentRow[] | null;
+  tz: string;
   onClose: () => void;
   onPay: (form: FormData) => Promise<{ success: boolean; message: string; fieldErrors?: Record<string, string> }>;
 }) {
@@ -754,14 +759,14 @@ function PaymentsModal({ invoice, payments, onClose, onPay }: {
           ) : history.length > 0 && (
             <div className="invoice-preview span-2">
               <h4>Riwayat Pembayaran ({history.length})</h4>
-              {history.map(p => <div key={p.id} className="payment-row"><span>{dateLabel(p.paidAt)} · {labels[p.method]}{p.reference ? ` · ${p.reference}` : ''}{p.notes ? <><br />{p.notes}</> : null}</span><b>{money(p.amount)}</b></div>)}
+              {history.map(p => <div key={p.id} className="payment-row"><span>{dateLabel(p.paidAt, tz)} · {labels[p.method]}{p.reference ? ` · ${p.reference}` : ''}{p.notes ? <><br />{p.notes}</> : null}</span><b>{money(p.amount)}</b></div>)}
             </div>
           )}
           {!settled && (
             <>
               <label className="form-field"><span>Nominal (Rp) <i>*</i></span><input name="amount" type="number" required min={0.01} step="0.01" defaultValue={remaining.toFixed(2)} />{errors?.amount && <small className="field-error">{errors.amount}</small>}</label>
               <label className="form-field"><span>Metode <i>*</i></span><select name="method" defaultValue="transfer">{['transfer', 'cash', 'giro', 'other'].map(m => <option key={m} value={m}>{labels[m]}</option>)}</select>{errors?.method && <small className="field-error">{errors.method}</small>}</label>
-              <label className="form-field"><span>Tanggal Bayar <i>*</i></span><input name="paidAt" type="date" required defaultValue={todayISO()} max={todayISO()} />{errors?.paidAt && <small className="field-error">{errors.paidAt}</small>}</label>
+              <label className="form-field"><span>Tanggal Bayar <i>*</i></span><input name="paidAt" type="date" required defaultValue={todayISO(tz)} max={todayISO(tz)} />{errors?.paidAt && <small className="field-error">{errors.paidAt}</small>}</label>
               <label className="form-field"><span>Referensi</span><input name="reference" maxLength={100} placeholder="No. bukti / keterangan" />{errors?.reference && <small className="field-error">{errors.reference}</small>}</label>
               <label className="form-field span-2"><span>Catatan</span><textarea name="notes" maxLength={500} rows={2} placeholder="Catatan internal pembayaran (opsional)" />{errors?.notes && <small className="field-error">{errors.notes}</small>}</label>
               <div className="info-callout span-2"><Info size={18} /><p>Pembayaran sebagian mengubah status menjadi <b>Dibayar Sebagian</b>. Tagihan lunas otomatis saat akumulasi mencapai total.</p></div>

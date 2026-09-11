@@ -27,6 +27,9 @@ export const handovers = pgTable('handovers', {
 });
 export const companySettings = pgTable('company_settings', {
  id: text('id').primaryKey().default('main'), companyName: text('company_name').notNull().default('PT Penyewaan Alat Berat'), address: text('address').notNull().default('Jakarta, Indonesia'), email: text('email').notNull().default('operasional@heavyops.id'), phone: text('phone').notNull().default('+62 21 555 0128'), signerName: text('signer_name').notNull().default(''), signerTitle: text('signer_title').notNull().default(''), ppnRate: numeric('ppn_rate', { precision: 5, scale: 2 }).notNull().default('11'), expiryWarningDays: integer('expiry_warning_days').notNull().default(30),
+ // Lokalisasi dokumen: kota penandatanganan (baris "Kota, tanggal" di PDF)
+ // dan zona waktu kalender (WIB/WITA/WIT) untuk "hari ini" badge & validasi.
+ city: text('city').notNull().default('Jakarta'), timezone: text('timezone').notNull().default('WIB'),
 });
 export const payments = pgTable('payments', {
  id: uuid('id').defaultRandom().primaryKey(), invoiceId: uuid('invoice_id').references(() => invoices.id, { onDelete: 'restrict' }).notNull(), amount: numeric('amount', { precision: 15, scale: 2 }).notNull(), method: text('method').notNull(), reference: text('reference'), notes: text('notes'), paidAt: date('paid_at').notNull(), notedBy: uuid('noted_by').references(() => profiles.id), createdAt: createdAt(),

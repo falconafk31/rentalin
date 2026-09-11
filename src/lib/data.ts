@@ -34,7 +34,7 @@ export type InvoiceRow = typeof s.invoices.$inferSelect & { contractNumber: stri
 // Baris hasil getModulePage: record utuh (untuk form Ubah) + label hasil JOIN.
 export type ModuleRow = FleetRow | ClientRow | ContractRow | TimesheetRow | HandoverRow | InvoiceRow;
 
-const fallbackSettings: CompanySettings = { id: 'main', companyName: 'PT Penyewaan Alat Berat', address: 'Jakarta, Indonesia', email: '', phone: '', signerName: '', signerTitle: '', ppnRate: '11', expiryWarningDays: 30 };
+const fallbackSettings: CompanySettings = { id: 'main', companyName: 'PT Penyewaan Alat Berat', address: 'Jakarta, Indonesia', email: '', phone: '', signerName: '', signerTitle: '', ppnRate: '11', expiryWarningDays: 30, city: 'Jakarta', timezone: 'WIB' };
 
 export const MODULE_SLUGS = ['fleet', 'clients', 'contracts', 'timesheets', 'bast', 'invoices', 'settings'] as const;
 export type ModuleSlug = (typeof MODULE_SLUGS)[number];
@@ -78,7 +78,9 @@ export type ShellData = {
 export const getShellData = cache(async (): Promise<ShellData> => {
   const [user, settings] = await Promise.all([getCurrentUser(), getSettingsRow()]);
   await seedPreview();
-  const today = todayISO();
+  // "Hari ini" mengikuti zona waktu perusahaan (WIB/WITA/WIT) — kalender
+  // lokal untuk badge jatuh tempo, bukan selalu kalender Jakarta.
+  const today = todayISO(settings.timezone);
   const warnUntil = addDaysISO(today, Number(settings.expiryWarningDays) || 30);
   const [pending, unpaid, overdue, expiring] = await Promise.all([
     db.select({ n: count() }).from(s.timesheets).where(eq(s.timesheets.status, 'pending')),
@@ -152,7 +154,7 @@ export async function getModulePage(module: string, filters: ModuleFilters): Pro
   const user = await requireUser();
   await seedPreview();
   const settings = await getSettingsRow();
-  const warnUntil = addDaysISO(todayISO(), Number(settings.expiryWarningDays) || 30);
+  const warnUntil = addDaysISO(todayISO(settings.timezone), Number(settings.expiryWarningDays) || 30);
   const like = likeParam(filters.q);
   const hasQ = filters.q.trim().length > 0;
   const base = { module: module as ModuleSlug, user, settings };
@@ -293,7 +295,7 @@ export async function getModulePage(module: string, filters: ModuleFilters): Pro
 
   // module === 'invoices' — status tampil mengikuti logika UI lama: belum lunas
   // + lewat jatuh tempo = "overdue" (dievaluasi di SQL lewat CASE).
-  const displayStatus = sql<string>`(case when ${s.invoices.status} <> 'paid' and ${s.invoices.dueDate} < ${todayISO()} then 'overdue' else ${s.invoices.status} end)`;
+  const displayStatus = sql<string>`(case when ${s.invoices.status} <> 'paid' and ${s.invoices.dueDate} < ${todayISO(settings.timezone)} then 'overdue' else ${s.invoices.status} end)`;
   const invoiceWhere = and(
     hasQ ? or(ilike(s.invoices.invoiceNumber, like), ilike(s.clients.companyName, like)) : undefined,
     filters.status !== 'all' ? sql`${displayStatus} = ${filters.status}` : undefined,
@@ -370,7 +372,7 @@ export type DashboardData = {
 export const getDashboardData = cache(async (): Promise<DashboardData> => {
   const [user, settings] = await Promise.all([getCurrentUser(), getSettingsRow()]);
   await seedPreview();
-  const today = todayISO();
+  const today = todayISO(settings.timezone);
   const warnUntil = addDaysISO(today, Number(settings.expiryWarningDays) || 30);
   const [fleetTotalRes, statusRes, revenueRes, unpaidRes, overdueRes, pendingRes, expiringRes, recentFleet, latestTimesheet, latestInvoice, latestHandover, latestContract] = await Promise.all([
     db.select({ n: count() }).from(s.fleet),
@@ -410,21 +412,27 @@ export const getDashboardData = cache(async (): Promise<DashboardData> => {
 });
 
 // --- Halaman admin (Pengguna & Peran, Log Audit) — data ramping -------------
-export type UsersData = { user: SessionUser; profiles: ProfileRow[] };
-export type AuditData = { user: SessionUser; auditLogs: AuditRow[] };
+export type UsersData = { user: SessionUser; settings: CompanySettings; profiles: ProfileRow[] };
+export type AuditData = { user: SessionUser; settings: CompanySettings; auditLogs: AuditRow[] };
 
 export const getUsersData = cache(async (): Promise<UsersData> => {
   const user = await requireUser(['admin']);
   await seedPreview();
-  const profiles = await db.select().from(s.profiles).orderBy(asc(s.profiles.fullName));
-  return { user, profiles };
+  const [profiles, settings] = await Promise.all([
+    db.select().from(s.profiles).orderBy(asc(s.profiles.fullName)),
+    getSettingsRow(),
+  ]);
+  return { user, settings, profiles };
 });
 
 export const getAuditData = cache(async (): Promise<AuditData> => {
   const user = await requireUser(['admin']);
   await seedPreview();
-  const auditLogs = await db.select().from(s.auditLog).orderBy(desc(s.auditLog.createdAt)).limit(200);
-  return { user, auditLogs };
+  const [auditLogs, settings] = await Promise.all([
+    db.select().from(s.auditLog).orderBy(desc(s.auditLog.createdAt)).limit(200),
+    getSettingsRow(),
+  ]);
+  return { user, settings, auditLogs };
 });
 
 // --- Laporan CSV (ekspor penuh memang butuh seluruh baris) -------------------

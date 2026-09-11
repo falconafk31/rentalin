@@ -31,14 +31,16 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
  // identitas PIHAK PERTAMA (penyedia — wakil: penandatangan perusahaan) dan
  // PIHAK KEDUA (penyewa — wakil: PIC klien), klausul rangkap 2, serta 3 blok
  // tanda tangan (menyerahkan/menerima/mengetahui).
+ const tz=settings.timezone;
  const parties=handover?{
-  openingDate:fullDateLabel(handover.date),
+  openingDate:fullDateLabel(handover.date,tz),
+  city:settings.city,
   first:{name:settings.companyName,address:settings.address,representative:settings.signerName||undefined,title:settings.signerTitle||undefined},
   second:{name:client.companyName,address:client.address||'',representative:client.picName||undefined},
   type:handover.type==='demobilization'?'demobilization' as const:'mobilization' as const,
   contractNumber:contract.contractNumber,
  }:undefined;
- const data:PdfData={title:invoice?'FAKTUR TAGIHAN':handover?'BERITA ACARA SERAH TERIMA':'SURAT PENAWARAN HARGA',number:invoice?.invoiceNumber||handover?.documentNumber||contract.contractNumber.replace('KTR','SPH'),company:settings,clientName:client.companyName,clientAddress:client.address||'',clientPic:client.picName,date:dateLabel(invoice?.issueDate||handover?.date||contract.createdAt),reference:contract.contractNumber,qrPath,qrSize:size+margin*2,verifyUrl:`${origin}/verify/doc?id=${id}`,rows:[{label:'Kode unit alat berat',value:unit.unitCode},{label:'Merek / model',value:unit.brandModel},{label:'Kategori',value:unit.category}],notes:'',parties};
+  const data:PdfData={title:invoice?'FAKTUR TAGIHAN':handover?'BERITA ACARA SERAH TERIMA':'SURAT PENAWARAN HARGA',number:invoice?.invoiceNumber||handover?.documentNumber||contract.contractNumber.replace('KTR','SPH'),company:settings,clientName:client.companyName,clientAddress:client.address||'',clientPic:client.picName,date:dateLabel(invoice?.issueDate||handover?.date||contract.createdAt,tz),reference:contract.contractNumber,qrPath,qrSize:size+margin*2,verifyUrl:`${origin}/verify/doc?id=${id}`,rows:[{label:'Kode unit alat berat',value:unit.unitCode},{label:'Merek / model',value:unit.brandModel},{label:'Kategori',value:unit.category}],notes:'',parties};
  if(invoice){
   const hours=bundle.hours??0;
   const history=bundle.payments??[];
@@ -47,10 +49,10 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
   if(hours)data.rows.push({label:'Jumlah jam kerja efektif yang disetujui',value:`${hours.toLocaleString('id-ID')} jam`});
   else data.rows.push({label:'Dasar penagihan',value:'Sewa alat berat sesuai kontrak'});
   data.rows.push({label:'Status pembayaran',value:labels[invoice.status]});
-  const rate=Number(invoice.taxRate??ppnRate);data.subtotal=money(invoice.subtotalAmount??(Number(invoice.totalAmount)-Number(invoice.taxAmount)));data.tax=money(invoice.taxAmount);data.taxLabel=`PPN ${rate}%`;data.total=money(invoice.totalAmount);data.dueDate=dateLabel(invoice.dueDate);
+  const rate=Number(invoice.taxRate??ppnRate);data.subtotal=money(invoice.subtotalAmount??(Number(invoice.totalAmount)-Number(invoice.taxAmount)));data.tax=money(invoice.taxAmount);data.taxLabel=`PPN ${rate}%`;data.total=money(invoice.totalAmount);data.dueDate=dateLabel(invoice.dueDate,tz);
   if(history.length){
    data.paidTotal=money(paidTotal);data.remaining=money(Math.max(0,Number(invoice.totalAmount)-paidTotal));
-   data.payments=history.slice(0,10).map(p=>({label:`${dateLabel(p.paidAt)} · ${labels[p.method]}${p.reference?` · ${p.reference}`:''}${p.notes?` — ${p.notes.slice(0,60)}`:''}`,value:money(p.amount)}));
+   data.payments=history.slice(0,10).map(p=>({label:`${dateLabel(p.paidAt,tz)} · ${labels[p.method]}${p.reference?` · ${p.reference}`:''}${p.notes?` — ${p.notes.slice(0,60)}`:''}`,value:money(p.amount)}));
   }
   data.notes=`Pembayaran dilakukan sesuai kesepakatan dalam kontrak sewa. Cantumkan nomor tagihan pada bukti pembayaran dan sampaikan konfirmasi kepada bagian keuangan. PPN dihitung sebesar ${rate}% dari subtotal.`;
  }
@@ -70,7 +72,7 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
    }catch{/* mode pratinjau / storage belum siap — PDF tetap terbit tanpa foto */}
   }
  }
- else{data.rows.push({label:'Periode sewa',value:`${dateLabel(contract.startDate)} s.d. ${dateLabel(contract.endDate)}`},{label:'Tarif sewa per jam',value:money(contract.ratePerHour)},{label:'Pajak pertambahan nilai',value:`PPN ${ppnRate}% (di luar tarif sewa)`});data.notes=`Tarif belum termasuk PPN ${ppnRate}%. Penagihan berdasarkan jam kerja efektif yang telah disetujui. Mobilisasi, bahan bakar, operator, dan ketentuan pembayaran mengikuti kesepakatan dalam kontrak sewa.`;}
+ else{data.rows.push({label:'Periode sewa',value:`${dateLabel(contract.startDate,tz)} s.d. ${dateLabel(contract.endDate,tz)}`},{label:'Tarif sewa per jam',value:money(contract.ratePerHour)},{label:'Pajak pertambahan nilai',value:`PPN ${ppnRate}% (di luar tarif sewa)`});data.notes=`Tarif belum termasuk PPN ${ppnRate}%. Penagihan berdasarkan jam kerja efektif yang telah disetujui. Mobilisasi, bahan bakar, operator, dan ketentuan pembayaran mengikuti kesepakatan dalam kontrak sewa.`;}
  const buffer=await renderToBuffer(BusinessDocument({data}));
  return new Response(new Uint8Array(buffer),{headers:{'Content-Type':'application/pdf','Content-Disposition':`inline; filename="${data.number.replaceAll('/','-')}.pdf"`,'Cache-Control':'private, no-store'}});
 }

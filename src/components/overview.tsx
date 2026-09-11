@@ -25,6 +25,7 @@ export function Overview({ data }: { data: DashboardData }) {
   const [range, setRange] = useState('6');
   const [monthOffset, setMonthOffset] = useState('0');
   const warnDays = Number(data.settings.expiryWarningDays ?? 30) || 30;
+  const tz = data.settings.timezone;
 
   const now = useMemo(() => new Date(), []);
   const selected = useMemo(() => new Date(now.getFullYear(), now.getMonth() + Number(monthOffset), 1), [now, monthOffset]);
@@ -57,7 +58,7 @@ export function Overview({ data }: { data: DashboardData }) {
         <div className="page-heading-actions">{['admin', 'finance', 'operations'].includes(data.user.role) && <Button variant="outline" asChild><a href="/api/report"><Download size={16} />Unduh Laporan</a></Button>}</div>
       </div>
       <div className="section-toolbar">
-        <div><span className="live-dot" />Ringkasan operasional <span className="muted toolbar-date">· {dateLabel(now)}</span></div>
+        <div><span className="live-dot" />Ringkasan operasional <span className="muted toolbar-date">· {dateLabel(now, tz)}</span></div>
         <label className="date-select">
           <CalendarDays size={15} />
           <select value={monthOffset} onChange={e => setMonthOffset(e.target.value)} aria-label="Pilih periode ringkasan">
@@ -111,10 +112,10 @@ export function Overview({ data }: { data: DashboardData }) {
         <section className="panel activity-panel">
           <div className="panel-header"><div><h2>Aktivitas Terbaru</h2><p>Perkembangan operasional terkini.</p></div><Clock3 size={18} className="muted" /></div>
           <div className="activity-list">
-            {latest.timesheet && <ActivityItem icon={<ClipboardCheck size={16} />} tone="green" title="Catatan kerja telah dicatat" text={`${data.pendingTimesheets} catatan menunggu persetujuan operasional.`} time={dateLabel(latest.timesheet.date)} href="/dashboard/timesheets" />}
-            {latest.invoice && <ActivityItem icon={<ReceiptText size={16} />} tone="orange" title="Tagihan sewa diterbitkan" text={`${latest.invoice.invoiceNumber} · ${money(latest.invoice.totalAmount)}`} time={dateLabel(latest.invoice.issueDate)} href="/dashboard/invoices" />}
-            {latest.handover && <ActivityItem icon={<EquipmentIcon width={17} height={17} />} tone="blue" title="Serah terima unit tercatat" text="Pemeriksaan dan serah terima unit telah didokumentasikan." time={dateLabel(latest.handover.date)} href="/dashboard/bast" />}
-            {latest.contract && <ActivityItem icon={<FileText size={16} />} tone="purple" title="Kontrak sewa aktif" text={`${latest.contract.contractNumber} siap untuk operasional.`} time={dateLabel(latest.contract.startDate)} href="/dashboard/contracts" />}
+            {latest.timesheet && <ActivityItem icon={<ClipboardCheck size={16} />} tone="green" title="Catatan kerja telah dicatat" text={`${data.pendingTimesheets} catatan menunggu persetujuan operasional.`} time={dateLabel(latest.timesheet.date, tz)} href="/dashboard/timesheets" />}
+            {latest.invoice && <ActivityItem icon={<ReceiptText size={16} />} tone="orange" title="Tagihan sewa diterbitkan" text={`${latest.invoice.invoiceNumber} · ${money(latest.invoice.totalAmount)}`} time={dateLabel(latest.invoice.issueDate, tz)} href="/dashboard/invoices" />}
+            {latest.handover && <ActivityItem icon={<EquipmentIcon width={17} height={17} />} tone="blue" title="Serah terima unit tercatat" text="Pemeriksaan dan serah terima unit telah didokumentasikan." time={dateLabel(latest.handover.date, tz)} href="/dashboard/bast" />}
+            {latest.contract && <ActivityItem icon={<FileText size={16} />} tone="purple" title="Kontrak sewa aktif" text={`${latest.contract.contractNumber} siap untuk operasional.`} time={dateLabel(latest.contract.startDate, tz)} href="/dashboard/contracts" />}
             {!latest.contract && <p className="empty-inline">Belum ada aktivitas. Mulai dengan menambahkan armada dan klien.</p>}
           </div>
           <Link className="activity-footer" href="/dashboard/timesheets">Lihat catatan operasional <ArrowRight size={14} /></Link>

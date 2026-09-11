@@ -104,9 +104,10 @@ const styles = StyleSheet.create({
   partyHeading: { fontSize: 7.2, fontFamily: 'Helvetica-Bold', color: '#273642' },
   partyRole: { fontSize: 6.2, color: '#7c8792' },
   partyRow: { flexDirection: 'row', marginTop: 0.5 },
-  partyKey: { width: 58, fontSize: 6.8, color: '#7c8792' },
+  partyKey: { width: 88, fontSize: 6.8, color: '#7c8792' },
   partyVal: { fontSize: 6.8 },
   clause: { marginTop: 4, fontSize: 7, textAlign: 'justify' },
+  placeDate: { textAlign: 'right', fontSize: 7.2, marginTop: 5, marginBottom: 1 },
   signature3: { width: '31.5%', textAlign: 'center', fontSize: 6.8 },
   signature3Space: { height: 26 },
   footer: {
@@ -137,6 +138,7 @@ export type PdfCheck = { item: string; ok: boolean };
 export type PdfParty = { name: string; address: string; representative?: string; title?: string };
 export type PdfParties = {
   openingDate: string; // "Jumat, 11 September 2026" — pembuka formal
+  city: string; // kota penandatanganan — baris "Kota, tanggal" di atas ttd
   first: PdfParty; // PIHAK PERTAMA — penyedia jasa / pemilik unit
   second: PdfParty; // PIHAK KEDUA — penyewa / penerima unit
   type: 'mobilization' | 'demobilization';
@@ -145,7 +147,7 @@ export type PdfParties = {
 export type PdfData = {
   title: string;
   number: string;
-  company: { companyName: string; address: string; email: string; phone: string; signerName?: string; signerTitle?: string };
+  company: { companyName: string; address: string; email: string; phone: string; signerName?: string; signerTitle?: string; city?: string };
   clientName: string;
   clientAddress: string;
   clientPic?: string;
@@ -234,17 +236,17 @@ export function BusinessDocument({ data }: { data: PdfData }) {
               Pada hari ini, <Text style={{ fontFamily: 'Helvetica-Bold' }}>{parties.openingDate}</Text>, yang bertanda tangan di bawah ini:
             </Text>
             <View style={styles.partyBlock} wrap={false}>
-              <Text style={styles.partyHeading}>1. PIHAK PERTAMA <Text style={styles.partyRole}>(Penyedia jasa / pemilik unit)</Text></Text>
-              <View style={styles.partyRow}><Text style={styles.partyKey}>Nama</Text><Text style={styles.partyVal}>: {parties.first.name}</Text></View>
+              <Text style={styles.partyHeading}>1. PIHAK PERTAMA <Text style={styles.partyRole}>(Yang menyewakan — pemilik unit)</Text></Text>
+              <View style={styles.partyRow}><Text style={styles.partyKey}>Nama Perusahaan</Text><Text style={styles.partyVal}>: {parties.first.name}</Text></View>
               <View style={styles.partyRow}><Text style={styles.partyKey}>Alamat</Text><Text style={styles.partyVal}>: {parties.first.address}</Text></View>
-              <View style={styles.partyRow}><Text style={styles.partyKey}>Wakil</Text><Text style={styles.partyVal}>: {parties.first.representative || dotted}</Text></View>
+              <View style={styles.partyRow}><Text style={styles.partyKey}>Yang diwakili oleh</Text><Text style={styles.partyVal}>: {parties.first.representative || dotted}</Text></View>
               <View style={styles.partyRow}><Text style={styles.partyKey}>Jabatan</Text><Text style={styles.partyVal}>: {parties.first.title || dotted}</Text></View>
             </View>
             <View style={styles.partyBlock} wrap={false}>
               <Text style={styles.partyHeading}>2. PIHAK KEDUA <Text style={styles.partyRole}>(Penyewa / pengguna unit)</Text></Text>
-              <View style={styles.partyRow}><Text style={styles.partyKey}>Nama</Text><Text style={styles.partyVal}>: {parties.second.name}</Text></View>
+              <View style={styles.partyRow}><Text style={styles.partyKey}>Nama Perusahaan</Text><Text style={styles.partyVal}>: {parties.second.name}</Text></View>
               <View style={styles.partyRow}><Text style={styles.partyKey}>Alamat</Text><Text style={styles.partyVal}>: {parties.second.address}</Text></View>
-              <View style={styles.partyRow}><Text style={styles.partyKey}>Wakil</Text><Text style={styles.partyVal}>: {parties.second.representative || dotted}</Text></View>
+              <View style={styles.partyRow}><Text style={styles.partyKey}>Yang diwakili oleh</Text><Text style={styles.partyVal}>: {parties.second.representative || dotted}</Text></View>
               <View style={styles.partyRow}><Text style={styles.partyKey}>Jabatan</Text><Text style={styles.partyVal}>: {parties.second.title || dotted}</Text></View>
             </View>
             <Text style={styles.partiesIntro}>
@@ -357,9 +359,12 @@ export function BusinessDocument({ data }: { data: PdfData }) {
         </View>
         {parties && (
           <Text style={styles.clause}>
-            Demikian berita acara serah terima ini dibuat dalam rangkap 2 (dua) rangkap yang masing-masing mempunyai kekuatan hukum yang sama dan tidak dapat diganggu gugat, ditandatangani dan dipergunakan sebagaimana mestinya oleh para pihak.
+            Demikian berita acara serah terima ini dibuat dalam rangkap 2 (dua) rangkap, masing-masing bermeterai cukup dan mempunyai kekuatan hukum yang sama serta tidak dapat diganggu gugat, ditandatangani dan dipergunakan sebagaimana mestinya oleh para pihak.
           </Text>
         )}
+        {/* Tempat & tanggal penandatanganan (item 13 format perjanjian resmi):
+            baris "Kota, tanggal" tepat di atas blok tanda tangan. */}
+        <Text style={styles.placeDate}>{parties ? `${parties.city}, ${parties.openingDate}` : `${data.company.city}, ${data.date}`}</Text>
         {parties ? (
           // BAST resmi: PIHAK PERTAMA · PIHAK KEDUA · Mengetahui (pihak ketiga/
           // atasan langsung — dikosongkan untuk diisi bila diperlukan).

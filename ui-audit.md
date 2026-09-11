@@ -106,14 +106,26 @@ PPN **tidak lagi hardcode**. Sekarang jadi konfigurasi perusahaan:
 | A-7 | ✅ | **Cron overdue**: `GET /api/cron/overdue` (bearer `CRON_SECRET`, tandai unpaid/partial lewat tempo + audit) + `vercel.json` (tiap 01:00 WIB) + notifikasi overdue di lonceng header. Alternatif pg_cron: `SELECT cron.schedule('overdue','0 18 * * *',$$SELECT net.http_get(...)$$)` — butuh ekstensi pg_cron+pg_net (opsional, tidak dibundel). |
 
 > **Lampiran gelombang — format PDF BAST resmi**: PDF BAST kini mengikuti pola berita
-> acara serah terima umum (rujukan: contoh dokumen BAST alat berat rental) — pembuka
+> acara serah terima umum (rujukan: contoh dokumen BAST alat berat rental + artikel
+> "Contoh Surat Perjanjian Sewa Alat Berat" Mekari Sign) — pembuka
 > formal "Pada hari ini, [hari-long-date], …", blok identitas **1. PIHAK PERTAMA**
 > (penyedia; wakil = penandatangan di Pengaturan) & **2. PIHAK KEDUA** (penyewa;
 > wakil = PIC klien), pernyataan serah/kembali sesuai jenis (mobilisasi/demobilisasi),
-> klausul penerimaan kondisi setelah checklist 12 titik, klausul penutup **rangkap 2**,
-> dan **3 blok tanda tangan: Yang menyerahkan · Yang menerima · Mengetahui** (kosong
-> untuk pihak ketiga bila perlu). Kolom isian yang belum ada di data ditampilkan
-> titik-titik (diisi manual). Tetap 1 halaman A4 + QR verifikasi; invoice/SPH tak berubah.
+> klausul penerimaan kondisi setelah checklist 12 titik, klausul penutup **rangkap 2
+> bermeterai cukup**, baris **"Kota, tanggal"** di atas tanda tangan, dan **3 blok
+> tanda tangan: Yang menyerahkan · Yang menerima · Mengetahui** (kosong untuk pihak
+> ketiga bila perlu). Kolom isian yang belum ada di data ditampilkan titik-titik
+> (diisi manual). Tetap 1 halaman A4 + QR verifikasi; invoice/SPH tak berubah
+> (kecuali baris kota/tanggal di atas ttd).
+>
+> **Lampiran gelombang — lokalisasi dokumen (kota & zona waktu)**: `company_settings`
+> bertambah kolom `city` (default `Jakarta`) dan `timezone` (`WIB`/`WITA`/`WIT`,
+> default `WIB`) — migration `0018_company_locale.sql` (aditif + CHECK). Diubah
+> admin di **Pengaturan** tanpa deploy ulang. Seluruh "hari ini" (badge jatuh tempo,
+> validasi form, cron overdue, status overdue invoice di SQL) dan label waktu UI/PDF
+> kini mengikuti zona terpilih — perusahaan di Indonesia tengah/timur memakai
+> kalender WITA/WIT, bukan selalu WIB. Formatter Intl tetap ber-cache per zona
+> (optimasi F3 tidak hilang).
 
 ### 3c. Hapus/sederhanakan — hasil
 
