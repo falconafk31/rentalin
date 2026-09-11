@@ -1,4 +1,4 @@
-import { Document, Page, Text, View, Svg, Path, StyleSheet } from '@react-pdf/renderer';
+import { Document, Page, Text, View, Svg, Path, Image, StyleSheet } from '@react-pdf/renderer';
 
 const styles = StyleSheet.create({
   page: {
@@ -115,6 +115,8 @@ const styles = StyleSheet.create({
   footerText: { fontSize: 6, color: '#9ba2aa', width: '70%' },
   verifyUrl: { fontSize: 5.4, color: '#5b6470', marginTop: 1 },
   pageNumber: { fontSize: 6.5, color: '#9ba2aa', textAlign: 'right' },
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
+  photo: { width: 118, height: 88, marginRight: 6, marginBottom: 6, borderWidth: 0.5, borderColor: '#e5e8eb' },
 });
 
 export type PdfCheck = { item: string; ok: boolean };
@@ -131,7 +133,12 @@ export type PdfData = {
   checklist?: PdfCheck[];
   subtotal?: string;
   tax?: string;
+  taxLabel?: string;
   total?: string;
+  paidTotal?: string;
+  remaining?: string;
+  payments?: { label: string; value: string }[];
+  photos?: string[];
   notes: string;
   qrPath: string;
   qrSize: number;
@@ -221,14 +228,50 @@ export function BusinessDocument({ data }: { data: PdfData }) {
               <Text>{data.subtotal}</Text>
             </View>
             <View style={styles.totalRow}>
-              <Text>PPN 11%</Text>
+              <Text>{data.taxLabel || 'PPN 11%'}</Text>
               <Text>{data.tax}</Text>
             </View>
             <View style={styles.grandTotal}>
               <Text>Total Tagihan</Text>
               <Text>{data.total}</Text>
             </View>
+            {data.paidTotal && (
+              <View style={styles.totalRow}>
+                <Text>Sudah dibayar</Text>
+                <Text>{data.paidTotal}</Text>
+              </View>
+            )}
+            {data.remaining && (
+              <View style={styles.totalRow}>
+                <Text>Sisa tagihan</Text>
+                <Text>{data.remaining}</Text>
+              </View>
+            )}
           </View>
+        )}
+        {data.payments && data.payments.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>RIWAYAT PEMBAYARAN</Text>
+            <View style={styles.table}>
+              {data.payments.map((p, i) => (
+                <View key={i} style={styles.tableRow} wrap={false}>
+                  <Text style={styles.colDescription}>{p.label}</Text>
+                  <Text style={styles.colValue}>{p.value}</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+        {data.photos && data.photos.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>C. DOKUMENTASI FOTO</Text>
+            <View style={styles.photoGrid}>
+              {data.photos.map((src, i) => (
+                // eslint-disable-next-line jsx-a11y/alt-text -- Image react-pdf tidak mendukung prop alt
+                <Image key={i} style={styles.photo} src={src} />
+              ))}
+            </View>
+          </>
         )}
         <View style={styles.notes}>
           <Text style={{ fontFamily: 'Helvetica-Bold', marginBottom: 2 }}>CATATAN DAN KETENTUAN</Text>

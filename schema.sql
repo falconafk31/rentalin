@@ -1,4 +1,8 @@
--- Supabase deployment foundation. Local preview uses the matching Drizzle schema.
+-- ═══════════════════════════════════════════════════════════════════
+-- ARSIP LEGACY — JANGAN DIJALANKAN / JANGAN DIUBAH (lihat audit K4, ui-audit D-1).
+-- Jalur skema kanonik: supabase/migrations/*.sql (Supabase) dan
+-- src/db/schema.ts (Drizzle, preview lokal). File ini hanya snapshot historis.
+-- ═══════════════════════════════════════════════════════════════════
 CREATE TABLE profiles (
  id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
  full_name TEXT NOT NULL,
