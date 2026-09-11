@@ -1,23 +1,54 @@
 import { Document, Page, Text, View, Svg, Path, StyleSheet } from '@react-pdf/renderer';
 
 const styles = StyleSheet.create({
-  page: { paddingTop: 32, paddingBottom: 94, paddingHorizontal: 40, fontFamily: 'Helvetica', fontSize: 8, color: '#323c47', lineHeight: 1.45 },
-  letterhead: { flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: 2, borderBottomColor: '#e37b36', paddingBottom: 9, marginBottom: 10 },
-  logo: { fontSize: 20, fontFamily: 'Helvetica-Bold', letterSpacing: -1, color: '#26323c' },
+  page: {
+    paddingTop: 20,
+    paddingBottom: 66,
+    paddingHorizontal: 36,
+    fontFamily: 'Helvetica',
+    fontSize: 7.2,
+    color: '#323c47',
+    lineHeight: 1.35,
+  },
+  letterhead: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#e37b36',
+    paddingBottom: 6,
+    marginBottom: 8,
+  },
+  logo: { fontSize: 18, fontFamily: 'Helvetica-Bold', letterSpacing: -0.5, color: '#26323c' },
   logoAccent: { color: '#df7a38' },
-  company: { fontSize: 10, fontFamily: 'Helvetica-Bold', marginBottom: 3 },
-  contact: { fontSize: 7.5, color: '#7c8792' },
-  title: { fontSize: 15, fontFamily: 'Helvetica-Bold', textAlign: 'center', marginBottom: 2, color: '#273642' },
-  number: { fontSize: 9, textAlign: 'center', color: '#89929b', marginBottom: 12 },
-  meta: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  label: { fontSize: 7, color: '#929aa3', marginBottom: 3 },
-  value: { fontSize: 9, fontFamily: 'Helvetica-Bold' },
-  sub: { fontSize: 7.5, color: '#7c8792', marginTop: 3 },
-  intro: { fontSize: 8, marginBottom: 3 },
-  sectionTitle: { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#273642', marginTop: 5, marginBottom: 4 },
-  table: { marginTop: 3, borderWidth: 1, borderColor: '#e5e8eb' },
-  tableHead: { flexDirection: 'row', backgroundColor: '#f5f6f7', padding: 3, borderBottomWidth: 1, borderBottomColor: '#e5e8eb', fontSize: 7.5, fontFamily: 'Helvetica-Bold' },
-  tableRow: { flexDirection: 'row', padding: 3, borderBottomWidth: 1, borderBottomColor: '#edf0f2', fontSize: 8 },
+  company: { fontSize: 9, fontFamily: 'Helvetica-Bold', marginBottom: 2 },
+  contact: { fontSize: 6.8, color: '#7c8792' },
+  title: { fontSize: 13, fontFamily: 'Helvetica-Bold', textAlign: 'center', marginBottom: 2, color: '#273642' },
+  number: { fontSize: 8, textAlign: 'center', color: '#89929b', marginBottom: 8 },
+  meta: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  label: { fontSize: 6.2, color: '#929aa3', marginBottom: 2 },
+  value: { fontSize: 8, fontFamily: 'Helvetica-Bold' },
+  sub: { fontSize: 6.8, color: '#7c8792', marginTop: 2 },
+  intro: { fontSize: 7.2, marginBottom: 4 },
+  sectionTitle: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#273642', marginTop: 4, marginBottom: 2 },
+  table: { marginTop: 2, borderWidth: 0.8, borderColor: '#e5e8eb' },
+  tableHead: {
+    flexDirection: 'row',
+    backgroundColor: '#f5f6f7',
+    paddingVertical: 2.5,
+    paddingHorizontal: 4,
+    borderBottomWidth: 0.8,
+    borderBottomColor: '#e5e8eb',
+    fontSize: 6.8,
+    fontFamily: 'Helvetica-Bold',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    paddingVertical: 2,
+    paddingHorizontal: 4,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#edf0f2',
+    fontSize: 7,
+  },
   colDescription: { width: '58%' },
   colValue: { width: '42%', textAlign: 'right' },
   colNo: { width: '10%' },
@@ -25,25 +56,59 @@ const styles = StyleSheet.create({
   colCond: { width: '35%', textAlign: 'right' },
   condOk: { color: '#348b67', fontFamily: 'Helvetica-Bold' },
   condBad: { color: '#c65e56', fontFamily: 'Helvetica-Bold' },
-  totals: { alignSelf: 'flex-end', width: '52%', marginTop: 8 },
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
-  grandTotal: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#e5e8eb', marginTop: 5, paddingTop: 7, fontFamily: 'Helvetica-Bold', fontSize: 11, color: '#d57a3d' },
-  notes: { marginTop: 8, padding: 6, backgroundColor: '#faf8f4', fontSize: 7.5, color: '#827f77' },
-  signatureRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, alignItems: 'flex-end' },
-  signature: { width: '42%', textAlign: 'center', fontSize: 8, flexDirection: 'column', alignItems: 'center' },
-  sigLabel: { fontSize: 8, textAlign: 'center' },
-  sigCompany: { fontSize: 8, textAlign: 'center', marginTop: 2 },
-  signatureSpace: { height: 28 },
-  signerBlock: { height: 26, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 2 },
-  signerName: { fontSize: 8, fontFamily: 'Helvetica-Bold', textAlign: 'center' },
-  signerTitle: { fontSize: 6.5, color: '#7c8792', marginTop: 1, textAlign: 'center' },
-  signatureLine: { borderTopWidth: 1, borderTopColor: '#bdc3ca', paddingTop: 4, width: '100%', textAlign: 'center', fontSize: 7, color: '#5a6570' },
-  footer: { position: 'absolute', bottom: 20, left: 40, right: 40, borderTopWidth: 1, borderTopColor: '#e7e9ec', paddingTop: 9, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#ffffff' },
-  qr: { width: 50, height: 50 },
-  qrPlaceholder: { width: 50, height: 50, borderWidth: 1, borderColor: '#bdc3ca', justifyContent: 'center', alignItems: 'center' },
-  footerText: { fontSize: 6.5, color: '#9ba2aa', width: '70%' },
-  verifyUrl: { fontSize: 6, color: '#5b6470', marginTop: 2 },
-  pageNumber: { fontSize: 7, color: '#9ba2aa', textAlign: 'right' },
+  totals: { alignSelf: 'flex-end', width: '50%', marginTop: 6 },
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
+  grandTotal: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e8eb',
+    marginTop: 4,
+    paddingTop: 5,
+    fontFamily: 'Helvetica-Bold',
+    fontSize: 9.5,
+    color: '#d57a3d',
+  },
+  notes: { marginTop: 5, padding: 4.5, backgroundColor: '#faf8f4', fontSize: 6.8, color: '#827f77' },
+  signatureRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    alignItems: 'flex-end',
+  },
+  signature: {
+    width: '44%',
+    textAlign: 'center',
+    fontSize: 7.2,
+  },
+  signatureSpace: { height: 22 },
+  signerName: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', marginTop: 2 },
+  signerTitle: { fontSize: 6.2, color: '#7c8792', marginTop: 1 },
+  signatureLine: {
+    borderTopWidth: 0.8,
+    borderTopColor: '#bdc3ca',
+    paddingTop: 3,
+    fontSize: 6.5,
+    color: '#7c8792',
+    marginTop: 3,
+  },
+  footer: {
+    position: 'absolute',
+    bottom: 12,
+    left: 36,
+    right: 36,
+    height: 46,
+    borderTopWidth: 0.8,
+    borderTopColor: '#e7e9ec',
+    paddingTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  qr: { width: 42, height: 42 },
+  footerText: { fontSize: 6, color: '#9ba2aa', width: '70%' },
+  verifyUrl: { fontSize: 5.4, color: '#5b6470', marginTop: 1 },
+  pageNumber: { fontSize: 6.5, color: '#9ba2aa', textAlign: 'right' },
 });
 
 export type PdfCheck = { item: string; ok: boolean };
@@ -71,7 +136,6 @@ export type PdfData = {
 
 export function BusinessDocument({ data }: { data: PdfData }) {
   const infoTitle = data.handover ? 'A. INFORMASI UNIT & SERAH TERIMA' : undefined;
-  const hasQr = !!data.qrPath && data.qrSize > 0;
   return (
     <Document title={data.title} author={data.company.companyName} subject={data.number} language="id">
       <Page size="A4" style={styles.page}>
@@ -82,7 +146,7 @@ export function BusinessDocument({ data }: { data: PdfData }) {
             </Text>
             <Text style={styles.contact}>SISTEM MANAJEMEN RENTAL ALAT BERAT</Text>
           </View>
-          <View style={{ maxWidth: 255, textAlign: 'right' }}>
+          <View style={{ maxWidth: 240, textAlign: 'right' }}>
             <Text style={styles.company}>{data.company.companyName}</Text>
             <Text style={styles.contact}>{data.company.address}</Text>
             <Text style={styles.contact}>
@@ -93,7 +157,7 @@ export function BusinessDocument({ data }: { data: PdfData }) {
         <Text style={styles.title}>{data.title}</Text>
         <Text style={styles.number}>Nomor: {data.number}</Text>
         <View style={styles.meta}>
-          <View style={{ width: '60%' }}>
+          <View style={{ width: '58%' }}>
             <Text style={styles.label}>KEPADA YTH.</Text>
             <Text style={styles.value}>{data.clientName}</Text>
             <Text style={styles.sub}>{data.clientAddress}</Text>
@@ -161,42 +225,34 @@ export function BusinessDocument({ data }: { data: PdfData }) {
           </View>
         )}
         <View style={styles.notes}>
-          <Text style={{ fontFamily: 'Helvetica-Bold', marginBottom: 3 }}>CATATAN DAN KETENTUAN</Text>
+          <Text style={{ fontFamily: 'Helvetica-Bold', marginBottom: 2 }}>CATATAN DAN KETENTUAN</Text>
           <Text>{data.notes}</Text>
         </View>
         <View style={styles.signatureRow} wrap={false}>
           <View style={styles.signature}>
-            <Text style={styles.sigLabel}>{data.handover ? 'Pihak yang menyerahkan,' : 'Hormat kami,'}</Text>
-            <Text style={styles.sigCompany}>{data.company.companyName}</Text>
+            <Text>{data.handover ? 'Pihak yang menyerahkan,' : 'Hormat kami,'}</Text>
+            <Text>{data.company.companyName}</Text>
             <View style={styles.signatureSpace} />
-            <View style={styles.signerBlock}>
-              {data.company.signerName ? <Text style={styles.signerName}>{data.company.signerName}</Text> : null}
-              {data.company.signerTitle ? <Text style={styles.signerTitle}>{data.company.signerTitle}</Text> : null}
-            </View>
+            {data.company.signerName ? <Text style={styles.signerName}>{data.company.signerName}</Text> : null}
+            {data.company.signerTitle ? <Text style={styles.signerTitle}>{data.company.signerTitle}</Text> : null}
             <Text style={styles.signatureLine}>Nama dan tanda tangan</Text>
           </View>
           <View style={styles.signature}>
-            <Text style={styles.sigLabel}>{data.handover ? 'Pihak yang menerima,' : 'Diterima dan disetujui oleh,'}</Text>
-            <Text style={styles.sigCompany}>{data.clientName}</Text>
+            <Text>{data.handover ? 'Pihak yang menerima,' : 'Diterima dan disetujui oleh,'}</Text>
+            <Text>{data.clientName}</Text>
             <View style={styles.signatureSpace} />
-            <View style={styles.signerBlock}>
-              {data.clientPic ? <Text style={styles.signerName}>{data.clientPic}</Text> : null}
-            </View>
+            {data.clientPic ? <Text style={styles.signerName}>{data.clientPic}</Text> : null}
             <Text style={styles.signatureLine}>Nama dan tanda tangan</Text>
           </View>
         </View>
         <View style={styles.footer} fixed>
-          {hasQr ? (
+          {data.qrPath ? (
             <Svg style={styles.qr} viewBox={`0 0 ${data.qrSize} ${data.qrSize}`}>
               <Path d={data.qrPath} fill="#111111" />
             </Svg>
-          ) : (
-            <View style={styles.qrPlaceholder}>
-              <Text style={{ fontSize: 6, color: '#9ba2aa' }}>QR</Text>
-            </View>
-          )}
+          ) : null}
           <View style={styles.footerText}>
-            <Text>VERIFIKASI DOKUMEN</Text>
+            <Text style={{ fontFamily: 'Helvetica-Bold' }}>VERIFIKASI DOKUMEN</Text>
             <Text>Pindai kode QR untuk memeriksa keabsahan nomor dokumen pada sistem HeavyOps. Dokumen ini diterbitkan secara elektronik; tanda tangan dilengkapi oleh para pihak.</Text>
             {data.verifyUrl && <Text style={styles.verifyUrl}>{data.verifyUrl}</Text>}
           </View>
