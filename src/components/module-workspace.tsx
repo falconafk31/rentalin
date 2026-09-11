@@ -16,7 +16,14 @@ type Row={id:string;search:string;status:string;category?:string;cells:React.Rea
 export function ModuleWorkspace({module,data,initialQuery='',initialStatus='all',initialOpen=false,expiringOnly=false}:{module:string;data:WorkspaceData;initialQuery?:string;initialStatus?:string;initialOpen?:boolean;expiringOnly?:boolean}){
  const router=useRouter();const c=config[module];const [query,setQuery]=useState(initialQuery);const [status,setStatus]=useState(initialStatus);const [category,setCategory]=useState('all');const [open,setOpen]=useState(initialOpen);const [editing,setEditing]=useState<EditableRecord|null>(null);const [toast,setToast]=useState<{success:boolean;message:string}|null>(null);const [pending,startTransition]=useTransition();const [page,setPage]=useState(1);const [sort,setSort]=useState(false);const [confirm,setConfirm]=useState<{title:string;text:string;action:()=>Promise<{success:boolean;message:string}>}|null>(null);const [contractId,setContractId]=useState('');const [meter,setMeter]=useState({start:0,end:0,breakdown:0});const [onlyExpiry,setOnlyExpiry]=useState(expiringOnly);
  useEffect(()=>{if(toast){const t=setTimeout(()=>setToast(null),5500);return()=>clearTimeout(t);}},[toast]);
- useEffect(()=>{setQuery(initialQuery);setStatus(initialStatus);setOnlyExpiry(expiringOnly);setPage(1);},[initialQuery,initialStatus,expiringOnly]);
+ // Sinkronisasi props URL → state saat navigasi terjadi pada komponen yang sama.
+ // Pola "adjust state during render" (dokumentasi React) — pengganti anti-pattern
+ // useEffect+setState yang ditandai aturan react-hooks/set-state-in-effect.
+ const [syncedProps,setSyncedProps]=useState({initialQuery,initialStatus,expiringOnly});
+ if(syncedProps.initialQuery!==initialQuery||syncedProps.initialStatus!==initialStatus||syncedProps.expiringOnly!==expiringOnly){
+  setSyncedProps({initialQuery,initialStatus,expiringOnly});
+  setQuery(initialQuery);setStatus(initialStatus);setOnlyExpiry(expiringOnly);setPage(1);
+ }
  const operational=['admin','operations'].includes(data.user.role);const canWrite=module==='invoices'?['admin','finance'].includes(data.user.role):module==='settings'?data.user.role==='admin':module==='timesheets'?['admin','operations','operator'].includes(data.user.role):operational;
  const getUnit=(id:string)=>data.fleet.find(f=>f.id===id);const getClient=(id:string)=>data.clients.find(c=>c.id===id);const getContract=(id:string)=>data.contracts.find(c=>c.id===id);
  const isExpiring=(f:WorkspaceData['fleet'][number])=>[f.sikoExpiry,f.insuranceExpiry].some(d=>d&&new Date(d).getTime()<=Date.now()+30*86400000);
