@@ -20,6 +20,14 @@ const csp = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Navigasi antar-menu terasa instan: RSC payload halaman yang sudah
+  // dikunjungi di-cache di client (Router Cache) selama 30 detik — server
+  // hanya dihubungi kunjungan pertama. Setiap mutasi memanggil
+  // revalidatePath('/dashboard','layout') yang menghapus cache ini, jadi
+  // data pasca-aksi (simpan/approve/bayar) selalu segar.
+  experimental: {
+    staleTimes: { dynamic: 30, static: 180 },
+  },
   // Security headers (audit A3): anti-clickjacking, anti-MIME-sniffing,
   // referrer ketat, dan nonaktifkan sensor browser yang tak dipakai.
   async headers() {

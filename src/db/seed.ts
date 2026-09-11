@@ -2,7 +2,10 @@ import { db } from '@/db';
 import * as s from '@/db/schema';
 import { sql } from 'drizzle-orm';
 import { demoId, isPreview } from '@/lib/auth';
-export async function seedPreview() {
+import { cache } from 'react';
+// cache(): layout (getShellData) + page (getModulePage) render dalam satu
+// request — seed cukup sekali per request, bukan dua transaksi.
+export const seedPreview = cache(async () => {
  if (!isPreview()) return;
  await db.transaction(async tx => {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(3847301)`);
@@ -27,4 +30,4 @@ export async function seedPreview() {
   await tx.insert(s.invoices).values(totals.flatMap((total,i)=>Array.from({length:i===5?8:2},(_,j)=>{const d = new Date(now.getFullYear(),now.getMonth()-5+i,5+j*2); const due = new Date(d);due.setDate(due.getDate()+30);const amount=total/(i===5?8:2);const tax=amount*11/111;return {invoiceNumber:`INV/${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(j+1).padStart(3,'0')}`,contractId:agreements[j%agreements.length].id,subtotalAmount:(amount-tax).toFixed(2),totalAmount:amount.toFixed(2),taxAmount:tax.toFixed(2),taxRate:'11',status:i===5?(j===0?'overdue':'unpaid'):'paid',issueDate:d.toISOString().slice(0,10),dueDate:due.toISOString().slice(0,10)};})));
   await tx.insert(s.handovers).values({documentNumber:`BAST/${now.getFullYear()}/001`,contractId:agreements[0].id,type:'mobilization',date:date(-5),engine:true,hydraulics:true,tracks:true,notes:'Unit diterima dalam kondisi baik dan siap beroperasi.'});
  });
-}
+});

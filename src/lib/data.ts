@@ -151,9 +151,9 @@ export type ModulePageData = {
 
 export async function getModulePage(module: string, filters: ModuleFilters): Promise<ModulePageData | null> {
   if (!MODULE_SLUGS.includes(module as ModuleSlug)) return null;
-  const user = await requireUser();
-  await seedPreview();
-  const settings = await getSettingsRow();
+  // Autentikasi, seed preview, dan settings saling bebas — dijalankan
+  // paralel (sebelumnya 3 await berurutan = 3 round-trip beruntun).
+  const [user, settings] = await Promise.all([requireUser(), getSettingsRow(), seedPreview()]);
   const warnUntil = addDaysISO(todayISO(settings.timezone), Number(settings.expiryWarningDays) || 30);
   const like = likeParam(filters.q);
   const hasQ = filters.q.trim().length > 0;

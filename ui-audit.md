@@ -152,6 +152,21 @@ PPN **tidak lagi hardcode**. Sekarang jadi konfigurasi perusahaan:
 > lengkap. Terverifikasi render: field terisi + fallback dotted/generik;
 > BAST & SPH tetap tanpa baris NPWP/KTP/rekening.
 >
+> **Lampiran gelombang — kecepatan navigasi antar-menu (tetap SSR)**:
+> Pengukuran server lokal: render tiap halaman modul hanya **14–27 ms**
+> (sudah termasuk query DB) — jeda "±1 detik" saat membuka menu berasal
+> dari jaringan (RTT browser↔server/proxy), bukan proses render. Perbaikan
+> yang diterapkan tetap dalam arsitektur SSR/RSC: (1) `experimental.
+> staleTimes` (dynamic 30 dtk) — menu yang pernah dibuka dirender instan
+> dari Router Cache client tanpa round-trip; tiap mutasi memanggil
+> `revalidatePath('/dashboard','layout')` yang menghapus cache itu, jadi
+> data pasca simpan/approve/bayar selalu segar; (2) `getModulePage`
+> menjalankan auth + settings + seed **paralel** (sebelumnya 3 await
+> beruntun); (3) `seedPreview` dibungkus React `cache()` — sekali per
+> request, bukan dua transaksi (layout + page). **PDF tetap server-side**
+> (react-pdf + QR + data DB) — endpoint terpisah, bukan bagian alur
+> navigasi menu.
+>
 > **Lampiran gelombang — lokalisasi dokumen (kota & zona waktu)**: `company_settings`
 > bertambah kolom `city` (default `Jakarta`) dan `timezone` (`WIB`/`WITA`/`WIT`,
 > default `WIB`) — migration `0018_company_locale.sql` (aditif + CHECK). Diubah
