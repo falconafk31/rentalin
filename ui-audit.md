@@ -118,6 +118,27 @@ PPN **tidak lagi hardcode**. Sekarang jadi konfigurasi perusahaan:
 > (diisi manual). Tetap 1 halaman A4 + QR verifikasi; invoice/SPH tak berubah
 > (kecuali baris kota/tanggal di atas ttd).
 >
+> **Lampiran gelombang — Surat Perjanjian Sewa otomatis (PDF)**: dokumen
+> **Surat Perjanjian Sewa Menyewa Alat Berat** kini terbit otomatis dari data
+> kontrak — tombol **Perjanjian** di baris tabel Kontrak (`/api/documents/
+> perjanjian/[id]`, nomor `PJS/...` dari nomor kontrak). Struktur mengikuti
+> template "Contoh Surat Perjanjian Sewa Alat Berat" (Mekari Sign): pembuka
+> formal, identitas PIHAK PERTAMA/KEDUA ("Nama Perusahaan / Yang diwakili
+> oleh / Jabatan"), **PASAL 1 OBJEK SEWA** (merk/tipe, kategori, tahun, kode
+> unit, kondisi + rujukan nomor BAST mobilisasi bila ada), **PASAL 2 JANGKA
+> WAKTU** (durasi hari + terbilang), **PASAL 3 HARGA SEWA DAN PEMBAYARAN**
+> (tarif/jam + terbilang, PPN, penagihan berbasis timesheet disetujui,
+> breakdown tidak ditagih), **PASAL 4 HAK DAN KEWAJIBAN**, **PASAL 5
+> KERUSAKAN DAN KEHILANGAN**, **PASAL 6 PENYELESAIAN PERSELISIHAN** (Pengadilan
+> Negeri kota perusahaan), penutup rangkap 2 bermeterai cukup, baris
+> "Kota, tanggal", dan tanda tangan PIHAK PERTAMA/KEDUA. Helper `terbilang.ts`
+> (angka → kata, terverifikasi) + halaman verifikasi mengenali `?kind=
+> perjanjian`. Dokumen ±2 halaman A4 dengan QR verifikasi tiap halaman.
+> Yang sengaja tidak diotomasi dari artikel: nomor KTP para pihak, nomor
+> rekening bank (belum ada datanya di sistem — klausul memakai frasa
+> "rekening yang ditunjuk secara tertulis"), meterai fisik/e-meterai, dan
+> SIO operator (bisa jadi field berikutnya bila dibutuhkan).
+>
 > **Lampiran gelombang — lokalisasi dokumen (kota & zona waktu)**: `company_settings`
 > bertambah kolom `city` (default `Jakarta`) dan `timezone` (`WIB`/`WITA`/`WIT`,
 > default `WIB`) — migration `0018_company_locale.sql` (aditif + CHECK). Diubah

@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { getDocumentBundle } from '@/lib/data';
 import { BusinessDocument, type PdfData } from '@/components/pdf-document';
 import { dateLabel, fullDateLabel, money, labels } from '@/lib/format';
+import { angkaKeKata, rupiahKeKata } from '@/lib/terbilang';
 import { requireUser, createAuthClient } from '@/lib/auth';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -11,14 +12,14 @@ export const dynamic='force-dynamic';
 // karena bersifat operasional, bukan finansial.
 export async function GET(request:Request,{params}:{params:Promise<{kind:string;id:string}>}){
  const {kind,id}=await params;
- if(!['invoice','sph','bast'].includes(kind)||! /^[0-9a-f-]{36}$/i.test(id))return Response.json({message:'Dokumen tidak ditemukan.'},{status:404});
+ if(!['invoice','sph','bast','perjanjian'].includes(kind)||! /^[0-9a-f-]{36}$/i.test(id))return Response.json({message:'Dokumen tidak ditemukan.'},{status:404});
  if(kind==='invoice'){
   try{await requireUser(['admin','finance','operations']);}
   catch(error){if(((error as Error).message||'').includes('NEXT_REDIRECT'))throw error;return Response.json({message:'Anda tidak memiliki izin mengunduh dokumen tagihan.'},{status:403});}
  }
  // O-A: bundle titik — hanya dokumen + kontrak + klien + unit + settings yang
  // terlibat (sebelumnya seluruh workspace di-fetch untuk satu PDF).
- const bundle=await getDocumentBundle(kind as 'invoice'|'bast'|'sph',id);
+ const bundle=await getDocumentBundle(kind as 'invoice'|'bast'|'sph'|'perjanjian',id);
  if(!bundle.ok)return Response.json({message:'Dokumen tidak ditemukan.'},{status:bundle.reason==='incomplete'?422:404});
  const {settings,contract,client,unit}=bundle;
  const invoice=bundle.invoice,handover=bundle.handover;
@@ -32,6 +33,27 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
  // PIHAK KEDUA (penyewa — wakil: PIC klien), klausul rangkap 2, serta 3 blok
  // tanda tangan (menyerahkan/menerima/mengetahui).
  const tz=settings.timezone;
+ // QR perjanjian membawa kind agar halaman verifikasi menampilkan jenis dokumen
+ // yang benar (id perjanjian = id kontrak, sama dengan SPH).
+ const verifyUrl=`${origin}/verify/doc?id=${id}${kind==='perjanjian'?'&kind=perjanjian':''}`;
+ const agreement=kind==='perjanjian'?(()=>{
+  const days=Math.round((Date.parse(contract.endDate+'T00:00:00Z')-Date.parse(contract.startDate+'T00:00:00Z'))/86400000)+1;
+  return {
+   openingDate:fullDateLabel(contract.createdAt,tz),
+   city:settings.city,
+   number:contract.contractNumber.replace('KTR','PJS'),
+   contractNumber:contract.contractNumber,
+   first:{name:settings.companyName,address:settings.address,representative:settings.signerName||undefined,title:settings.signerTitle||undefined},
+   second:{name:client.companyName,address:client.address||'',representative:client.picName||undefined},
+   unit:{brand:unit.brandModel,category:unit.category,year:unit.year?String(unit.year):'—',code:unit.unitCode,bastNumber:bundle.bastNumber},
+   period:{start:dateLabel(contract.startDate,tz),end:dateLabel(contract.endDate,tz),days,daysWords:angkaKeKata(days)},
+   rate:{hourly:money(contract.ratePerHour),hourlyWords:rupiahKeKata(contract.ratePerHour),ppn:Number(settings.ppnRate??11).toString()},
+  };
+ })():undefined;
+ // BAST mengikuti format berita acara resmi: pembuka "Pada hari ini…", blok
+ // identitas PIHAK PERTAMA (penyedia — wakil: penandatangan perusahaan) dan
+ // PIHAK KEDUA (penyewa — wakil: PIC klien), klausul rangkap 2, serta 3 blok
+ // tanda tangan (menyerahkan/menerima/mengetahui).
  const parties=handover?{
   openingDate:fullDateLabel(handover.date,tz),
   city:settings.city,
@@ -40,7 +62,7 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
   type:handover.type==='demobilization'?'demobilization' as const:'mobilization' as const,
   contractNumber:contract.contractNumber,
  }:undefined;
-  const data:PdfData={title:invoice?'FAKTUR TAGIHAN':handover?'BERITA ACARA SERAH TERIMA':'SURAT PENAWARAN HARGA',number:invoice?.invoiceNumber||handover?.documentNumber||contract.contractNumber.replace('KTR','SPH'),company:settings,clientName:client.companyName,clientAddress:client.address||'',clientPic:client.picName,date:dateLabel(invoice?.issueDate||handover?.date||contract.createdAt,tz),reference:contract.contractNumber,qrPath,qrSize:size+margin*2,verifyUrl:`${origin}/verify/doc?id=${id}`,rows:[{label:'Kode unit alat berat',value:unit.unitCode},{label:'Merek / model',value:unit.brandModel},{label:'Kategori',value:unit.category}],notes:'',parties};
+  const data:PdfData={title:invoice?'FAKTUR TAGIHAN':handover?'BERITA ACARA SERAH TERIMA':agreement?'SURAT PERJANJIAN SEWA MENYEWA ALAT BERAT':'SURAT PENAWARAN HARGA',number:invoice?.invoiceNumber||handover?.documentNumber||agreement?.number||contract.contractNumber.replace('KTR','SPH'),company:settings,clientName:client.companyName,clientAddress:client.address||'',clientPic:client.picName,date:dateLabel(invoice?.issueDate||handover?.date||contract.createdAt,tz),reference:contract.contractNumber,qrPath,qrSize:size+margin*2,verifyUrl,rows:[{label:'Kode unit alat berat',value:unit.unitCode},{label:'Merek / model',value:unit.brandModel},{label:'Kategori',value:unit.category}],notes:'',parties,agreement};
  if(invoice){
   const hours=bundle.hours??0;
   const history=bundle.payments??[];

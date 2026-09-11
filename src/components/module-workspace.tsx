@@ -46,8 +46,8 @@ type RevisionRow = Awaited<ReturnType<typeof getRevisionHistory>>[number];
 const isExpiringFleet = (f: Pick<FleetRow, 'sikoExpiry' | 'insuranceExpiry'>, warnDays = 30, tz?: string) =>
   [f.sikoExpiry, f.insuranceExpiry].some(d => isExpiringSoon(d, warnDays, tz));
 
-function PdfLink({ kind, id }: { kind: string; id: string }) {
-  return <a className="icon-button" href={`/api/documents/${kind}/${id}`} target="_blank" rel="noreferrer" title="Unduh dokumen PDF" aria-label="Unduh dokumen PDF"><FileDown size={17} />Unduh</a>;
+function PdfLink({ kind, id, label = 'Unduh', title = 'Unduh dokumen PDF' }: { kind: string; id: string; label?: string; title?: string }) {
+  return <a className="icon-button" href={`/api/documents/${kind}/${id}`} target="_blank" rel="noreferrer" title={title} aria-label={title}><FileDown size={17} />{label}</a>;
 }
 
 // ---------------------------------------------------------------------------
@@ -225,7 +225,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
           <div key="client"><b>{contract.clientName}</b><small className="cell-sub">{contract.unitCode} · {contract.unitModel}</small></div>,
           <div key="dates">{dateLabel(contract.startDate, tz)}<small className="cell-sub">s.d. {dateLabel(contract.endDate, tz)}</small></div>,
           money(contract.ratePerHour), <Badge key="status" status={contract.status} />,
-          <div className="row-actions" key="actions"><PdfLink kind="sph" id={contract.id} />{canWrite && contract.status === 'active' && <button className="icon-button" aria-label="Revisi kontrak" title="Revisi kontrak" onClick={() => startRevise(contract as unknown as EditableRecord)}><Pencil size={15} />Revisi</button>}{canWrite && contract.status === 'active' && <button className="icon-button green" aria-label="Selesaikan kontrak" title="Selesaikan kontrak" onClick={() => askStatus(contract.id, 'completed')}><CircleCheck size={17} />Selesai</button>}</div>,
+          <div className="row-actions" key="actions"><PdfLink kind="sph" id={contract.id} /><PdfLink kind="perjanjian" id={contract.id} label="Perjanjian" title="Unduh Surat Perjanjian Sewa (PDF)" />{canWrite && contract.status === 'active' && <button className="icon-button" aria-label="Revisi kontrak" title="Revisi kontrak" onClick={() => startRevise(contract as unknown as EditableRecord)}><Pencil size={15} />Revisi</button>}{canWrite && contract.status === 'active' && <button className="icon-button green" aria-label="Selesaikan kontrak" title="Selesaikan kontrak" onClick={() => askStatus(contract.id, 'completed')}><CircleCheck size={17} />Selesai</button>}</div>,
         ],
       }));
     }

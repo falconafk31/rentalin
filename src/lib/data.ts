@@ -450,10 +450,10 @@ export const getReportData = cache(async () => {
 
 // --- Bundle dokumen PDF (query titik, bukan seluruh workspace) ---------------
 export type DocumentBundle =
-  | { ok: true; settings: CompanySettings; contract: typeof s.contracts.$inferSelect; client: typeof s.clients.$inferSelect; unit: typeof s.fleet.$inferSelect; invoice?: typeof s.invoices.$inferSelect; handover?: typeof s.handovers.$inferSelect; hours?: number; payments?: PaymentRow[] }
+  | { ok: true; settings: CompanySettings; contract: typeof s.contracts.$inferSelect; client: typeof s.clients.$inferSelect; unit: typeof s.fleet.$inferSelect; invoice?: typeof s.invoices.$inferSelect; handover?: typeof s.handovers.$inferSelect; hours?: number; payments?: PaymentRow[]; bastNumber?: string }
   | { ok: false; reason: 'not_found' | 'incomplete' };
 
-export async function getDocumentBundle(kind: 'invoice' | 'bast' | 'sph', id: string): Promise<DocumentBundle> {
+export async function getDocumentBundle(kind: 'invoice' | 'bast' | 'sph' | 'perjanjian', id: string): Promise<DocumentBundle> {
   const settings = await getSettingsRow();
   const loadContract = async (contractId: string): Promise<{ contract: typeof s.contracts.$inferSelect; client: typeof s.clients.$inferSelect; unit: typeof s.fleet.$inferSelect } | 'not_found' | 'incomplete'> => {
     const [contract] = await db.select().from(s.contracts).where(eq(s.contracts.id, contractId));
@@ -463,10 +463,18 @@ export async function getDocumentBundle(kind: 'invoice' | 'bast' | 'sph', id: st
     if (!client || !unit) return 'incomplete';
     return { contract, client, unit };
   };
-  if (kind === 'sph') {
+  if (kind === 'sph' || kind === 'perjanjian') {
     const found = await loadContract(id);
     if (found === 'not_found' || found === 'incomplete') return { ok: false, reason: found };
-    return { ok: true, settings, ...found };
+    // Perjanjian merujuk BAST mobilisasi (bukti kondisi unit saat diserahkan).
+    let bastNumber: string | undefined;
+    if (kind === 'perjanjian') {
+      const [h] = await db.select({ documentNumber: s.handovers.documentNumber }).from(s.handovers)
+        .where(and(eq(s.handovers.contractId, id), eq(s.handovers.type, 'mobilization')))
+        .orderBy(desc(s.handovers.date), desc(s.handovers.createdAt)).limit(1);
+      bastNumber = h?.documentNumber;
+    }
+    return { ok: true, settings, ...found, bastNumber };
   }
   if (kind === 'bast') {
     const [handover] = await db.select().from(s.handovers).where(eq(s.handovers.id, id));
