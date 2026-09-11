@@ -30,6 +30,8 @@ Next.js 16 uses Turbopack by default. Do not apply both `schema.sql` and `drizzl
 
 ## Supabase production configuration
 
+> **Panduan migrasi lengkap** (struktur folder `supabase/`, migration berurutan, tahapan cutover, RLS, troubleshooting): **[`supabase/README.md`](supabase/README.md)**.
+
 1. Create a Supabase project. Apply **`schema.sql`** in the Supabase SQL editor to a fresh database. It includes all requested tables, generated-hour columns, added invoice linkage, handovers, company settings, integrity constraints, and RLS policies.
 2. Set environment variables in Vercel:
    - `DATABASE_URL`: the Supabase PostgreSQL/Supavisor connection string, with the provider-recommended SSL parameters.
