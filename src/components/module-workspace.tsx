@@ -9,7 +9,7 @@ import { Badge } from './overview';
 import { saveRecord, bulkCreateFleet, changeStatus, deleteClient, resetDatabase, reviseContract, recordPayment } from '@/app/actions';
 import { money, dateLabel, dateTimeLabel, timeLabel, labels, todayISO, isPastDue, isExpiringSoon } from '@/lib/format';
 import type { WorkspaceData } from '@/lib/data';
-import { calcInvoiceTotals } from '@/lib/finance';
+import { calcInvoiceTotals, remainingBalance } from '@/lib/finance';
 
 const config: Record<string, { title: string; description: string; add: string; singular: string }> = {
   fleet: { title: 'Armada Alat Berat', description: 'Kelola seluruh unit, pantau ketersediaan, dan pastikan kesiapan armada Anda.', add: 'Tambah Unit', singular: 'Unit Alat Berat' },
@@ -249,14 +249,14 @@ export function ModuleWorkspace({ module, data: sourceData, initialQuery = '', i
     if (module === 'invoices') {
       return data.invoices.map(i => {
         const paid = paymentsByInvoice.get(i.id)?.paid || 0;
-        const remaining = Math.max(0, Number(i.totalAmount) - paid);
+        const remaining = remainingBalance(i.totalAmount, paid);
         const displayStatus = i.status !== 'paid' && isPastDue(i.dueDate) ? 'overdue' : i.status;
         return {
           id: i.id, search: `${i.invoiceNumber} ${getClient(getContract(i.contractId)?.clientId || '')?.companyName}`, status: displayStatus, raw: i,
           cells: [
             <div key="number"><b className="document-number">{i.invoiceNumber}</b><small className="cell-sub">Terbit {dateLabel(i.issueDate)} · {timeLabel(i.createdAt)}</small></div>,
             <div key="client">{getClient(getContract(i.contractId)?.clientId || '')?.companyName}<small className="cell-sub">{getContract(i.contractId)?.contractNumber}</small></div>,
-            <div key="amount"><b>{money(i.totalAmount)}</b><small className="cell-sub">Termasuk PPN {ppnRate}%{i.status !== 'paid' && paid > 0 && ` · Dibayar ${money(paid)}`}{i.status !== 'paid' && ` · Sisa ${money(remaining)}`}</small></div>,
+            <div key="amount"><b>{money(i.totalAmount)}</b><small className="cell-sub">Termasuk PPN {Number(i.taxRate ?? ppnRate)}%{i.status !== 'paid' && paid > 0 && ` · Dibayar ${money(paid)}`}{i.status !== 'paid' && ` · Sisa ${money(remaining)}`}</small></div>,
             dateLabel(i.dueDate), <Badge key="status" status={displayStatus} />,
             <div className="row-actions" key="actions">{['admin', 'finance', 'operations'].includes(data.user.role) && <PdfLink kind="invoice" id={i.id} />}{canWrite && <button className="icon-button green" aria-label={i.status === 'paid' ? `Riwayat pembayaran ${i.invoiceNumber}` : `Catat pembayaran ${i.invoiceNumber}`} title={i.status === 'paid' ? 'Riwayat pembayaran' : 'Catat pembayaran'} onClick={() => setPaying(i)}><Wallet size={16} />{i.status === 'paid' ? 'Riwayat' : 'Bayar'}</button>}</div>,
           ],

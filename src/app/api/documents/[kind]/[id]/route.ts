@@ -37,12 +37,12 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
   if(hours)data.rows.push({label:'Jumlah jam kerja efektif yang disetujui',value:`${hours.toLocaleString('id-ID')} jam`});
   else data.rows.push({label:'Dasar penagihan',value:'Sewa alat berat sesuai kontrak'});
   data.rows.push({label:'Status pembayaran',value:labels[invoice.status]});
-  data.subtotal=money(Number(invoice.totalAmount)-Number(invoice.taxAmount));data.tax=money(invoice.taxAmount);data.taxLabel=`PPN ${ppnRate}%`;data.total=money(invoice.totalAmount);data.dueDate=dateLabel(invoice.dueDate);
+  const rate=Number(invoice.taxRate??ppnRate);data.subtotal=money(invoice.subtotalAmount??(Number(invoice.totalAmount)-Number(invoice.taxAmount)));data.tax=money(invoice.taxAmount);data.taxLabel=`PPN ${rate}%`;data.total=money(invoice.totalAmount);data.dueDate=dateLabel(invoice.dueDate);
   if(history.length){
    data.paidTotal=money(paidTotal);data.remaining=money(Math.max(0,Number(invoice.totalAmount)-paidTotal));
    data.payments=history.slice(0,10).map(p=>({label:`${dateLabel(p.paidAt)} · ${labels[p.method]}${p.reference?` · ${p.reference}`:''}`,value:money(p.amount)}));
   }
-  data.notes=`Pembayaran dilakukan sesuai kesepakatan dalam kontrak sewa. Cantumkan nomor tagihan pada bukti pembayaran dan sampaikan konfirmasi kepada bagian keuangan. PPN dihitung sebesar ${ppnRate}% dari subtotal.`;
+  data.notes=`Pembayaran dilakukan sesuai kesepakatan dalam kontrak sewa. Cantumkan nomor tagihan pada bukti pembayaran dan sampaikan konfirmasi kepada bagian keuangan. PPN dihitung sebesar ${rate}% dari subtotal.`;
  }
  else if(handover){
   data.handover=true;const raw=handover as unknown as Record<string,boolean>;data.rows.push({label:'Jenis serah terima',value:labels[handover.type]});

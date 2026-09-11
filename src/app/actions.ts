@@ -131,7 +131,7 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
     const totals=calcInvoiceTotals(hours,Number(contract.ratePerHour),ppnRate);
     if(totals.subtotal<=0)throw new Error('Total jam efektif harus lebih dari nol.');
     invoiceNo = documentNumber('INV');
-    const [invoice]=await tx.insert(s.invoices).values({invoiceNumber:invoiceNo,contractId,totalAmount:totals.total.toFixed(2),taxAmount:totals.tax.toFixed(2),status:'unpaid',issueDate:todayISO(),dueDate}).returning();
+    const [invoice]=await tx.insert(s.invoices).values({invoiceNumber:invoiceNo,contractId,subtotalAmount:totals.subtotal.toFixed(2),totalAmount:totals.total.toFixed(2),taxAmount:totals.tax.toFixed(2),taxRate:String(ppnRate),status:'unpaid',issueDate:todayISO(),dueDate}).returning();
     for(const log of logs)await tx.update(s.timesheets).set({invoiceId:invoice.id}).where(eq(s.timesheets.id,log.id));
    });
    await logAudit({ ...actor, action: 'create', entity: 'invoices', summary: `Menerbitkan ${invoiceNo} (PPN ${ppnRate}%)` });
