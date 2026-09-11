@@ -246,7 +246,7 @@ Lanjut ke §7 (change management) — alur ini yang dipakai selamanya setelah go
 | 1 | `0001_core_tables.sql` | `profiles` (FK `auth.users`), `clients`, `fleet`, `contracts` + partial unique index | Skema `auth` bawaan Supabase |
 | 2 | `0002_operations_tables.sql` | `timesheets` (generated columns + CHECK + unique harian), `invoices`, `ALTER timesheets ADD invoice_id`, `handovers`, `company_settings` | #1 (contracts, fleet, profiles) |
 | 3 | `0003_functions.sql` | `current_app_role()` — `SECURITY DEFINER`, baca role dari `profiles` | #1 (profiles) |
-| 4 | `0004_rls_policies.sql` | ENABLE RLS + policy: `staff_read`, `operations_write`, `timesheet_submit`, `timesheet_review`, `invoice_write`, `settings_admin`, `profile_*` | #2 (semua tabel) + #3 (fungsi) |
+| 4 | `0004_rls_policies.sql` | ENABLE RLS + policy: `staff_read` (tabel non-invoice), `invoice_read` (admin/operations/finance — **operator tidak dapat membaca invoice**), `operations_write`, `timesheet_submit`, `timesheet_review`, `invoice_write`, `settings_admin`, `profile_*` | #2 (semua tabel) + #3 (fungsi) |
 | 5 | `0005_performance_indexes.sql` | Indeks FK (`contracts.client_id`, `invoices.contract_id`, `handovers.contract_id`, `timesheets.operator_id/invoice_id`) + `fleet.status` | #2 (idempotent, `IF NOT EXISTS`) |
 
 ```
@@ -304,7 +304,7 @@ Kebijakan di `0004_rls_policies.sql` (berlaku untuk akses via Supabase Data API;
 | `fleet` | semua role internal | admin, operations | admin, operations | admin, operations | — |
 | `contracts` | semua role internal | admin, operations | admin, operations | admin, operations | — |
 | `timesheets` | semua role internal | admin, operations, **operator** | admin, operations | — | operator: hanya `operator_id = auth.uid()`, `status='pending'`, `invoice_id IS NULL` |
-| `invoices` | semua role internal | admin, finance | admin, finance | admin, finance | — |
+| `invoices` | admin, operations, finance | admin, finance | admin, finance | admin, finance | operator sengaja tidak diberi akses baca — selaras pembatasan route PDF invoice & CSV laporan |
 | `handovers` | semua role internal | admin, operations | admin, operations | admin, operations | — |
 | `company_settings` | semua role internal | admin | admin | admin | — |
 

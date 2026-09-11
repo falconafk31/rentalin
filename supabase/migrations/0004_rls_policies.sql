@@ -12,12 +12,21 @@ CREATE POLICY profile_read ON profiles FOR SELECT TO authenticated USING (id = a
 CREATE POLICY profile_admin ON profiles FOR ALL TO authenticated USING(public.current_app_role()='admin') WITH CHECK(public.current_app_role()='admin');
 
 -- Semua tabel bisnis: seluruh role internal boleh MEMBACA.
+-- (invoices dikecualikan dari loop — pembacaannya diperketat di bawah.)
 DO $$ DECLARE t TEXT; BEGIN
- FOREACH t IN ARRAY ARRAY['clients','fleet','contracts','timesheets','invoices','handovers','company_settings'] LOOP
+ FOREACH t IN ARRAY ARRAY['clients','fleet','contracts','timesheets','handovers','company_settings'] LOOP
   EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY',t);
   EXECUTE format('CREATE POLICY staff_read ON %I FOR SELECT TO authenticated USING (public.current_app_role() IN (''admin'',''operations'',''operator'',''finance''))',t);
  END LOOP;
 END $$;
+
+-- Pembacaan INVOICE diperketat (audit.md A1 / Quick Win #1): operator tidak dapat
+-- membaca data finansial via Supabase Data API — selaras dengan pembatasan
+-- /api/report & PDF invoice di layer aplikasi. Revisi pra-deploy: migrations ini
+-- belum pernah dijalankan ke database mana pun, jadi diedit langsung (bukan file baru).
+ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
+CREATE POLICY invoice_read ON invoices FOR SELECT TO authenticated
+ USING (public.current_app_role() IN ('admin','operations','finance'));
 
 -- Tulis data master (klien, armada, kontrak, BAST): admin & operations saja.
 DO $$ DECLARE t TEXT; BEGIN
