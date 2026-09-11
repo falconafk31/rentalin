@@ -17,7 +17,7 @@ export const shortMoney = (value: number) => value >= 1e9 ? `Rp ${compactFormatt
 export const dateLabel = (value: string | Date) => dayFormatter.format(new Date(value));
 export const dateTimeLabel = (value: string | Date) => `${dayFormatter.format(new Date(value))}, ${clock(value)} WIB`;
 export const timeLabel = (value: string | Date) => `${clock(value)} WIB`;
-export const labels: Record<string,string> = {available:'Tersedia',renting:'Disewa',maintenance:'Perawatan',in_transit:'Dalam Mobilisasi',active:'Aktif',draft:'Draf',completed:'Selesai',pending:'Menunggu Persetujuan',approved:'Disetujui',rejected:'Ditolak',unpaid:'Belum Dibayar',partial:'Dibayar Sebagian',paid:'Lunas',overdue:'Jatuh Tempo',mobilization:'Mobilisasi',demobilization:'Demobilisasi',admin:'Administrator',operations:'Manajer Operasional',operator:'Operator',finance:'Staf Keuangan',transfer:'Transfer Bank',cash:'Tunai',giro:'Giro / Cek',other:'Lainnya'};
+export const labels: Record<string,string> = {available:'Tersedia',renting:'Disewa',maintenance:'Perawatan',in_transit:'Dalam Mobilisasi',active:'Aktif',draft:'Draf',completed:'Selesai',pending:'Menunggu Persetujuan',approved:'Disetujui',rejected:'Ditolak',unpaid:'Belum Dibayar',partial:'Dibayar Sebagian',paid:'Lunas',overdue:'Jatuh Tempo',mobilization:'Mobilisasi',demobilization:'Demobilisasi',admin:'Administrator',operations:'Manajer Operasional',operator:'Operator',finance:'Staf Keuangan',transfer:'Transfer Bank',cash:'Tunai',giro:'Giro / Cek',other:'Lainnya',banned:'Nonaktif'};
 export const todayISO = () => isoDayFormatter.format(new Date());
 
 // --- Aritmetika kalender TZ-aman (O-D) ------------------------------------

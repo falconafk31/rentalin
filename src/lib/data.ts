@@ -4,6 +4,7 @@ import { db } from '@/db';
 import * as s from '@/db/schema';
 import { asc, desc } from 'drizzle-orm';
 import { requireUser } from '@/lib/auth';
+import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { seedPreview } from '@/db/seed';
 
 // React cache(): layout dashboard + page memanggil fungsi ini 2x per request —
@@ -28,3 +29,17 @@ export const getWorkspaceData = cache(async () => {
  return {user,fleet,clients,contracts,revisions,timesheets,invoices,payments,handovers,auditLogs,profiles,settings:settings[0]||{id:'main',companyName:'PT Penyewaan Alat Berat',address:'Jakarta, Indonesia',email:'',phone:'',signerName:'',signerTitle:'',ppnRate:'11',expiryWarningDays:30}};
 });
 export type WorkspaceData = Awaited<ReturnType<typeof getWorkspaceData>>;
+
+// Peta akun banned untuk halaman Pengguna (A-4). Service-role, server-only;
+// kosong bila kunci tak dikonfigurasi (mode pratinjau) atau API gagal.
+export async function getBannedMap(): Promise<Record<string, boolean>> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) return {};
+  try {
+    const { data, error } = await createServiceClient(url, serviceKey).auth.admin.listUsers({ page: 1, perPage: 100 });
+    if (error || !data) return {};
+    const now = Date.now();
+    return Object.fromEntries(data.users.map(u => [u.id, !!u.banned_until && new Date(u.banned_until).getTime() > now]));
+  } catch { return {}; }
+}

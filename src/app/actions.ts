@@ -327,6 +327,45 @@ export async function inviteUser(form:FormData): Promise<ActionResult> {
  }catch(e){return fail(e);}
 }
 
+export async function updateUserProfile(form:FormData): Promise<ActionResult> {
+ try {
+  const user = await requireUser(['admin']);
+  const id = required(form,'id');
+  const fullName = required(form,'fullName');
+  if (fullName.length < 2 || fullName.length > 100) throw new FieldError({ fullName: 'Nama lengkap 2–100 karakter.' });
+  const [current] = await db.select().from(s.profiles).where(eq(s.profiles.id,id));
+  if (!current) throw new Error('Pengguna tidak ditemukan.');
+  await db.update(s.profiles).set({ fullName }).where(eq(s.profiles.id,id));
+  await logAudit({ actorId: user.id, actorName: user.fullName, action: 'update', entity: 'profiles', entityId: id, summary: `Mengubah nama ${current.fullName} menjadi ${fullName}`, before: { fullName: current.fullName }, after: { fullName } });
+  revalidatePath('/dashboard','layout');return {success:true,message:`Profil ${fullName} diperbarui.`};
+ }catch(e){return fail(e);}
+}
+
+export async function setUserBanned(form:FormData): Promise<ActionResult> {
+ try {
+  const user = await requireUser(['admin']);
+  const id = required(form,'id');
+  const banned = required(form,'banned') === '1';
+  if (id === user.id) throw new Error('Anda tidak dapat menonaktifkan akun sendiri.');
+  const [current] = await db.select().from(s.profiles).where(eq(s.profiles.id,id));
+  if (!current) throw new Error('Pengguna tidak ditemukan.');
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) throw new Error('Kelola status akun membutuhkan SUPABASE_SERVICE_ROLE_KEY di server. Sementara gunakan SQL ban di supabase/templates/provision_user.sql.');
+  const admin = createServiceClient(url, serviceKey).auth.admin;
+  if (banned && current.role === 'admin') {
+    const { data } = await admin.listUsers({ page: 1, perPage: 100 });
+    const activeIds = new Set((data?.users || []).filter(u => !u.banned_until).map(u => u.id));
+    const admins = await db.select({ id: s.profiles.id }).from(s.profiles).where(eq(s.profiles.role,'admin'));
+    if (!admins.some(a => a.id !== id && activeIds.has(a.id))) throw new Error('Tidak dapat menonaktifkan satu-satunya administrator aktif.');
+  }
+  const { error } = await admin.updateUserById(id, { ban_duration: banned ? '876000h' : 'none' });
+  if (error) throw new Error(banned ? 'Gagal menonaktifkan akun.' : 'Gagal mengaktifkan akun.');
+  await logAudit({ actorId: user.id, actorName: user.fullName, action: 'ban', entity: 'profiles', entityId: id, summary: banned ? `Menonaktifkan akun ${current.fullName}` : `Mengaktifkan kembali akun ${current.fullName}`, before: { banned: !banned }, after: { banned } });
+  revalidatePath('/dashboard','layout');return {success:true,message:banned?`Akun ${current.fullName} dinonaktifkan.`:`Akun ${current.fullName} diaktifkan kembali.`};
+ }catch(e){return fail(e);}
+}
+
 export async function requestPasswordReset(form:FormData): Promise<ActionResult> {
  if (!isConfigured()) return { success: false, message: 'Reset sandi belum tersedia di mode pratinjau. Hubungkan Supabase Auth terlebih dahulu.' };
  const email = String(form.get('email') || '').trim();
@@ -360,7 +399,7 @@ export async function resetDatabase(confirmation:string): Promise<ActionResult> 
 export async function signIn(form:FormData) {
  if(!isConfigured())return {success:false,message:'Autentikasi Supabase belum dikonfigurasi. Hubungi administrator.'};
  const auth=await createAuthClient();const {data,error}=await auth.auth.signInWithPassword({email:text(form,'email'),password:text(form,'password')});
- if(error)return {success:false,message:'Surel atau kata sandi tidak sesuai.'};
+ if(error)return {success:false,message:/banned/i.test(error.message||'')?'Akun Anda dinonaktifkan. Hubungi administrator.':'Surel atau kata sandi tidak sesuai.'};
  const [profile]=await db.select().from(s.profiles).where(eq(s.profiles.id,data.user.id));
  await logAudit({actorId:data.user.id,actorName:profile?.fullName||data.user.email||'Pengguna',action:'login',entity:'profiles',entityId:data.user.id,summary:`Masuk: ${data.user.email||'pengguna'}`});
  redirect('/dashboard');

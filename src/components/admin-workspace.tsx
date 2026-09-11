@@ -1,10 +1,11 @@
 'use client';
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, ShieldX, UsersRound, ScrollText, UserPlus, LoaderCircle, CircleCheck, TriangleAlert, X } from 'lucide-react';
+import { Search, ShieldX, UsersRound, ScrollText, UserPlus, LoaderCircle, CircleCheck, TriangleAlert, X, Pencil, Ban, UserCheck, Check } from 'lucide-react';
 import { Button } from './ui/button';
-import { updateUserRole, inviteUser } from '@/app/actions';
+import { updateUserRole, inviteUser, updateUserProfile, setUserBanned } from '@/app/actions';
 import { labels, dateTimeLabel } from '@/lib/format';
+import { Badge } from './overview';
 import type { WorkspaceData } from '@/lib/data';
 
 export function AccessDenied() {
@@ -29,10 +30,12 @@ const entityLabels: Record<string, string> = {
 // Manajemen pengguna & peran (admin). Daftar dari profiles; undang via email
 // bila service-role tersedia, kalau tidak fallback ke template SQL.
 // ---------------------------------------------------------------------------
-export function UsersWorkspace({ data }: { data: WorkspaceData }) {
+export function UsersWorkspace({ data, banned }: { data: WorkspaceData; banned: Record<string, boolean> }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [toast, setToast] = useState<{ success: boolean; message: string } | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftName, setDraftName] = useState('');
   const run = (fn: () => Promise<{ success: boolean; message: string }>) => startTransition(async () => {
     try {
       const r = await fn();
@@ -52,11 +55,17 @@ export function UsersWorkspace({ data }: { data: WorkspaceData }) {
           </div>
           <div className="table-scroll">
             <table>
-              <thead><tr><th>Nama Pengguna</th><th>Peran Akses</th><th>Bergabung</th></tr></thead>
+              <thead><tr><th>Nama Pengguna</th><th>Peran Akses</th><th>Status</th><th>Bergabung</th><th>Tindakan</th></tr></thead>
               <tbody>
                 {data.profiles.map(p => (
                   <tr key={p.id}>
-                    <td><b>{p.fullName}</b>{p.id === data.user.id && <small className="cell-sub">Anda</small>}</td>
+                    <td>{editingId === p.id ? (
+                      <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input value={draftName} onChange={e => setDraftName(e.target.value)} maxLength={100} aria-label="Nama lengkap" style={{ border: '1px solid #e2e6eb', borderRadius: 6, minHeight: 33, padding: '6px 9px', fontSize: 14, width: 150 }} />
+                        <button className="icon-button green" title="Simpan nama" aria-label="Simpan nama" disabled={pending} onClick={() => { const form = new FormData(); form.set('id', p.id); form.set('fullName', draftName); setEditingId(null); run(() => updateUserProfile(form)); }}><Check size={16} /></button>
+                        <button className="icon-button" title="Batal" aria-label="Batal mengubah nama" onClick={() => setEditingId(null)}><X size={16} /></button>
+                      </span>
+                    ) : (<><b>{p.fullName}</b>{p.id === data.user.id && <small className="cell-sub">Anda</small>}</>)}</td>
                     <td>
                       <label className="small-select">
                         <select value={p.role} disabled={pending} onChange={e => {
@@ -69,7 +78,16 @@ export function UsersWorkspace({ data }: { data: WorkspaceData }) {
                         </select>
                       </label>
                     </td>
+                    <td><Badge status={banned[p.id] ? 'banned' : 'active'} /></td>
                     <td>{dateTimeLabel(p.createdAt)}</td>
+                    <td>
+                      <div className="row-actions">
+                        <button className="icon-button" title={`Ubah nama ${p.fullName}`} aria-label={`Ubah nama ${p.fullName}`} disabled={pending} onClick={() => { setEditingId(p.id); setDraftName(p.fullName); }}><Pencil size={15} />Ubah</button>
+                        {p.id !== data.user.id && (banned[p.id]
+                          ? <button className="icon-button green" title={`Aktifkan ${p.fullName}`} aria-label={`Aktifkan ${p.fullName}`} disabled={pending} onClick={() => { const form = new FormData(); form.set('id', p.id); form.set('banned', '0'); run(() => setUserBanned(form)); }}><UserCheck size={15} />Aktifkan</button>
+                          : <button className="icon-button danger-icon" title={`Nonaktifkan ${p.fullName}`} aria-label={`Nonaktifkan ${p.fullName}`} disabled={pending} onClick={() => { if (!confirm(`Nonaktifkan akun ${p.fullName}? Pengguna tidak bisa masuk hingga diaktifkan kembali.`)) return; const form = new FormData(); form.set('id', p.id); form.set('banned', '1'); run(() => setUserBanned(form)); }}><Ban size={15} />Nonaktifkan</button>)}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
