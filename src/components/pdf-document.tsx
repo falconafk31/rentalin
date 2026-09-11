@@ -74,23 +74,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 8,
-    alignItems: 'flex-end',
   },
   signature: {
     width: '44%',
     textAlign: 'center',
     fontSize: 7.2,
   },
-  signatureSpace: { height: 22 },
-  signerName: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', marginTop: 2 },
-  signerTitle: { fontSize: 6.2, color: '#7c8792', marginTop: 1 },
+  signatureHeader: { fontSize: 7.2, color: '#323c47' },
+  signatureCompany: { fontSize: 7.2, fontFamily: 'Helvetica-Bold', marginTop: 1 },
+  signatureSpace: { height: 32 },
   signatureLine: {
     borderTopWidth: 0.8,
-    borderTopColor: '#bdc3ca',
+    borderTopColor: '#9ba2aa',
     paddingTop: 3,
-    fontSize: 6.5,
+    fontSize: 7.2,
+    fontFamily: 'Helvetica-Bold',
+    color: '#273642',
+    textAlign: 'center',
+  },
+  signerTitle: {
+    fontSize: 6.2,
     color: '#7c8792',
-    marginTop: 3,
+    marginTop: 1,
+    textAlign: 'center',
   },
   footer: {
     position: 'absolute',
@@ -230,19 +236,18 @@ export function BusinessDocument({ data }: { data: PdfData }) {
         </View>
         <View style={styles.signatureRow} wrap={false}>
           <View style={styles.signature}>
-            <Text>{data.handover ? 'Pihak yang menyerahkan,' : 'Hormat kami,'}</Text>
-            <Text>{data.company.companyName}</Text>
+            <Text style={styles.signatureHeader}>{data.handover ? 'Pihak yang menyerahkan,' : 'Hormat kami,'}</Text>
+            <Text style={styles.signatureCompany}>{data.company.companyName}</Text>
             <View style={styles.signatureSpace} />
-            {data.company.signerName ? <Text style={styles.signerName}>{data.company.signerName}</Text> : null}
-            {data.company.signerTitle ? <Text style={styles.signerTitle}>{data.company.signerTitle}</Text> : null}
-            <Text style={styles.signatureLine}>Nama dan tanda tangan</Text>
+            <Text style={styles.signatureLine}>{data.company.signerName || '( .............................................. )'}</Text>
+            <Text style={styles.signerTitle}>{data.company.signerTitle || 'Nama dan tanda tangan'}</Text>
           </View>
           <View style={styles.signature}>
-            <Text>{data.handover ? 'Pihak yang menerima,' : 'Diterima dan disetujui oleh,'}</Text>
-            <Text>{data.clientName}</Text>
+            <Text style={styles.signatureHeader}>{data.handover ? 'Pihak yang menerima,' : 'Diterima dan disetujui oleh,'}</Text>
+            <Text style={styles.signatureCompany}>{data.clientName}</Text>
             <View style={styles.signatureSpace} />
-            {data.clientPic ? <Text style={styles.signerName}>{data.clientPic}</Text> : null}
-            <Text style={styles.signatureLine}>Nama dan tanda tangan</Text>
+            <Text style={styles.signatureLine}>{data.clientPic || '( .............................................. )'}</Text>
+            <Text style={styles.signerTitle}>{data.clientPic ? 'Nama dan tanda tangan' : 'Nama dan tanda tangan'}</Text>
           </View>
         </View>
         <View style={styles.footer} fixed>
