@@ -105,6 +105,16 @@ PPN **tidak lagi hardcode**. Sekarang jadi konfigurasi perusahaan:
 | A-6 | ✅ | **Lupa/reset sandi**: link di login + `/forgot-password` (kirim tautan) + `/auth/callback` (tukar code) + `/reset-password` (sandi baru, klien browser). Trigger `handle_new_user` (0013, anti-eskalasi role) untuk undangan. |
 | A-7 | ✅ | **Cron overdue**: `GET /api/cron/overdue` (bearer `CRON_SECRET`, tandai unpaid/partial lewat tempo + audit) + `vercel.json` (tiap 01:00 WIB) + notifikasi overdue di lonceng header. Alternatif pg_cron: `SELECT cron.schedule('overdue','0 18 * * *',$$SELECT net.http_get(...)$$)` — butuh ekstensi pg_cron+pg_net (opsional, tidak dibundel). |
 
+> **Lampiran gelombang — format PDF BAST resmi**: PDF BAST kini mengikuti pola berita
+> acara serah terima umum (rujukan: contoh dokumen BAST alat berat rental) — pembuka
+> formal "Pada hari ini, [hari-long-date], …", blok identitas **1. PIHAK PERTAMA**
+> (penyedia; wakil = penandatangan di Pengaturan) & **2. PIHAK KEDUA** (penyewa;
+> wakil = PIC klien), pernyataan serah/kembali sesuai jenis (mobilisasi/demobilisasi),
+> klausul penerimaan kondisi setelah checklist 12 titik, klausul penutup **rangkap 2**,
+> dan **3 blok tanda tangan: Yang menyerahkan · Yang menerima · Mengetahui** (kosong
+> untuk pihak ketiga bila perlu). Kolom isian yang belum ada di data ditampilkan
+> titik-titik (diisi manual). Tetap 1 halaman A4 + QR verifikasi; invoice/SPH tak berubah.
+
 ### 3c. Hapus/sederhanakan — hasil
 
 | # | Status | Implementasi |

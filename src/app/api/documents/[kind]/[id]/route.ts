@@ -2,7 +2,7 @@ import { renderToBuffer } from '@react-pdf/renderer';
 import QRCode from 'qrcode';
 import { getDocumentBundle } from '@/lib/data';
 import { BusinessDocument, type PdfData } from '@/components/pdf-document';
-import { dateLabel, money, labels } from '@/lib/format';
+import { dateLabel, fullDateLabel, money, labels } from '@/lib/format';
 import { requireUser, createAuthClient } from '@/lib/auth';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -27,7 +27,18 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
  // pada decoder PNG runtime — penyebab QR kosong pada sebagian lingkungan dev.
  const matrix=QRCode.create(`${origin}/verify/doc?id=${id}`,{errorCorrectionLevel:'M'}).modules;const margin=2;const size=matrix.size;let qrPath='';for(let y=0;y<size;y++)for(let x=0;x<size;x++)if(matrix.data[y*size+x])qrPath+=`M${x+margin} ${y+margin}h1v1h-1z`;
  const ppnRate=Number(settings.ppnRate??11);
- const data:PdfData={title:invoice?'FAKTUR TAGIHAN':handover?'BERITA ACARA SERAH TERIMA':'SURAT PENAWARAN HARGA',number:invoice?.invoiceNumber||handover?.documentNumber||contract.contractNumber.replace('KTR','SPH'),company:settings,clientName:client.companyName,clientAddress:client.address||'',clientPic:client.picName,date:dateLabel(invoice?.issueDate||handover?.date||contract.createdAt),reference:contract.contractNumber,qrPath,qrSize:size+margin*2,verifyUrl:`${origin}/verify/doc?id=${id}`,rows:[{label:'Kode unit alat berat',value:unit.unitCode},{label:'Merek / model',value:unit.brandModel},{label:'Kategori',value:unit.category}],notes:''};
+ // BAST mengikuti format berita acara resmi: pembuka "Pada hari ini…", blok
+ // identitas PIHAK PERTAMA (penyedia — wakil: penandatangan perusahaan) dan
+ // PIHAK KEDUA (penyewa — wakil: PIC klien), klausul rangkap 2, serta 3 blok
+ // tanda tangan (menyerahkan/menerima/mengetahui).
+ const parties=handover?{
+  openingDate:fullDateLabel(handover.date),
+  first:{name:settings.companyName,address:settings.address,representative:settings.signerName||undefined,title:settings.signerTitle||undefined},
+  second:{name:client.companyName,address:client.address||'',representative:client.picName||undefined},
+  type:handover.type==='demobilization'?'demobilization' as const:'mobilization' as const,
+  contractNumber:contract.contractNumber,
+ }:undefined;
+ const data:PdfData={title:invoice?'FAKTUR TAGIHAN':handover?'BERITA ACARA SERAH TERIMA':'SURAT PENAWARAN HARGA',number:invoice?.invoiceNumber||handover?.documentNumber||contract.contractNumber.replace('KTR','SPH'),company:settings,clientName:client.companyName,clientAddress:client.address||'',clientPic:client.picName,date:dateLabel(invoice?.issueDate||handover?.date||contract.createdAt),reference:contract.contractNumber,qrPath,qrSize:size+margin*2,verifyUrl:`${origin}/verify/doc?id=${id}`,rows:[{label:'Kode unit alat berat',value:unit.unitCode},{label:'Merek / model',value:unit.brandModel},{label:'Kategori',value:unit.category}],notes:'',parties};
  if(invoice){
   const hours=bundle.hours??0;
   const history=bundle.payments??[];

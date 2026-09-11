@@ -98,6 +98,17 @@ const styles = StyleSheet.create({
     marginTop: 1,
     textAlign: 'center',
   },
+  // --- Blok para pihak (pola BAST resmi) -------------------------------------
+  partiesIntro: { fontSize: 7.2, marginTop: 2, marginBottom: 3 },
+  partyBlock: { marginBottom: 3 },
+  partyHeading: { fontSize: 7.2, fontFamily: 'Helvetica-Bold', color: '#273642' },
+  partyRole: { fontSize: 6.2, color: '#7c8792' },
+  partyRow: { flexDirection: 'row', marginTop: 0.5 },
+  partyKey: { width: 58, fontSize: 6.8, color: '#7c8792' },
+  partyVal: { fontSize: 6.8 },
+  clause: { marginTop: 4, fontSize: 7, textAlign: 'justify' },
+  signature3: { width: '31.5%', textAlign: 'center', fontSize: 6.8 },
+  signature3Space: { height: 26 },
   footer: {
     position: 'absolute',
     bottom: 12,
@@ -120,6 +131,17 @@ const styles = StyleSheet.create({
 });
 
 export type PdfCheck = { item: string; ok: boolean };
+// Para pihak pada dokumen resmi (BAST) — mengikuti pola berita acara serah
+// terima alat berat: identitas PIHAK PERTAMA/PIHAK KEDUA (nama, alamat,
+// wakil + jabatan) dan peran masing-masing pada tanda tangan.
+export type PdfParty = { name: string; address: string; representative?: string; title?: string };
+export type PdfParties = {
+  openingDate: string; // "Jumat, 11 September 2026" — pembuka formal
+  first: PdfParty; // PIHAK PERTAMA — penyedia jasa / pemilik unit
+  second: PdfParty; // PIHAK KEDUA — penyewa / penerima unit
+  type: 'mobilization' | 'demobilization';
+  contractNumber: string;
+};
 export type PdfData = {
   title: string;
   number: string;
@@ -145,10 +167,18 @@ export type PdfData = {
   verifyUrl?: string;
   handover?: boolean;
   dueDate?: string;
+  parties?: PdfParties;
 };
 
 export function BusinessDocument({ data }: { data: PdfData }) {
   const infoTitle = data.handover ? 'A. INFORMASI UNIT & SERAH TERIMA' : undefined;
+  const parties = data.parties;
+  const jenisLabel = parties ? (parties.type === 'mobilization' ? 'Mobilisasi (Penyerahan Unit)' : 'Demobilisasi (Pengembalian Unit)') : undefined;
+  const dotted = '( .............................................. )';
+  // Peran tanda tangan mengikuti jenis serah terima: mobilisasi = P1 menyerahkan,
+  // demobilisasi = P2 mengembalikan (P1 menerima kembali).
+  const firstRole = parties?.type === 'demobilization' ? 'Yang menerima kembali,' : 'Yang menyerahkan,';
+  const secondRole = parties?.type === 'demobilization' ? 'Yang mengembalikan,' : 'Yang menerima,';
   return (
     <Document title={data.title} author={data.company.companyName} subject={data.number} language="id">
       <Page size="A4" style={styles.page}>
@@ -169,26 +199,69 @@ export function BusinessDocument({ data }: { data: PdfData }) {
         </View>
         <Text style={styles.title}>{data.title}</Text>
         <Text style={styles.number}>Nomor: {data.number}</Text>
-        <View style={styles.meta}>
-          <View style={{ width: '58%' }}>
-            <Text style={styles.label}>KEPADA YTH.</Text>
-            <Text style={styles.value}>{data.clientName}</Text>
-            <Text style={styles.sub}>{data.clientAddress}</Text>
+        {parties ? (
+          // BAST resmi: kop tanggal + kontrak saja — identitas para pihak
+          // tampil utuh di blok PIHAK PERTAMA/PIHAK KEDUA di bawah.
+          <View style={styles.meta}>
+            <View style={{ width: '58%' }}>
+              <Text style={styles.label}>JENIS SERAH TERIMA</Text>
+              <Text style={styles.value}>{jenisLabel}</Text>
+              <Text style={styles.sub}>Kontrak: {parties.contractNumber}</Text>
+            </View>
+            <View>
+              <Text style={styles.label}>TANGGAL DOKUMEN</Text>
+              <Text style={styles.value}>{parties.openingDate}</Text>
+            </View>
           </View>
-          <View>
-            <Text style={styles.label}>TANGGAL DOKUMEN</Text>
-            <Text style={styles.value}>{data.date}</Text>
-            <Text style={styles.sub}>Kontrak: {data.reference}</Text>
-            {data.dueDate && <Text style={styles.sub}>Jatuh tempo: {data.dueDate}</Text>}
+        ) : (
+          <View style={styles.meta}>
+            <View style={{ width: '58%' }}>
+              <Text style={styles.label}>KEPADA YTH.</Text>
+              <Text style={styles.value}>{data.clientName}</Text>
+              <Text style={styles.sub}>{data.clientAddress}</Text>
+            </View>
+            <View>
+              <Text style={styles.label}>TANGGAL DOKUMEN</Text>
+              <Text style={styles.value}>{data.date}</Text>
+              <Text style={styles.sub}>Kontrak: {data.reference}</Text>
+              {data.dueDate && <Text style={styles.sub}>Jatuh tempo: {data.dueDate}</Text>}
+            </View>
           </View>
-        </View>
-        <Text style={styles.intro}>
-          {data.handover
-            ? 'Dengan ini para pihak menyatakan telah melaksanakan pemeriksaan dan serah terima unit alat berat dengan rincian sebagai berikut:'
-            : data.total
-              ? 'Bersama ini kami sampaikan tagihan sewa alat berat sesuai dengan kontrak dan rincian pekerjaan berikut:'
-              : 'Dengan hormat, kami menyampaikan penawaran harga sewa alat berat dengan rincian dan ketentuan sebagai berikut:'}
-        </Text>
+        )}
+        {parties ? (
+          <>
+            <Text style={styles.partiesIntro}>
+              Pada hari ini, <Text style={{ fontFamily: 'Helvetica-Bold' }}>{parties.openingDate}</Text>, yang bertanda tangan di bawah ini:
+            </Text>
+            <View style={styles.partyBlock} wrap={false}>
+              <Text style={styles.partyHeading}>1. PIHAK PERTAMA <Text style={styles.partyRole}>(Penyedia jasa / pemilik unit)</Text></Text>
+              <View style={styles.partyRow}><Text style={styles.partyKey}>Nama</Text><Text style={styles.partyVal}>: {parties.first.name}</Text></View>
+              <View style={styles.partyRow}><Text style={styles.partyKey}>Alamat</Text><Text style={styles.partyVal}>: {parties.first.address}</Text></View>
+              <View style={styles.partyRow}><Text style={styles.partyKey}>Wakil</Text><Text style={styles.partyVal}>: {parties.first.representative || dotted}</Text></View>
+              <View style={styles.partyRow}><Text style={styles.partyKey}>Jabatan</Text><Text style={styles.partyVal}>: {parties.first.title || dotted}</Text></View>
+            </View>
+            <View style={styles.partyBlock} wrap={false}>
+              <Text style={styles.partyHeading}>2. PIHAK KEDUA <Text style={styles.partyRole}>(Penyewa / pengguna unit)</Text></Text>
+              <View style={styles.partyRow}><Text style={styles.partyKey}>Nama</Text><Text style={styles.partyVal}>: {parties.second.name}</Text></View>
+              <View style={styles.partyRow}><Text style={styles.partyKey}>Alamat</Text><Text style={styles.partyVal}>: {parties.second.address}</Text></View>
+              <View style={styles.partyRow}><Text style={styles.partyKey}>Wakil</Text><Text style={styles.partyVal}>: {parties.second.representative || dotted}</Text></View>
+              <View style={styles.partyRow}><Text style={styles.partyKey}>Jabatan</Text><Text style={styles.partyVal}>: {parties.second.title || dotted}</Text></View>
+            </View>
+            <Text style={styles.partiesIntro}>
+              {parties.type === 'mobilization'
+                ? `PIHAK PERTAMA dengan ini menyerahkan kepada PIHAK KEDUA unit alat berat dengan rincian dan kelengkapan sebagaimana tercantum di bawah ini, untuk digunakan dalam pelaksanaan Kontrak Sewa ${parties.contractNumber}:`
+                : `PIHAK KEDUA dengan ini mengembalikan kepada PIHAK PERTAMA unit alat berat sewaan dengan rincian sebagaimana tercantum di bawah ini, sehubungan dengan berakhirnya masa sewa pada Kontrak ${parties.contractNumber}:`}
+            </Text>
+          </>
+        ) : (
+          <Text style={styles.intro}>
+            {data.handover
+              ? 'Dengan ini para pihak menyatakan telah melaksanakan pemeriksaan dan serah terima unit alat berat dengan rincian sebagai berikut:'
+              : data.total
+                ? 'Bersama ini kami sampaikan tagihan sewa alat berat sesuai dengan kontrak dan rincian pekerjaan berikut:'
+                : 'Dengan hormat, kami menyampaikan penawaran harga sewa alat berat dengan rincian dan ketentuan sebagai berikut:'}
+          </Text>
+        )}
         {infoTitle && <Text style={styles.sectionTitle}>{infoTitle}</Text>}
         <View style={styles.table}>
           <View style={styles.tableHead}>
@@ -219,6 +292,11 @@ export function BusinessDocument({ data }: { data: PdfData }) {
                 </View>
               ))}
             </View>
+            {parties && (
+              <Text style={styles.clause}>
+                PIHAK KEDUA menyatakan telah melakukan pemeriksaan bersama PIHAK PERTAMA atas unit di atas dan menerimanya dalam kondisi sebagaimana hasil pemeriksaan tersebut, lengkap dengan kelengkapan standarnya, serta layak untuk dioperasikan.
+              </Text>
+            )}
           </>
         )}
         {data.total && (
@@ -277,22 +355,54 @@ export function BusinessDocument({ data }: { data: PdfData }) {
           <Text style={{ fontFamily: 'Helvetica-Bold', marginBottom: 2 }}>CATATAN DAN KETENTUAN</Text>
           <Text>{data.notes}</Text>
         </View>
-        <View style={styles.signatureRow} wrap={false}>
-          <View style={styles.signature}>
-            <Text style={styles.signatureHeader}>{data.handover ? 'Pihak yang menyerahkan,' : 'Hormat kami,'}</Text>
-            <Text style={styles.signatureCompany}>{data.company.companyName}</Text>
-            <View style={styles.signatureSpace} />
-            <Text style={styles.signatureLine}>{data.company.signerName || '( .............................................. )'}</Text>
-            <Text style={styles.signerTitle}>{data.company.signerTitle || 'Nama dan tanda tangan'}</Text>
+        {parties && (
+          <Text style={styles.clause}>
+            Demikian berita acara serah terima ini dibuat dalam rangkap 2 (dua) rangkap yang masing-masing mempunyai kekuatan hukum yang sama dan tidak dapat diganggu gugat, ditandatangani dan dipergunakan sebagaimana mestinya oleh para pihak.
+          </Text>
+        )}
+        {parties ? (
+          // BAST resmi: PIHAK PERTAMA · PIHAK KEDUA · Mengetahui (pihak ketiga/
+          // atasan langsung — dikosongkan untuk diisi bila diperlukan).
+          <View style={styles.signatureRow} wrap={false}>
+            <View style={styles.signature3}>
+              <Text style={styles.signatureHeader}>{firstRole}</Text>
+              <Text style={styles.signatureCompany}>{parties.first.name}</Text>
+              <View style={styles.signature3Space} />
+              <Text style={styles.signatureLine}>{parties.first.representative || dotted}</Text>
+              <Text style={styles.signerTitle}>{parties.first.title || 'PIHAK PERTAMA'}</Text>
+            </View>
+            <View style={styles.signature3}>
+              <Text style={styles.signatureHeader}>{secondRole}</Text>
+              <Text style={styles.signatureCompany}>{parties.second.name}</Text>
+              <View style={styles.signature3Space} />
+              <Text style={styles.signatureLine}>{parties.second.representative || dotted}</Text>
+              <Text style={styles.signerTitle}>{parties.second.title || 'PIHAK KEDUA'}</Text>
+            </View>
+            <View style={styles.signature3}>
+              <Text style={styles.signatureHeader}>Mengetahui,</Text>
+              <View style={styles.signature3Space} />
+              <Text style={styles.signatureLine}>{dotted}</Text>
+              <Text style={styles.signerTitle}>Nama dan tanda tangan</Text>
+            </View>
           </View>
-          <View style={styles.signature}>
-            <Text style={styles.signatureHeader}>{data.handover ? 'Pihak yang menerima,' : 'Diterima dan disetujui oleh,'}</Text>
-            <Text style={styles.signatureCompany}>{data.clientName}</Text>
-            <View style={styles.signatureSpace} />
-            <Text style={styles.signatureLine}>{data.clientPic || '( .............................................. )'}</Text>
-            <Text style={styles.signerTitle}>{data.clientPic ? 'Nama dan tanda tangan' : 'Nama dan tanda tangan'}</Text>
+        ) : (
+          <View style={styles.signatureRow} wrap={false}>
+            <View style={styles.signature}>
+              <Text style={styles.signatureHeader}>{data.handover ? 'Pihak yang menyerahkan,' : 'Hormat kami,'}</Text>
+              <Text style={styles.signatureCompany}>{data.company.companyName}</Text>
+              <View style={styles.signatureSpace} />
+              <Text style={styles.signatureLine}>{data.company.signerName || '( .............................................. )'}</Text>
+              <Text style={styles.signerTitle}>{data.company.signerTitle || 'Nama dan tanda tangan'}</Text>
+            </View>
+            <View style={styles.signature}>
+              <Text style={styles.signatureHeader}>{data.handover ? 'Pihak yang menerima,' : 'Diterima dan disetujui oleh,'}</Text>
+              <Text style={styles.signatureCompany}>{data.clientName}</Text>
+              <View style={styles.signatureSpace} />
+              <Text style={styles.signatureLine}>{data.clientPic || '( .............................................. )'}</Text>
+              <Text style={styles.signerTitle}>{data.clientPic ? 'Nama dan tanda tangan' : 'Nama dan tanda tangan'}</Text>
+            </View>
           </View>
-        </View>
+        )}
         <View style={styles.footer} fixed>
           {data.qrPath ? (
             <Svg style={styles.qr} viewBox={`0 0 ${data.qrSize} ${data.qrSize}`}>
