@@ -51,7 +51,10 @@ supabase/
 │   │                                    · company_settings
 │   ├── 0003_functions.sql               current_app_role() — pembaca role utk RLS
 │   ├── 0004_rls_policies.sql            ENABLE RLS + semua kebijakan per role
-│   └── 0005_performance_indexes.sql     indeks kolom FK & status (roadmap Fase 0.6)
+│   ├── 0005_performance_indexes.sql     indeks kolom FK & status (roadmap Fase 0.6)
+│   ├── 0006_bast_checklist.sql            9 kolom boolean BAST (migrasi 0006, tabel handovers)
+│   ├── 0007_contract_revisions.sql        tabel contract_revisions + RLS (dependen 0001/0003/0004)
+│   └── 0008_signer_fields.sql             kolom signer_name + signer_title di company_settings (dependen 0002)
 │
 ├── seed/
 │   └── bootstrap_settings.sql           baris awal company_settings (kop surat);
@@ -248,6 +251,9 @@ Lanjut ke §7 (change management) — alur ini yang dipakai selamanya setelah go
 | 3 | `0003_functions.sql` | `current_app_role()` — `SECURITY DEFINER`, baca role dari `profiles` | #1 (profiles) |
 | 4 | `0004_rls_policies.sql` | ENABLE RLS + policy: `staff_read` (tabel non-invoice), `invoice_read` (admin/operations/finance — **operator tidak dapat membaca invoice**), `operations_write`, `timesheet_submit`, `timesheet_review`, `invoice_write`, `settings_admin`, `profile_*` | #2 (semua tabel) + #3 (fungsi) |
 | 5 | `0005_performance_indexes.sql` | Indeks FK (`contracts.client_id`, `invoices.contract_id`, `handovers.contract_id`, `timesheets.operator_id/invoice_id`) + `fleet.status` | #2 (idempotent, `IF NOT EXISTS`) |
+| 6 | `0006_bast_checklist.sql` | 9 kolom boolean BAST (`oil`…`documents`, NOT NULL DEFAULT TRUE) | #2 (tabel `handovers`) |
+| 7 | `0007_contract_revisions.sql` | Tabel `contract_revisions` + indeks + RLS (`staff_read` semua role, `operations_write` admin/operations) | #1 (`contracts`, `fleet`, `profiles`) + #3/#4 (fungsi & pola RLS) |
+| 8 | `0008_signer_fields.sql` | Kolom `signer_name` + `signer_title` di `company_settings` untuk blok TTD PDF | #2 (tabel `company_settings`) |
 
 ```
 0001 ──► 0002 ──► 0004
@@ -306,6 +312,7 @@ Kebijakan di `0004_rls_policies.sql` (berlaku untuk akses via Supabase Data API;
 | `timesheets` | semua role internal | admin, operations, **operator** | admin, operations | — | operator: hanya `operator_id = auth.uid()`, `status='pending'`, `invoice_id IS NULL` |
 | `invoices` | admin, operations, finance | admin, finance | admin, finance | admin, finance | operator sengaja tidak diberi akses baca — selaras pembatasan route PDF invoice & CSV laporan |
 | `handovers` | semua role internal | admin, operations | admin, operations | admin, operations | — |
+| `contract_revisions` | semua role internal | admin, operations | admin, operations | admin, operations | Revisi = amandemen bernomor + alasan; tarif baru hanya untuk jam belum tertagih |
 | `company_settings` | semua role internal | admin | admin | admin | — |
 
 ---

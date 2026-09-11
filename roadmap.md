@@ -211,35 +211,25 @@ Dua sumber kebenaran ini sudah hampir identik, tetapi ada divergensi kecil yang 
 
 ### 5.1 Alur bisnis utama (happy path)
 
+```mermaid
+flowchart TD
+    M[Master: Armada + Klien]
+    K1[1 Kontrak Sewa aktif]
+    B1[2 BAST Mobilisasi]
+    T[3 Timesheet Harian pending]
+    A[Persetujuan approved]
+    I[4 Invoice dari jam approved]
+    L[Tandai Lunas paid]
+    B2[5 BAST Demobilisasi]
+    K2[6 Kontrak completed]
+    M --> K1 --> B1 --> T --> A --> I --> L --> B2 --> K2
 ```
- [Admin/Operations]           [Admin/Operations]        [Operator]
- Register Armada (fleet)      Register Klien (clients)      │
-        └────────────┬───────────────┘                        │
-                     ▼                                        │
-          Buat Kontrak Sewa (contracts)  ◄── unit harus 'available'
-            status unit → 'renting'   (lock FOR UPDATE, 1 kontrak aktif/unit)
-                     │                                        │
-                     │  (opsional) BAST Mobilisasi ───────────┤
-                     ▼                                        ▼
-        Catatan Timesheet Harian  ◄── UNIQUE(contract, tanggal)
-              HM awal/akhir + jam breakdown (CHECK constraint)
-              status awal: 'pending'
-                     │
-                     ▼
-        Persetujuan Manajer (admin/operations)
-              'approved' / 'rejected'   (hanya status pending, belum tertagih)
-                     │
-                     ▼
-        [Admin/Finance] Buat Invoice  ◄── lock kontrak + lock timesheet
-              agregasi jam efektif × tarif + PPN 11%
-              semua timesheet dibill → invoice_id terisi (1 transaksi)
-                     │
-                     ▼
-        Dokumen PDF (Invoice / SPH / BAST) + QR → /verify/doc
-                     │
-                     ▼
-        Tandai Lunas (admin/finance)  ── kontrak selesai → unit 'available'
-```
+
+> Urutan mengikat: kontrak aktif dulu, BAST mengapit masa sewa
+> (mobilisasi awal, demobilisasi akhir), invoice hanya dari jam
+> approved belum tertagih, unit bebas lagi setelah kontrak completed.
+> BAST 12 titik: mesin, hidraulik, rantai/roda, oli, BBM, aki, lampu,
+> rem, bucket, kabin, APAR/P3K, SIKO (migrasi 0006).
 
 ### 5.2 Matriks hak akses per modul
 
@@ -391,6 +381,14 @@ Estimasi = effort relatif untuk 1–2 engineer. Prioritas mengikuti prinsip: **k
 | 2.8 | **Notifikasi** | In-app (sudah ada badge) + email opsional: timesheet menunggu approval, invoice jatuh tempo, SIKO/asuransi 30 hari |
 | 2.9 | **PPN configurable** | `company_settings.ppn_rate` + validasi; dokumen & invoice memakai nilai setting |
 | 2.10 | Penomoran dokumen berurutan | Sequence per prefix per tahun dengan retry aman terhadap 23505 |
+| 2.11 | **Reset database (admin)** | Menu Zona Berbahaya di Pengaturan: hapus data operasional (timesheet, BAST, invoice, kontrak, klien, armada) via Server Action resetDatabase, proteksi frasa HAPUS SEMUA DATA, profil + pengaturan dipertahankan — selesai |
+| 2.12 | **BAST 12 titik pemeriksaan** | Daftar Pemeriksaan Unit: mesin, hidraulik, rantai/roda, oli, bbm, aki, lampu, rem, bucket, kabin, APAR/P3K, SIKO; migrasi 0006_bast_checklist.sql, tampil di form + PDF — selesai |
+| 2.13 | **Menu sidebar grup bernomor** | Opsi B: DATA POKOK (armada, klien), SEWA BERJALAN (1. kontrak, 2. BAST, 3. timesheet), KEUANGAN (4. invoice); search + bantuan ikut nama baru — selesai |
+| 2.14 | **Bulk armada + kategori custom** | Tambah Banyak: prefix + nomor awal + jumlah 1–50 (satu baris = satu fisik, duplikat dilewati); kategori custom via opsi + Tambah kategori baru; komposisi armada di info-callout; tanpa migrasi — selesai |
+| 2.15 | **PDF kompak BAST/SPH + QR fallback** | BAST Tabel A info + Tabel B checklist No/Komponen/Kondisi; TTD kompak wrap=false; URL verifikasi teks di footer bila QR gagal; boleh 2 halaman — selesai |
+| 2.16 | **Revisi kontrak (amandemen)** | Hanya kontrak aktif; ubah periode/tarif/ganti unit tersedia + alasan ≥10 karakter; tiap revisi bernomor di `contract_revisions` (migrasi 0007 + RLS); tolak periode memotong timesheet & ganti unit bila timesheet ada; tarif baru hanya untuk jam belum tertagih — selesai |
+| 2.17 | **Skala tipografi & aksi tabel** | Naikkan skala font UI (body 13→16px; teks kecil 7–13px → +2–3px, ±219 deklarasi di `globals.css`) tanpa menyentuh PDF; seluruh tombol aksi tabel jadi ikon + label (Ubah/Hapus/Revisi/Selesai/Tandai Lunas/Setujui/Tolak/Unduh) dengan pemisah antar tombol; tick chart ikut naik — selesai |
+| 2.18 | **PDF: QR vektor, BAST 1 halaman, nama penandatangan** | QR footer digambar sebagai path SVG dari matriks `qrcode` (tanpa decoder PNG/Image); kompaksi padding/margin BAST agar 12 titik + blok TTD muat 1 halaman A4; nama penandatangan vendor dari `company_settings.signer_name/signer_title` + nama klien dari `clients.pic_name`, tampil untuk SPH/BAST/Invoice; migrasi 0008 — selesai |
 
 ### Fase 3 — Skala & Nilai Tambah *(±kuarter berikutnya, prioritas ditentukan feedback pilot)*
 

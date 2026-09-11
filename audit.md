@@ -123,6 +123,10 @@ Mengikuti Fase 0 di `roadmap.md` — empat item pertama menutup semua temuan **m
 ─── sprint berikutnya ───
 9.  A6 test finansial → O1 query per-modul → A7 audit log → A9 payment ledger
 10. Sisanya sesuai prioritas di atas
+11. ✅ SELESAI (fitur app, bukan temuan audit) — menu grup bernomor, bulk armada + kategori custom, PDF kompak + QR fallback (roadmap 2.13–2.15); verifikasi ulang 11 Sep 2026: lint 0, tsc 0, build tanpa env sukses, audit prod 0 vuln
+12. ✅ SELESAI (fitur app) — QR PDF tampil (`src={{uri}} cache={false}` + hapus import `createElement` tak terpakai) + revisi kontrak amandemen bernomor (roadmap 2.16, migrasi 0007 + RLS); validasi: lint 0, tsc 0, build tanpa env sukses, audit prod 0 vuln
+13. ✅ SELESAI (UI/UX) — skala tipografi dinaikkan (body 13→16px; teks kecil 7–13px → +2–3px, ±219 deklarasi `globals.css`) + tombol aksi tabel konsisten ikon + label dengan pemisah (Ubah/Hapus/Revisi/Selesai/Tandai Lunas/Setujui/Tolak/Unduh); tick chart ikut naik; file PDF tidak diubah (roadmap 2.17). Validasi: lint 0, tsc 0, build tanpa env sukses, audit prod 0 vuln
+14. ✅ SELESAI (PDF) — QR vektor SVG dari matriks qrcode, BAST 12 titik + TTD dalam 1 halaman A4, nama penandatangan vendor (`signer_name`/`signer_title`) + nama klien (`pic_name`) untuk SPH/BAST/Invoice; migrasi 0008 (roadmap 2.18). Validasi: lint 0, tsc 0, build tanpa env sukses, audit prod 0 vuln
 ```
 
 ---
