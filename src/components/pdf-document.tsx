@@ -1,6 +1,208 @@
 import { Document, Page, Text, View, Svg, Path, StyleSheet } from '@react-pdf/renderer';
-const styles=StyleSheet.create({page:{paddingTop:32,paddingBottom:88,paddingHorizontal:40,fontFamily:'Helvetica',fontSize:8,color:'#323c47',lineHeight:1.45},letterhead:{flexDirection:'row',justifyContent:'space-between',borderBottomWidth:2,borderBottomColor:'#e37b36',paddingBottom:9,marginBottom:10},logo:{fontSize:20,fontFamily:'Helvetica-Bold',letterSpacing:-1,color:'#26323c'},logoAccent:{color:'#df7a38'},company:{fontSize:10,fontFamily:'Helvetica-Bold',marginBottom:3},contact:{fontSize:7.5,color:'#7c8792'},title:{fontSize:15,fontFamily:'Helvetica-Bold',textAlign:'center',marginBottom:2,color:'#273642'},number:{fontSize:9,textAlign:'center',color:'#89929b',marginBottom:12},meta:{flexDirection:'row',justifyContent:'space-between',marginBottom:8},label:{fontSize:7,color:'#929aa3',marginBottom:3},value:{fontSize:9,fontFamily:'Helvetica-Bold'},sub:{fontSize:7.5,color:'#7c8792',marginTop:3},intro:{fontSize:8,marginBottom:3},sectionTitle:{fontSize:8.5,fontFamily:'Helvetica-Bold',color:'#273642',marginTop:5,marginBottom:4},table:{marginTop:3,borderWidth:1,borderColor:'#e5e8eb'},tableHead:{flexDirection:'row',backgroundColor:'#f5f6f7',padding:3,borderBottomWidth:1,borderBottomColor:'#e5e8eb',fontSize:7.5,fontFamily:'Helvetica-Bold'},tableRow:{flexDirection:'row',padding:3,borderBottomWidth:1,borderBottomColor:'#edf0f2',fontSize:8},colDescription:{width:'58%'},colValue:{width:'42%',textAlign:'right'},colNo:{width:'10%'},colItem:{width:'55%'},colCond:{width:'35%',textAlign:'right'},condOk:{color:'#348b67',fontFamily:'Helvetica-Bold'},condBad:{color:'#c65e56',fontFamily:'Helvetica-Bold'},totals:{alignSelf:'flex-end',width:'52%',marginTop:8},totalRow:{flexDirection:'row',justifyContent:'space-between',paddingVertical:3},grandTotal:{flexDirection:'row',justifyContent:'space-between',borderTopWidth:1,borderTopColor:'#e5e8eb',marginTop:5,paddingTop:7,fontFamily:'Helvetica-Bold',fontSize:11,color:'#d57a3d'},notes:{marginTop:8,padding:6,backgroundColor:'#faf8f4',fontSize:7.5,color:'#827f77'},signatureRow:{flexDirection:'row',justifyContent:'space-between',marginTop:10},signature:{width:'42%',textAlign:'center',fontSize:8},signerName:{fontSize:8,fontFamily:'Helvetica-Bold',marginTop:4},signerTitle:{fontSize:6.5,color:'#7c8792',marginTop:1},signatureSpace:{height:18},signatureLine:{borderTopWidth:1,borderTopColor:'#bdc3ca',paddingTop:4},footer:{position:'absolute',bottom:24,left:40,right:40,borderTopWidth:1,borderTopColor:'#e7e9ec',paddingTop:9,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},qr:{width:52,height:52},footerText:{fontSize:6.5,color:'#9ba2aa',width:'70%'},verifyUrl:{fontSize:6.5,color:'#5b6470',marginTop:2},pageNumber:{fontSize:7,color:'#9ba2aa',textAlign:'right'}});
-export type PdfCheck={item:string;ok:boolean};
-export type PdfData={title:string;number:string;company:{companyName:string;address:string;email:string;phone:string;signerName?:string;signerTitle?:string};clientName:string;clientAddress:string;clientPic?:string;date:string;reference:string;rows:{label:string;value:string}[];checklist?:PdfCheck[];subtotal?:string;tax?:string;total?:string;notes:string;qrPath:string;qrSize:number;verifyUrl?:string;handover?:boolean;dueDate?:string};
-export function BusinessDocument({data}:{data:PdfData}){const infoTitle=data.handover?'A. INFORMASI UNIT & SERAH TERIMA':undefined;return <Document title={data.title} author={data.company.companyName} subject={data.number} language="id"><Page size="A4" style={styles.page}><View style={styles.letterhead}><View><Text style={styles.logo}>HEAVY<Text style={styles.logoAccent}>OPS.</Text></Text><Text style={styles.contact}>SISTEM MANAJEMEN RENTAL ALAT BERAT</Text></View><View style={{maxWidth:255,textAlign:'right'}}><Text style={styles.company}>{data.company.companyName}</Text><Text style={styles.contact}>{data.company.address}</Text><Text style={styles.contact}>{data.company.email} | {data.company.phone}</Text></View></View><Text style={styles.title}>{data.title}</Text><Text style={styles.number}>Nomor: {data.number}</Text><View style={styles.meta}><View style={{width:'60%'}}><Text style={styles.label}>KEPADA YTH.</Text><Text style={styles.value}>{data.clientName}</Text><Text style={styles.sub}>{data.clientAddress}</Text></View><View><Text style={styles.label}>TANGGAL DOKUMEN</Text><Text style={styles.value}>{data.date}</Text><Text style={styles.sub}>Kontrak: {data.reference}</Text>{data.dueDate&&<Text style={styles.sub}>Jatuh tempo: {data.dueDate}</Text>}</View></View><Text style={styles.intro}>{data.handover?'Dengan ini para pihak menyatakan telah melaksanakan pemeriksaan dan serah terima unit alat berat dengan rincian sebagai berikut:':data.total?'Bersama ini kami sampaikan tagihan sewa alat berat sesuai dengan kontrak dan rincian pekerjaan berikut:':'Dengan hormat, kami menyampaikan penawaran harga sewa alat berat dengan rincian dan ketentuan sebagai berikut:'}</Text>{infoTitle&&<Text style={styles.sectionTitle}>{infoTitle}</Text>}<View style={styles.table}><View style={styles.tableHead}><Text style={styles.colDescription}>URAIAN</Text><Text style={styles.colValue}>KETERANGAN / NILAI</Text></View>{data.rows.map((row,i)=><View key={i} style={styles.tableRow} wrap={false}><Text style={styles.colDescription}>{row.label}</Text><Text style={styles.colValue}>{row.value}</Text></View>)}</View>{data.checklist&&data.checklist.length>0&&<><Text style={styles.sectionTitle}>B. DAFTAR PEMERIKSAAN UNIT ({data.checklist.length} TITIK)</Text><View style={styles.table}><View style={styles.tableHead}><Text style={styles.colNo}>NO</Text><Text style={styles.colItem}>KOMPONEN</Text><Text style={styles.colCond}>KONDISI</Text></View>{data.checklist.map((c,i)=><View key={i} style={styles.tableRow} wrap={false}><Text style={styles.colNo}>{i+1}</Text><Text style={styles.colItem}>{c.item}</Text><Text style={[styles.colCond,c.ok?styles.condOk:styles.condBad]}>{c.ok?'Baik':'Perlu perhatian'}</Text></View>)}</View></>}{data.total&&<View style={styles.totals}><View style={styles.totalRow}><Text>Subtotal</Text><Text>{data.subtotal}</Text></View><View style={styles.totalRow}><Text>PPN 11%</Text><Text>{data.tax}</Text></View><View style={styles.grandTotal}><Text>Total Tagihan</Text><Text>{data.total}</Text></View></View>}<View style={styles.notes}><Text style={{fontFamily:'Helvetica-Bold',marginBottom:3}}>CATATAN DAN KETENTUAN</Text><Text>{data.notes}</Text></View><View style={styles.signatureRow} wrap={false}><View style={styles.signature}><Text>{data.handover?'Pihak yang menyerahkan,':'Hormat kami,'}</Text><Text>{data.company.companyName}</Text><View style={styles.signatureSpace}/>{data.company.signerName?<Text style={styles.signerName}>{data.company.signerName}</Text>:null}{data.company.signerTitle?<Text style={styles.signerTitle}>{data.company.signerTitle}</Text>:null}<Text style={styles.signatureLine}>Nama dan tanda tangan</Text></View><View style={styles.signature}><Text>{data.handover?'Pihak yang menerima,':'Diterima dan disetujui oleh,'}</Text><Text>{data.clientName}</Text><View style={styles.signatureSpace}/>{data.clientPic?<Text style={styles.signerName}>{data.clientPic}</Text>:null}<Text style={styles.signatureLine}>Nama dan tanda tangan</Text></View></View><View style={styles.footer} fixed>{/* QR dirender sebagai vektor SVG (path) agar tidak bergantung pada decoder PNG runtime. */}
-<Svg style={styles.qr} viewBox={`0 0 ${data.qrSize} ${data.qrSize}`}><Path d={data.qrPath} fill="#000000"/></Svg><View style={styles.footerText}><Text>VERIFIKASI DOKUMEN</Text><Text>Pindai kode QR untuk memeriksa keabsahan nomor dokumen pada sistem HeavyOps. Dokumen ini diterbitkan secara elektronik; tanda tangan dilengkapi oleh para pihak.</Text>{data.verifyUrl&&<Text style={styles.verifyUrl}>{data.verifyUrl}</Text>}</View><Text style={styles.pageNumber} render={({pageNumber,totalPages})=>`${pageNumber} / ${totalPages}`}/></View></Page></Document>;}
+
+const styles = StyleSheet.create({
+  page: { paddingTop: 32, paddingBottom: 94, paddingHorizontal: 40, fontFamily: 'Helvetica', fontSize: 8, color: '#323c47', lineHeight: 1.45 },
+  letterhead: { flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: 2, borderBottomColor: '#e37b36', paddingBottom: 9, marginBottom: 10 },
+  logo: { fontSize: 20, fontFamily: 'Helvetica-Bold', letterSpacing: -1, color: '#26323c' },
+  logoAccent: { color: '#df7a38' },
+  company: { fontSize: 10, fontFamily: 'Helvetica-Bold', marginBottom: 3 },
+  contact: { fontSize: 7.5, color: '#7c8792' },
+  title: { fontSize: 15, fontFamily: 'Helvetica-Bold', textAlign: 'center', marginBottom: 2, color: '#273642' },
+  number: { fontSize: 9, textAlign: 'center', color: '#89929b', marginBottom: 12 },
+  meta: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  label: { fontSize: 7, color: '#929aa3', marginBottom: 3 },
+  value: { fontSize: 9, fontFamily: 'Helvetica-Bold' },
+  sub: { fontSize: 7.5, color: '#7c8792', marginTop: 3 },
+  intro: { fontSize: 8, marginBottom: 3 },
+  sectionTitle: { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#273642', marginTop: 5, marginBottom: 4 },
+  table: { marginTop: 3, borderWidth: 1, borderColor: '#e5e8eb' },
+  tableHead: { flexDirection: 'row', backgroundColor: '#f5f6f7', padding: 3, borderBottomWidth: 1, borderBottomColor: '#e5e8eb', fontSize: 7.5, fontFamily: 'Helvetica-Bold' },
+  tableRow: { flexDirection: 'row', padding: 3, borderBottomWidth: 1, borderBottomColor: '#edf0f2', fontSize: 8 },
+  colDescription: { width: '58%' },
+  colValue: { width: '42%', textAlign: 'right' },
+  colNo: { width: '10%' },
+  colItem: { width: '55%' },
+  colCond: { width: '35%', textAlign: 'right' },
+  condOk: { color: '#348b67', fontFamily: 'Helvetica-Bold' },
+  condBad: { color: '#c65e56', fontFamily: 'Helvetica-Bold' },
+  totals: { alignSelf: 'flex-end', width: '52%', marginTop: 8 },
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
+  grandTotal: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#e5e8eb', marginTop: 5, paddingTop: 7, fontFamily: 'Helvetica-Bold', fontSize: 11, color: '#d57a3d' },
+  notes: { marginTop: 8, padding: 6, backgroundColor: '#faf8f4', fontSize: 7.5, color: '#827f77' },
+  signatureRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, alignItems: 'flex-end' },
+  signature: { width: '42%', textAlign: 'center', fontSize: 8, flexDirection: 'column', alignItems: 'center' },
+  sigLabel: { fontSize: 8, textAlign: 'center' },
+  sigCompany: { fontSize: 8, textAlign: 'center', marginTop: 2 },
+  signatureSpace: { height: 28 },
+  signerBlock: { height: 26, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 2 },
+  signerName: { fontSize: 8, fontFamily: 'Helvetica-Bold', textAlign: 'center' },
+  signerTitle: { fontSize: 6.5, color: '#7c8792', marginTop: 1, textAlign: 'center' },
+  signatureLine: { borderTopWidth: 1, borderTopColor: '#bdc3ca', paddingTop: 4, width: '100%', textAlign: 'center', fontSize: 7, color: '#5a6570' },
+  footer: { position: 'absolute', bottom: 20, left: 40, right: 40, borderTopWidth: 1, borderTopColor: '#e7e9ec', paddingTop: 9, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#ffffff' },
+  qr: { width: 50, height: 50 },
+  qrPlaceholder: { width: 50, height: 50, borderWidth: 1, borderColor: '#bdc3ca', justifyContent: 'center', alignItems: 'center' },
+  footerText: { fontSize: 6.5, color: '#9ba2aa', width: '70%' },
+  verifyUrl: { fontSize: 6, color: '#5b6470', marginTop: 2 },
+  pageNumber: { fontSize: 7, color: '#9ba2aa', textAlign: 'right' },
+});
+
+export type PdfCheck = { item: string; ok: boolean };
+export type PdfData = {
+  title: string;
+  number: string;
+  company: { companyName: string; address: string; email: string; phone: string; signerName?: string; signerTitle?: string };
+  clientName: string;
+  clientAddress: string;
+  clientPic?: string;
+  date: string;
+  reference: string;
+  rows: { label: string; value: string }[];
+  checklist?: PdfCheck[];
+  subtotal?: string;
+  tax?: string;
+  total?: string;
+  notes: string;
+  qrPath: string;
+  qrSize: number;
+  verifyUrl?: string;
+  handover?: boolean;
+  dueDate?: string;
+};
+
+export function BusinessDocument({ data }: { data: PdfData }) {
+  const infoTitle = data.handover ? 'A. INFORMASI UNIT & SERAH TERIMA' : undefined;
+  const hasQr = !!data.qrPath && data.qrSize > 0;
+  return (
+    <Document title={data.title} author={data.company.companyName} subject={data.number} language="id">
+      <Page size="A4" style={styles.page}>
+        <View style={styles.letterhead}>
+          <View>
+            <Text style={styles.logo}>
+              HEAVY<Text style={styles.logoAccent}>OPS.</Text>
+            </Text>
+            <Text style={styles.contact}>SISTEM MANAJEMEN RENTAL ALAT BERAT</Text>
+          </View>
+          <View style={{ maxWidth: 255, textAlign: 'right' }}>
+            <Text style={styles.company}>{data.company.companyName}</Text>
+            <Text style={styles.contact}>{data.company.address}</Text>
+            <Text style={styles.contact}>
+              {data.company.email} | {data.company.phone}
+            </Text>
+          </View>
+        </View>
+        <Text style={styles.title}>{data.title}</Text>
+        <Text style={styles.number}>Nomor: {data.number}</Text>
+        <View style={styles.meta}>
+          <View style={{ width: '60%' }}>
+            <Text style={styles.label}>KEPADA YTH.</Text>
+            <Text style={styles.value}>{data.clientName}</Text>
+            <Text style={styles.sub}>{data.clientAddress}</Text>
+          </View>
+          <View>
+            <Text style={styles.label}>TANGGAL DOKUMEN</Text>
+            <Text style={styles.value}>{data.date}</Text>
+            <Text style={styles.sub}>Kontrak: {data.reference}</Text>
+            {data.dueDate && <Text style={styles.sub}>Jatuh tempo: {data.dueDate}</Text>}
+          </View>
+        </View>
+        <Text style={styles.intro}>
+          {data.handover
+            ? 'Dengan ini para pihak menyatakan telah melaksanakan pemeriksaan dan serah terima unit alat berat dengan rincian sebagai berikut:'
+            : data.total
+              ? 'Bersama ini kami sampaikan tagihan sewa alat berat sesuai dengan kontrak dan rincian pekerjaan berikut:'
+              : 'Dengan hormat, kami menyampaikan penawaran harga sewa alat berat dengan rincian dan ketentuan sebagai berikut:'}
+        </Text>
+        {infoTitle && <Text style={styles.sectionTitle}>{infoTitle}</Text>}
+        <View style={styles.table}>
+          <View style={styles.tableHead}>
+            <Text style={styles.colDescription}>URAIAN</Text>
+            <Text style={styles.colValue}>KETERANGAN / NILAI</Text>
+          </View>
+          {data.rows.map((row, i) => (
+            <View key={i} style={styles.tableRow} wrap={false}>
+              <Text style={styles.colDescription}>{row.label}</Text>
+              <Text style={styles.colValue}>{row.value}</Text>
+            </View>
+          ))}
+        </View>
+        {data.checklist && data.checklist.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>B. DAFTAR PEMERIKSAAN UNIT ({data.checklist.length} TITIK)</Text>
+            <View style={styles.table}>
+              <View style={styles.tableHead}>
+                <Text style={styles.colNo}>NO</Text>
+                <Text style={styles.colItem}>KOMPONEN</Text>
+                <Text style={styles.colCond}>KONDISI</Text>
+              </View>
+              {data.checklist.map((c, i) => (
+                <View key={i} style={styles.tableRow} wrap={false}>
+                  <Text style={styles.colNo}>{i + 1}</Text>
+                  <Text style={styles.colItem}>{c.item}</Text>
+                  <Text style={[styles.colCond, c.ok ? styles.condOk : styles.condBad]}>{c.ok ? 'Baik' : 'Perlu perhatian'}</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+        {data.total && (
+          <View style={styles.totals}>
+            <View style={styles.totalRow}>
+              <Text>Subtotal</Text>
+              <Text>{data.subtotal}</Text>
+            </View>
+            <View style={styles.totalRow}>
+              <Text>PPN 11%</Text>
+              <Text>{data.tax}</Text>
+            </View>
+            <View style={styles.grandTotal}>
+              <Text>Total Tagihan</Text>
+              <Text>{data.total}</Text>
+            </View>
+          </View>
+        )}
+        <View style={styles.notes}>
+          <Text style={{ fontFamily: 'Helvetica-Bold', marginBottom: 3 }}>CATATAN DAN KETENTUAN</Text>
+          <Text>{data.notes}</Text>
+        </View>
+        <View style={styles.signatureRow} wrap={false}>
+          <View style={styles.signature}>
+            <Text style={styles.sigLabel}>{data.handover ? 'Pihak yang menyerahkan,' : 'Hormat kami,'}</Text>
+            <Text style={styles.sigCompany}>{data.company.companyName}</Text>
+            <View style={styles.signatureSpace} />
+            <View style={styles.signerBlock}>
+              {data.company.signerName ? <Text style={styles.signerName}>{data.company.signerName}</Text> : null}
+              {data.company.signerTitle ? <Text style={styles.signerTitle}>{data.company.signerTitle}</Text> : null}
+            </View>
+            <Text style={styles.signatureLine}>Nama dan tanda tangan</Text>
+          </View>
+          <View style={styles.signature}>
+            <Text style={styles.sigLabel}>{data.handover ? 'Pihak yang menerima,' : 'Diterima dan disetujui oleh,'}</Text>
+            <Text style={styles.sigCompany}>{data.clientName}</Text>
+            <View style={styles.signatureSpace} />
+            <View style={styles.signerBlock}>
+              {data.clientPic ? <Text style={styles.signerName}>{data.clientPic}</Text> : null}
+            </View>
+            <Text style={styles.signatureLine}>Nama dan tanda tangan</Text>
+          </View>
+        </View>
+        <View style={styles.footer} fixed>
+          {hasQr ? (
+            <Svg style={styles.qr} viewBox={`0 0 ${data.qrSize} ${data.qrSize}`}>
+              <Path d={data.qrPath} fill="#111111" />
+            </Svg>
+          ) : (
+            <View style={styles.qrPlaceholder}>
+              <Text style={{ fontSize: 6, color: '#9ba2aa' }}>QR</Text>
+            </View>
+          )}
+          <View style={styles.footerText}>
+            <Text>VERIFIKASI DOKUMEN</Text>
+            <Text>Pindai kode QR untuk memeriksa keabsahan nomor dokumen pada sistem HeavyOps. Dokumen ini diterbitkan secara elektronik; tanda tangan dilengkapi oleh para pihak.</Text>
+            {data.verifyUrl && <Text style={styles.verifyUrl}>{data.verifyUrl}</Text>}
+          </View>
+          <Text style={styles.pageNumber} render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
+        </View>
+      </Page>
+    </Document>
+  );
+}
