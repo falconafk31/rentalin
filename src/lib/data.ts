@@ -34,7 +34,7 @@ export type InvoiceRow = typeof s.invoices.$inferSelect & { contractNumber: stri
 // Baris hasil getModulePage: record utuh (untuk form Ubah) + label hasil JOIN.
 export type ModuleRow = FleetRow | ClientRow | ContractRow | TimesheetRow | HandoverRow | InvoiceRow;
 
-const fallbackSettings: CompanySettings = { id: 'main', companyName: 'PT Penyewaan Alat Berat', address: 'Jakarta, Indonesia', email: '', phone: '', signerName: '', signerTitle: '', ppnRate: '11', expiryWarningDays: 30, city: 'Jakarta', timezone: 'WIB' };
+const fallbackSettings: CompanySettings = { id: 'main', companyName: 'PT Penyewaan Alat Berat', address: 'Jakarta, Indonesia', email: '', phone: '', signerName: '', signerTitle: '', ppnRate: '11', expiryWarningDays: 30, city: 'Jakarta', timezone: 'WIB', npwp: '', signerKtp: '', bankName: '', bankAccountName: '', bankAccountNumber: '' };
 
 export const MODULE_SLUGS = ['fleet', 'clients', 'contracts', 'timesheets', 'bast', 'invoices', 'settings'] as const;
 export type ModuleSlug = (typeof MODULE_SLUGS)[number];

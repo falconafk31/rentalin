@@ -43,8 +43,9 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
    city:settings.city,
    number:contract.contractNumber.replace('KTR','PJS'),
    contractNumber:contract.contractNumber,
-   first:{name:settings.companyName,address:settings.address,representative:settings.signerName||undefined,title:settings.signerTitle||undefined},
-   second:{name:client.companyName,address:client.address||'',representative:client.picName||undefined},
+   first:{name:settings.companyName,address:settings.address,representative:settings.signerName||undefined,title:settings.signerTitle||undefined,ktp:settings.signerKtp||undefined,npwp:settings.npwp||undefined},
+   second:{name:client.companyName,address:client.address||'',representative:client.picName||undefined,ktp:client.picKtp||undefined,npwp:client.npwp||undefined},
+   bank:(settings.bankName&&settings.bankAccountName&&settings.bankAccountNumber)?{name:settings.bankName,accountName:settings.bankAccountName,accountNumber:settings.bankAccountNumber}:undefined,
    unit:{brand:unit.brandModel,category:unit.category,year:unit.year?String(unit.year):'—',code:unit.unitCode,bastNumber:bundle.bastNumber},
    period:{start:dateLabel(contract.startDate,tz),end:dateLabel(contract.endDate,tz),days,daysWords:angkaKeKata(days)},
    rate:{hourly:money(contract.ratePerHour),hourlyWords:rupiahKeKata(contract.ratePerHour),ppn:Number(settings.ppnRate??11).toString()},
@@ -76,7 +77,8 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
    data.paidTotal=money(paidTotal);data.remaining=money(Math.max(0,Number(invoice.totalAmount)-paidTotal));
    data.payments=history.slice(0,10).map(p=>({label:`${dateLabel(p.paidAt,tz)} · ${labels[p.method]}${p.reference?` · ${p.reference}`:''}${p.notes?` — ${p.notes.slice(0,60)}`:''}`,value:money(p.amount)}));
   }
-  data.notes=`Pembayaran dilakukan sesuai kesepakatan dalam kontrak sewa. Cantumkan nomor tagihan pada bukti pembayaran dan sampaikan konfirmasi kepada bagian keuangan. PPN dihitung sebesar ${rate}% dari subtotal.`;
+  const bankLine=(settings.bankName&&settings.bankAccountName&&settings.bankAccountNumber)?` Pembayaran dapat ditransfer ke rekening ${settings.bankName} a.n. ${settings.bankAccountName} nomor ${settings.bankAccountNumber}.`:'';
+  data.notes=`Pembayaran dilakukan sesuai kesepakatan dalam kontrak sewa. Cantumkan nomor tagihan pada bukti pembayaran dan sampaikan konfirmasi kepada bagian keuangan. PPN dihitung sebesar ${rate}% dari subtotal.${bankLine}`;
  }
  else if(handover){
   data.handover=true;const raw=handover as unknown as Record<string,boolean>;data.rows.push({label:'Jenis serah terima',value:labels[handover.type]});

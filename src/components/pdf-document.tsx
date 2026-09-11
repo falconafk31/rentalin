@@ -144,7 +144,7 @@ export type PdfCheck = { item: string; ok: boolean };
 // Para pihak pada dokumen resmi (BAST) — mengikuti pola berita acara serah
 // terima alat berat: identitas PIHAK PERTAMA/PIHAK KEDUA (nama, alamat,
 // wakil + jabatan) dan peran masing-masing pada tanda tangan.
-export type PdfParty = { name: string; address: string; representative?: string; title?: string };
+export type PdfParty = { name: string; address: string; representative?: string; title?: string; ktp?: string; npwp?: string };
 export type PdfParties = {
   openingDate: string; // "Jumat, 11 September 2026" — pembuka formal
   city: string; // kota penandatanganan — baris "Kota, tanggal" di atas ttd
@@ -167,6 +167,7 @@ export type PdfAgreement = {
   unit: { brand: string; category: string; year: string; code: string; bastNumber?: string };
   period: { start: string; end: string; days: number; daysWords: string };
   rate: { hourly: string; hourlyWords: string; ppn: string };
+  bank?: { name: string; accountName: string; accountNumber: string }; // rekening tujuan PASAL 3 — bila lengkap di Pengaturan
 };
 export type PdfData = {
   title: string;
@@ -279,15 +280,19 @@ export function BusinessDocument({ data }: { data: PdfData }) {
               <Text style={styles.partyHeading}>1. PIHAK PERTAMA <Text style={styles.partyRole}>(Yang menyewakan — pemilik unit)</Text></Text>
               <View style={styles.partyRow}><Text style={styles.partyKey}>Nama Perusahaan</Text><Text style={styles.partyVal}>: {ag.first.name}</Text></View>
               <View style={styles.partyRow}><Text style={styles.partyKey}>Alamat</Text><Text style={styles.partyVal}>: {ag.first.address}</Text></View>
+              <View style={styles.partyRow}><Text style={styles.partyKey}>NPWP</Text><Text style={styles.partyVal}>: {ag.first.npwp || dotted}</Text></View>
               <View style={styles.partyRow}><Text style={styles.partyKey}>Yang diwakili oleh</Text><Text style={styles.partyVal}>: {ag.first.representative || dotted}</Text></View>
               <View style={styles.partyRow}><Text style={styles.partyKey}>Jabatan</Text><Text style={styles.partyVal}>: {ag.first.title || dotted}</Text></View>
+              <View style={styles.partyRow}><Text style={styles.partyKey}>No. KTP</Text><Text style={styles.partyVal}>: {ag.first.ktp || dotted}</Text></View>
             </View>
             <View style={styles.partyBlock} wrap={false}>
               <Text style={styles.partyHeading}>2. PIHAK KEDUA <Text style={styles.partyRole}>(Penyewa)</Text></Text>
               <View style={styles.partyRow}><Text style={styles.partyKey}>Nama Perusahaan</Text><Text style={styles.partyVal}>: {ag.second.name}</Text></View>
               <View style={styles.partyRow}><Text style={styles.partyKey}>Alamat</Text><Text style={styles.partyVal}>: {ag.second.address}</Text></View>
+              <View style={styles.partyRow}><Text style={styles.partyKey}>NPWP</Text><Text style={styles.partyVal}>: {ag.second.npwp || dotted}</Text></View>
               <View style={styles.partyRow}><Text style={styles.partyKey}>Yang diwakili oleh</Text><Text style={styles.partyVal}>: {ag.second.representative || dotted}</Text></View>
               <View style={styles.partyRow}><Text style={styles.partyKey}>Jabatan</Text><Text style={styles.partyVal}>: {ag.second.title || dotted}</Text></View>
+              <View style={styles.partyRow}><Text style={styles.partyKey}>No. KTP</Text><Text style={styles.partyVal}>: {ag.second.ktp || dotted}</Text></View>
             </View>
             <Text style={styles.partiesIntro}>
               PIHAK PERTAMA dan PIHAK KEDUA selanjutnya disebut PARA PIHAK, sepakat untuk mengadakan Perjanjian Sewa Menyewa Alat Berat (&quot;Perjanjian&quot;) dengan syarat dan ketentuan sebagai berikut:
@@ -307,7 +312,7 @@ export function BusinessDocument({ data }: { data: PdfData }) {
             <Text style={styles.pasalTitle}>HARGA SEWA DAN PEMBAYARAN</Text>
             <Text style={styles.pasalItem}>1. Tarif sewa alat berat sebagaimana disebut dalam Pasal 1 adalah sebesar {ag.rate.hourly}/jam ({ag.rate.hourlyWords} per jam), belum termasuk PPN {ag.rate.ppn}% yang dibebankan pada saat penagihan.</Text>
             <Text style={styles.pasalItem}>2. Penagihan dilakukan berdasarkan jam kerja efektif yang tercatat pada timesheet harian dan telah disetujui PIHAK PERTAMA, dengan durasi kerusakan/penundaan yang bukan tanggung jawab PIHAK KEDUA tidak ditagihkan.</Text>
-            <Text style={styles.pasalItem}>3. Pembayaran dilakukan oleh PIHAK KEDUA kepada PIHAK PERTAMA melalui transfer ke rekening yang ditunjuk secara tertulis oleh PIHAK PERTAMA, paling lambat pada tanggal jatuh tempo tercantum pada setiap faktur tagihan.</Text>
+            <Text style={styles.pasalItem}>3. Pembayaran dilakukan oleh PIHAK KEDUA kepada PIHAK PERTAMA melalui transfer ke {ag.bank ? `rekening ${ag.bank.name} a.n. ${ag.bank.accountName} nomor ${ag.bank.accountNumber}` : 'rekening yang ditunjuk secara tertulis oleh PIHAK PERTAMA'}, paling lambat pada tanggal jatuh tempo tercantum pada setiap faktur tagihan.</Text>
             <Text style={styles.pasalNumber}>PASAL 4</Text>
             <Text style={styles.pasalTitle}>HAK DAN KEWAJIBAN PARA PIHAK</Text>
             <Text style={styles.pasalItem}>1. PIHAK PERTAMA berkewajiban: (a) menyerahkan unit dalam kondisi baik dan layak operasi; (b) melakukan perawatan berkala unit; (c) menyediakan unit pengganti sejenis dalam waktu yang wajar apabila unit mengalami kerusakan di luar penggunaan yang keliru; serta (d) memenuhi standar keselamatan dan kesehatan kerja sesuai ketentuan perundang-undangan.</Text>

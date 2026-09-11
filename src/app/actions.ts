@@ -87,7 +87,7 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
    await logAudit({ ...actor, action: id ? 'update' : 'create', entity: 'fleet', entityId: id || null, summary: `${id ? 'Mengubah' : 'Menambah'} unit ${values.unitCode} (${values.brandModel})` });
   } else if(module==='clients') {
    const email=text(form,'picEmail');if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new FieldError({picEmail:'Alamat surel tidak valid.'});
-   const values={companyName:required(form,'companyName'),picName:required(form,'picName'),npwp:text(form,'npwp'),address:text(form,'address'),picPhone:text(form,'picPhone'),picEmail:email};
+   const values={companyName:required(form,'companyName'),picName:required(form,'picName'),npwp:text(form,'npwp'),picKtp:text(form,'picKtp'),address:text(form,'address'),picPhone:text(form,'picPhone'),picEmail:email};
    if(id)await db.update(s.clients).set(values).where(eq(s.clients.id,id));else await db.insert(s.clients).values(values);
    await logAudit({ ...actor, action: id ? 'update' : 'create', entity: 'clients', entityId: id || null, summary: `${id ? 'Mengubah' : 'Menambah'} klien ${values.companyName}` });
   } else if(module==='contracts') {
@@ -150,7 +150,7 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
    if (!Number.isInteger(expiryWarningDays) || expiryWarningDays > 180) throw new FieldError({ expiryWarningDays: 'Ambang 1–180 hari.' });
    const timezone = resolveTz(text(form,'timezone'));
    const city = (text(form,'city') || 'Jakarta').slice(0, 100);
-   const values={companyName:required(form,'companyName'),address:required(form,'address'),email:required(form,'email'),phone:required(form,'phone'),signerName:text(form,'signerName'),signerTitle:text(form,'signerTitle'),ppnRate:String(ppnRate),expiryWarningDays,city,timezone};
+   const values={companyName:required(form,'companyName'),address:required(form,'address'),email:required(form,'email'),phone:required(form,'phone'),signerName:text(form,'signerName'),signerTitle:text(form,'signerTitle'),npwp:text(form,'npwp'),signerKtp:text(form,'signerKtp'),bankName:text(form,'bankName'),bankAccountName:text(form,'bankAccountName'),bankAccountNumber:text(form,'bankAccountNumber'),ppnRate:String(ppnRate),expiryWarningDays,city,timezone};
    await db.insert(s.companySettings).values({id:'main',...values}).onConflictDoUpdate({target:s.companySettings.id,set:values});
    await logAudit({ ...actor, action: 'update', entity: 'settings', entityId: 'main', summary: `Memperbarui profil perusahaan (PPN ${ppnRate}%, ${timezone})` });
   } else throw new Error('Modul tidak ditemukan.');

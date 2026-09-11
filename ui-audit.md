@@ -134,10 +134,23 @@ PPN **tidak lagi hardcode**. Sekarang jadi konfigurasi perusahaan:
 > "Kota, tanggal", dan tanda tangan PIHAK PERTAMA/KEDUA. Helper `terbilang.ts`
 > (angka → kata, terverifikasi) + halaman verifikasi mengenali `?kind=
 > perjanjian`. Dokumen ±2 halaman A4 dengan QR verifikasi tiap halaman.
-> Yang sengaja tidak diotomasi dari artikel: nomor KTP para pihak, nomor
-> rekening bank (belum ada datanya di sistem — klausul memakai frasa
-> "rekening yang ditunjuk secara tertulis"), meterai fisik/e-meterai, dan
+> Yang sengaja tidak diotomasi dari artikel: meterai fisik/e-meterai dan
 > SIO operator (bisa jadi field berikutnya bila dibutuhkan).
+>
+> **Lampiran gelombang — data rekening & identitas para pihak**: melengkapi
+> komponen artikel yang belum terotomasi. **Pengaturan** bertambah 5 field:
+> NPWP Perusahaan, No. KTP Penandatangan, Nama Bank, Nama Pemilik Rekening,
+> Nomor Rekening; form **Klien** bertambah No. KTP Penanggung Jawab —
+> migration `0019_payment_identity.sql` (aditif, default kosong, idempoten).
+> Di Surat Perjanjian: blok PIHAK PERTAMA/KEDUA kini memuat baris **NPWP**
+> dan **No. KTP** (titik-titik bila kosong; NPWP P2 dari NPWP klien), dan
+> **PASAL 3 butir 3** menyebut rekening tujuan spesifik — "transfer ke
+> rekening {bank} a.n. {pemilik} nomor {no}" — bila ketiga field rekening
+> terisi lengkap, selain itu fallback ke frasa "rekening yang ditunjuk
+> secara tertulis". **Invoice PDF** kini mencantumkan info transfer
+> ("Pembayaran dapat ditransfer ke rekening …") di catatan bila data bank
+> lengkap. Terverifikasi render: field terisi + fallback dotted/generik;
+> BAST & SPH tetap tanpa baris NPWP/KTP/rekening.
 >
 > **Lampiran gelombang — lokalisasi dokumen (kota & zona waktu)**: `company_settings`
 > bertambah kolom `city` (default `Jakarta`) dan `timezone` (`WIB`/`WITA`/`WIT`,
@@ -159,7 +172,7 @@ PPN **tidak lagi hardcode**. Sekarang jadi konfigurasi perusahaan:
 
 ### Deploy checklist (wajib sebelum production)
 
-1. Jalankan migrasi `0009`–`0013` ke Supabase (CLI / dashboard).
+1. Jalankan migrasi `0009`–`0019` ke Supabase (CLI / dashboard).
 2. Isi env: `CRON_SECRET` (acak ≥32 char), `SUPABASE_SERVICE_ROLE_KEY` (utk undang user),
    `NEXT_PUBLIC_APP_URL` (utk tautan email).
 3. Supabase Auth: pastikan public signup **MATI**; aktifkan email (reset/undangan).
@@ -197,6 +210,23 @@ PPN **tidak lagi hardcode**. Sekarang jadi konfigurasi perusahaan:
 |---|---|---|
 | D-1 | **`schema.sql` sebagai jalur aktif** → jadikan arsip read-only | Dua sumber kebenaran skema (vs `migrations/`) = risiko drift (lihat K4) |
 | D-2 | **Angka hardcode**: PPN 11% (2 tempat), window 30-hari, nama PT di `/verify/doc` | Harusnya konfigurasi — tiap perubahan butuh deploy (lihat K6) |
+| D-3 | **Kartu "Butuh bantuan?" di sidebar** (atau pindah ke modal help saja) | Memakan ruang vertikal permanen untuk info yang jarang dipakai |
+| D-4 | **Kolom "Tindakan" berlabel teks di mobile** → ikon saja | Tabel sempit di HP; label Ubah/Hapus/Unduh memaksa scroll horizontal |
+
+---
+
+## 4. Cara mereview perubahan ini (tanpa merge/push)
+
+```bash
+git status --short          # lihat file berubah
+git diff --stat             # ringkasan
+git diff src/lib/format.ts  # contoh: bedah per file
+npm run dev                 # uji manual dengan DATABASE_URL lokal
+```
+
+Beri tahu saya item mana dari §3 yang mau dieksekusi (mis. "kerjakan O-A + A-2, hapus D-3"),
+atau minta saya push + buka PR bila sudah puas — **saya tidak akan merge/push tanpa perintah eksplisit.**
+30-hari, nama PT di `/verify/doc` | Harusnya konfigurasi — tiap perubahan butuh deploy (lihat K6) |
 | D-3 | **Kartu "Butuh bantuan?" di sidebar** (atau pindah ke modal help saja) | Memakan ruang vertikal permanen untuk info yang jarang dipakai |
 | D-4 | **Kolom "Tindakan" berlabel teks di mobile** → ikon saja | Tabel sempit di HP; label Ubah/Hapus/Unduh memaksa scroll horizontal |
 
