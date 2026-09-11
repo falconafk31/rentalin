@@ -1,5 +1,6 @@
 import { requireUser, createAuthClient, isConfigured } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
+import { validateImageUpload, MAX_IMAGE_BYTES } from '@/lib/images';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,12 +22,15 @@ export async function POST(request: Request) {
   const form = await request.formData();
   const file = form.get('file');
   if (!(file instanceof File)) return Response.json({ message: 'Berkas tidak ditemukan.' }, { status: 400 });
-  if (!file.type.startsWith('image/')) return Response.json({ message: 'Hanya berkas gambar yang diizinkan.' }, { status: 400 });
-  if (file.size > 5 * 1024 * 1024) return Response.json({ message: 'Ukuran foto maksimal 5 MB.' }, { status: 400 });
+  if (file.size > MAX_IMAGE_BYTES) return Response.json({ message: 'Ukuran foto maksimal 5 MB.' }, { status: 400 });
+  // Klaim MIME client tak dipercaya: validasi magic bytes aktual (Finding 2).
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const valid = validateImageUpload(bytes);
+  if ('error' in valid) return Response.json({ message: valid.error }, { status: 400 });
   const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-60);
   const path = `handovers/${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${safe}`;
   const supabase = await createAuthClient();
-  const { error } = await supabase.storage.from('bast-photos').upload(path, await file.arrayBuffer(), { contentType: file.type, upsert: false });
+  const { error } = await supabase.storage.from('bast-photos').upload(path, bytes, { contentType: valid.contentType, upsert: false });
   if (error) return Response.json({ message: 'Unggahan gagal. Coba lagi.' }, { status: 500 });
   await logAudit({ actorId: user.id, actorName: user.fullName, action: 'upload', entity: 'bast', entityId: path, summary: `Mengunggah foto BAST: ${safe} (${Math.max(1, Math.round(file.size / 1024))} KB)` });
   return Response.json({ path });

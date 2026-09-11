@@ -1,6 +1,7 @@
 import 'server-only';
 import { db } from '@/db';
 import * as s from '@/db/schema';
+import { eq } from 'drizzle-orm';
 
 // Jejak audit append-only (lihat migrasi 0011). Dipanggil dari Server Actions
 // setelah tulis utama berhasil. Kegagalan audit TIDAK BOLEH menggagalkan
@@ -28,5 +29,17 @@ export async function logAudit(input: {
     });
   } catch (error) {
     console.error('[audit] gagal menulis log:', (error as Error).message);
+  }
+}
+
+// Nama pelaku best-effort (TASK-1B Finding 3): kegagalan baca profil TAK
+// BOLEH menggagalkan login yang sudah terautentikasi. Tak pernah throw.
+export async function getProfileNameBestEffort(userId: string, fallback: string): Promise<string> {
+  try {
+    const [profile] = await db.select({ fullName: s.profiles.fullName }).from(s.profiles).where(eq(s.profiles.id, userId));
+    return profile?.fullName || fallback;
+  } catch (error) {
+    console.error('[audit] baca profil login gagal, pakai fallback:', (error as Error).message);
+    return fallback;
   }
 }
