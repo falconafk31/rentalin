@@ -8,6 +8,7 @@ import { logAudit } from '@/lib/audit';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { todayISO, money } from '@/lib/format';
+import { calcInvoiceTotals, remainingBalance, resolveInvoiceStatus } from '@/lib/finance';
 
 export type ActionResult = { success: boolean; message: string; fieldErrors?: Record<string, string> };
 const operationRoles = ['admin','operations'];
@@ -127,11 +128,10 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
     const logs=await tx.select().from(s.timesheets).where(and(eq(s.timesheets.contractId,contractId),eq(s.timesheets.status,'approved'),isNull(s.timesheets.invoiceId))).for('update');
     if(!logs.length)throw new FieldError({contractId:'Tidak ada jam kerja disetujui yang belum ditagihkan.'});
     const hours=logs.reduce((a,l)=>a+Number(l.effectiveHours),0);
-    const subtotal=Math.round(hours*Number(contract.ratePerHour)*100)/100;
-    if(subtotal<=0)throw new Error('Total jam efektif harus lebih dari nol.');
-    const tax=Math.round(subtotal*ppnRate/100*100)/100;
+    const totals=calcInvoiceTotals(hours,Number(contract.ratePerHour),ppnRate);
+    if(totals.subtotal<=0)throw new Error('Total jam efektif harus lebih dari nol.');
     invoiceNo = documentNumber('INV');
-    const [invoice]=await tx.insert(s.invoices).values({invoiceNumber:invoiceNo,contractId,totalAmount:(subtotal+tax).toFixed(2),taxAmount:tax.toFixed(2),status:'unpaid',issueDate:todayISO(),dueDate}).returning();
+    const [invoice]=await tx.insert(s.invoices).values({invoiceNumber:invoiceNo,contractId,totalAmount:totals.total.toFixed(2),taxAmount:totals.tax.toFixed(2),status:'unpaid',issueDate:todayISO(),dueDate}).returning();
     for(const log of logs)await tx.update(s.timesheets).set({invoiceId:invoice.id}).where(eq(s.timesheets.id,log.id));
    });
    await logAudit({ ...actor, action: 'create', entity: 'invoices', summary: `Menerbitkan ${invoiceNo} (PPN ${ppnRate}%)` });
@@ -198,7 +198,7 @@ export async function changeStatus(module:string,id:string,status:string): Promi
     if(!invoice)throw new Error('Tagihan tidak ditemukan.');
     if(invoice.status==='paid')throw new Error('Tagihan sudah lunas.');
     const paid=await tx.select({amount:s.payments.amount}).from(s.payments).where(eq(s.payments.invoiceId,id));
-    const remaining=Math.round((Number(invoice.totalAmount)-paid.reduce((a,p)=>a+Number(p.amount),0))*100)/100;
+    const remaining=remainingBalance(invoice.totalAmount,paid.reduce((a,p)=>a+Number(p.amount),0));
     if(remaining>0)await tx.insert(s.payments).values({invoiceId:id,amount:remaining.toFixed(2),method:'other',reference:'Pelunasan manual',paidAt:todayISO(),notedBy:user.id});
     await tx.update(s.invoices).set({status}).where(eq(s.invoices.id,id));
    });
@@ -230,11 +230,10 @@ export async function recordPayment(form:FormData): Promise<ActionResult> {
    invoiceNo = invoice.invoiceNumber;
    const paid=await tx.select({amount:s.payments.amount}).from(s.payments).where(eq(s.payments.invoiceId,invoiceId));
    const paidSoFar=paid.reduce((a,p)=>a+Number(p.amount),0);
-   const remaining=Math.round((Number(invoice.totalAmount)-paidSoFar)*100)/100;
+   const remaining=remainingBalance(invoice.totalAmount,paidSoFar);
    if(amount-remaining>0.005)throw new FieldError({amount:`Melebihi sisa tagihan (${money(remaining)}).`});
    await tx.insert(s.payments).values({invoiceId,amount:amount.toFixed(2),method,reference:reference||null,paidAt,notedBy:user.id});
-   const covered=paidSoFar+amount>=Number(invoice.totalAmount)-0.005;
-   await tx.update(s.invoices).set({status:covered?'paid':(invoice.dueDate<todayISO()?'overdue':'partial')}).where(eq(s.invoices.id,invoiceId));
+   await tx.update(s.invoices).set({status:resolveInvoiceStatus(invoice.totalAmount,paidSoFar+amount,invoice.dueDate,todayISO())}).where(eq(s.invoices.id,invoiceId));
   });
   await logAudit({ actorId: user.id, actorName: user.fullName, action: 'pay', entity: 'invoices', entityId: invoiceId, summary: `Mencatat pembayaran ${money(amount)} untuk ${invoiceNo}` });
   revalidatePath('/dashboard','layout');return {success:true,message:`Pembayaran ${money(amount)} tercatat.`};

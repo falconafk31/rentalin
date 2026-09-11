@@ -9,6 +9,7 @@ import { Badge } from './overview';
 import { saveRecord, bulkCreateFleet, changeStatus, deleteClient, resetDatabase, reviseContract, recordPayment } from '@/app/actions';
 import { money, dateLabel, dateTimeLabel, timeLabel, labels, todayISO, isPastDue, isExpiringSoon } from '@/lib/format';
 import type { WorkspaceData } from '@/lib/data';
+import { calcInvoiceTotals } from '@/lib/finance';
 
 const config: Record<string, { title: string; description: string; add: string; singular: string }> = {
   fleet: { title: 'Armada Alat Berat', description: 'Kelola seluruh unit, pantau ketersediaan, dan pastikan kesiapan armada Anda.', add: 'Tambah Unit', singular: 'Unit Alat Berat' },
@@ -509,7 +510,8 @@ function RecordModal({ module, data, editing, revising, bulk, pending, canWrite,
   const fleetCats = useMemo(() => Array.from(new Set([...fleetCategories, ...data.fleet.map(f => f.category)])), [data.fleet]);
   const selectedContract = useMemo(() => data.contracts.find(x => x.id === contractId), [data.contracts, contractId]);
   const billable = useMemo(() => data.timesheets.filter(t => t.contractId === contractId && t.status === 'approved' && !t.invoiceId).reduce((a, t) => a + Number(t.effectiveHours), 0), [data.timesheets, contractId]);
-  const subtotal = billable * Number(selectedContract?.ratePerHour || 0);
+  const totals = useMemo(() => calcInvoiceTotals(billable, Number(selectedContract?.ratePerHour || 0), ppnRate), [billable, selectedContract, ppnRate]);
+  const subtotal = totals.subtotal;
   const revisionHistory = useMemo(() => revising ? data.revisions.filter(r => r.contractId === String(revising.id || '')) : [], [data.revisions, revising]);
   const latestReason = useMemo(() => revisionHistory.slice().sort((a, b) => b.revisionNumber - a.revisionNumber)[0]?.reason || '', [revisionHistory]);
 
@@ -660,8 +662,8 @@ function RecordModal({ module, data, editing, revising, bulk, pending, canWrite,
                 <div><span>Tarif sewa per jam</span><b>{money(selectedContract?.ratePerHour || 0)}</b></div>
                 <hr />
                 <div><span>Subtotal</span><b>{money(subtotal)}</b></div>
-                <div><span>PPN {ppnRate}%</span><b>{money(subtotal * ppnRate / 100)}</b></div>
-                <div className="invoice-total"><span>Total Tagihan</span><b>{money(subtotal * (1 + ppnRate / 100))}</b></div>
+                <div><span>PPN {ppnRate}%</span><b>{money(totals.tax)}</b></div>
+                <div className="invoice-total"><span>Total Tagihan</span><b>{money(totals.total)}</b></div>
               </div>
               <div className="info-callout span-2"><ShieldCheck size={18} /><p>Jam kerja yang sudah ditagihkan tidak akan ditagihkan kembali. Dokumen PDF tersedia setelah tagihan berhasil dibuat.</p></div>
             </>
