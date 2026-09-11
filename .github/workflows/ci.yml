@@ -1,0 +1,24 @@
+# CI HeavyOps (audit A4): cegah regresi — lint + typecheck + build tanpa env
+# (build wajib lolos tanpa DATABASE_URL, lihat audit A2) + audit prod bersih.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: node scripts/finance-check.ts # regresi finansial TASK-1 §19
+      - run: node scripts/task1b-check.ts # uji temuan PM TASK-1B
+      - run: npm run build
+      - run: npm audit --omit=dev

@@ -34,3 +34,10 @@ WHERE p.id = '<UUID_USER>';
 --   operations  → armada, klien, kontrak, BAST, approval timesheet
 --   operator    → input timesheet miliknya saja (read-only lainnya)
 --   finance     → invoice & pelunasan
+
+-- ── Nonaktifkan / aktifkan akun (tanpa service key, via SQL editor) ──────
+-- Nonaktifkan — pengguna tak bisa login hingga ban dicabut:
+--   UPDATE auth.users SET banned_until = now() + interval '100 years'
+--   WHERE id = '<UUID_USER>';
+-- Aktifkan kembali:
+--   UPDATE auth.users SET banned_until = NULL WHERE id = '<UUID_USER>';
