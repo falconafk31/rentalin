@@ -8,7 +8,7 @@ import { logAudit } from '@/lib/audit';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { todayISO, money } from '@/lib/format';
-import { calcInvoiceTotals, remainingBalance, resolveInvoiceStatus } from '@/lib/finance';
+import { calcInvoiceTotals, remainingBalance, resolveInvoiceStatus, normalizePaymentAmount } from '@/lib/finance';
 
 export type ActionResult = { success: boolean; message: string; fieldErrors?: Record<string, string> };
 const operationRoles = ['admin','operations'];
@@ -223,7 +223,7 @@ export async function recordPayment(form:FormData): Promise<ActionResult> {
   if(paidAt>todayISO())throw new FieldError({paidAt:'Tanggal bayar tidak boleh di masa depan.'});
   const reference=text(form,'reference').slice(0,100);
   const notes=text(form,'notes').slice(0,500);
-  let invoiceNo = '';
+  let invoiceNo = '';let recorded = 0;let wasNormalized = false;
   await db.transaction(async tx=>{
    const [invoice]=await tx.select().from(s.invoices).where(eq(s.invoices.id,invoiceId)).for('update');
    if(!invoice)throw new Error('Tagihan tidak ditemukan.');
@@ -232,12 +232,15 @@ export async function recordPayment(form:FormData): Promise<ActionResult> {
    const paid=await tx.select({amount:s.payments.amount}).from(s.payments).where(eq(s.payments.invoiceId,invoiceId));
    const paidSoFar=paid.reduce((a,p)=>a+Number(p.amount),0);
    const remaining=remainingBalance(invoice.totalAmount,paidSoFar);
-   if(amount-remaining>0.005)throw new FieldError({amount:`Melebihi sisa tagihan (${money(remaining)}).`});
-   await tx.insert(s.payments).values({invoiceId,amount:amount.toFixed(2),method,reference:reference||null,notes:notes||null,paidAt,notedBy:user.id});
-   await tx.update(s.invoices).set({status:resolveInvoiceStatus(invoice.totalAmount,paidSoFar+amount,invoice.dueDate,todayISO())}).where(eq(s.invoices.id,invoiceId));
+   const norm=normalizePaymentAmount(amount,remaining);
+   if(norm.rejected)throw new FieldError({amount:`Melebihi sisa tagihan (${money(remaining)}).`});
+   recorded=norm.recorded;wasNormalized=norm.normalized;
+   await tx.insert(s.payments).values({invoiceId,amount:recorded.toFixed(2),method,reference:reference||null,notes:notes||null,paidAt,notedBy:user.id});
+   await tx.update(s.invoices).set({status:resolveInvoiceStatus(invoice.totalAmount,paidSoFar+recorded,invoice.dueDate,todayISO())}).where(eq(s.invoices.id,invoiceId));
   });
-  await logAudit({ actorId: user.id, actorName: user.fullName, action: 'pay', entity: 'invoices', entityId: invoiceId, summary: `Mencatat pembayaran ${money(amount)} untuk ${invoiceNo}` });
-  revalidatePath('/dashboard','layout');return {success:true,message:`Pembayaran ${money(amount)} tercatat.`};
+  const suffix=wasNormalized?' (disesuaikan ke sisa tagihan)':'';
+  await logAudit({ actorId: user.id, actorName: user.fullName, action: 'pay', entity: 'invoices', entityId: invoiceId, summary: `Mencatat pembayaran ${money(recorded)} untuk ${invoiceNo}${suffix}` });
+  revalidatePath('/dashboard','layout');return {success:true,message:`Pembayaran ${money(recorded)} tercatat${suffix}.`};
  }catch(e){return fail(e);}
 }
 

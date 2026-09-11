@@ -2,7 +2,7 @@
 // Jalankan: node scripts/finance-check.ts   (Node 22.18+, tanpa flag/build)
 // Mengimpor util ASLI (bukan duplikat rumus) sehingga yang diuji adalah
 // kode produksi yang dipakai Server Actions dan pratinjau UI.
-import { calcInvoiceTotals, remainingBalance, resolveInvoiceStatus } from '../src/lib/finance.ts';
+import { calcInvoiceTotals, remainingBalance, resolveInvoiceStatus, normalizePaymentAmount } from '../src/lib/finance.ts';
 
 let failures = 0;
 const check = (name: string, cond: boolean, detail = '') => {
@@ -31,6 +31,33 @@ check('status paid', resolveInvoiceStatus(111000000, 111000000, '2026-08-01', '2
 check('lunas tak pernah overdue', resolveInvoiceStatus(111000000, 111000000, '2020-01-01', '2026-09-11') === 'paid');
 check('lewat tempo → overdue', resolveInvoiceStatus(111000000, 40000000, '2026-09-10', '2026-09-11') === 'overdue');
 check('batas toleransi 0,005 → paid', resolveInvoiceStatus(111000000, 110999999.996, '2026-10-01', '2026-09-11') === 'paid');
+
+// TASK-1B Finding 1: ledger tak boleh menyimpan overpayment.
+let t = normalizePaymentAmount(100000, 100000);
+check('bayar pas → paid, sisa 0', !t.rejected && t.recorded === 100000 && !t.normalized && resolveInvoiceStatus(100000, 100000, '2026-10-01', '2026-09-11') === 'paid');
+t = normalizePaymentAmount(50000, 100000);
+check('bayar setengah → partial, sisa 50.000', !t.rejected && t.recorded === 50000 && remainingBalance(100000, 50000) === 50000);
+t = normalizePaymentAmount(100000.004, 100000);
+check('100.000,004 → dinormalisasi 100.000 (tak simpan 100.000,004)', !t.rejected && t.normalized && t.recorded === 100000);
+t = normalizePaymentAmount(100000.005, 100000);
+check('batas toleransi 100.000,005 → dinormalisasi, bukan ditolak', !t.rejected && t.recorded === 100000);
+t = normalizePaymentAmount(100000.006, 100000);
+check('100.000,006 → ditolak', t.rejected);
+t = normalizePaymentAmount(100000.006, 100000);
+check('100.000,006 → ditolak', t.rejected);
+t = normalizePaymentAmount(50000, 0);
+check('sisa 0 → pembayaran apa pun ditolak', t.rejected);
+// Akumulasi multi-baris via sisa berjalan (seperti transaksi recordPayment).
+let acc = 0; let ledgerOk = true;
+for (const p of [40000, 30000, 30000]) {
+  const n = normalizePaymentAmount(p, remainingBalance(100000, acc));
+  if (n.rejected) { ledgerOk = false; break; }
+  acc += n.recorded;
+}
+check('40+30+30 → lunas, ledger = 100.000', ledgerOk && acc === 100000 && resolveInvoiceStatus(100000, acc, '2026-10-01', '2026-09-11') === 'paid');
+acc = 70000;
+const last = normalizePaymentAmount(30000.006, remainingBalance(100000, acc));
+check('40+30+30.000,006 → baris ketiga ditolak, ledger ≤ total', last.rejected && acc <= 100000);
 
 if (failures) {
   console.error(`\n${failures} check(s) FAILED`);

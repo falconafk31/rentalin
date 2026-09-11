@@ -14,6 +14,28 @@ export function calcInvoiceTotals(hours: number, ratePerHour: number, ppnRate: n
   return { hours, subtotal, tax, total: round2(subtotal + tax) };
 }
 
+/** Toleransi pembulatan pembayaran: setengah sen (0,005). */
+export const PAYMENT_TOLERANCE = 0.005;
+
+export type NormalizedPayment = { recorded: number; rejected: boolean; normalized: boolean };
+
+/**
+ * Integritas ledger (TASK-1B Finding 1). Tolak pembayaran yang melebihi
+ * sisa di luar toleransi; yang di dalam toleransi dinormalisasi menjadi
+ * TEPAT sebesar sisa. Invarian by construction (Math.min): recorded ≤ sisa.
+ */
+export function normalizePaymentAmount(amount: number, remaining: number): NormalizedPayment {
+  const r = round2(remaining);
+  // EPS menyerap debu float tepat di batas (mis. 100000.005 tersimpan sebagai
+  // 100000.0050000000045): toleransi efektif 0,005000001 — tak berarti uang.
+  const EPS = 1e-9;
+  if (!Number.isFinite(amount) || amount <= 0 || amount - r > PAYMENT_TOLERANCE + EPS) {
+    return { recorded: 0, rejected: true, normalized: false };
+  }
+  const recorded = Math.min(round2(amount), r);
+  return { recorded, rejected: false, normalized: amount > r };
+}
+
 /** Sisa tagihan = total − terbayar (tak pernah negatif, presisi 2 desimal). */
 export function remainingBalance(totalAmount: number | string, paidSoFar: number): number {
   return Math.max(0, round2(Number(totalAmount) - paidSoFar));
