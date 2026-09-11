@@ -1,0 +1,459 @@
+# HeavyOps — Roadmap & Analisa Teknis
+
+> Dokumen ini berisi: (1) analisa kode dan arsitektur saat ini, (2) pemetaan alur kerja aplikasi, (3) analisa kesiapan & rencana migrasi ke Supabase, dan (4) roadmap pengembangan bertahap.
+>
+> Dibuat: 11 September 2026 · Basis: commit `3041977` (`rentalin-mvp`) · Branch kerja: `arena/01a08e34-rentalin`
+
+---
+
+## Daftar Isi
+
+1. [Ringkasan Eksekutif](#1-ringkasan-eksekutif)
+2. [Profil Repositori & Stack Teknologi](#2-profil-repositori--stack-teknologi)
+3. [Struktur Kode & Arsitektur](#3-struktur-kode--arsitektur)
+4. [Analisa Kode](#4-analisa-kode)
+5. [Alur Kerja Aplikasi](#5-alur-kerja-aplikasi)
+6. [Analisa Migrasi ke Supabase](#6-analisa-migrasi-ke-supabase)
+7. [Roadmap Pengembangan](#7-roadmap-pengembangan)
+8. [Risiko & Mitigasi](#8-risiko--mitigasi)
+9. [Lampiran](#9-lampiran)
+
+---
+
+## 1. Ringkasan Eksekutif
+
+**HeavyOps** adalah ERP internal untuk perusahaan rental alat berat (Next.js 16 App Router + PostgreSQL/Drizzle + Supabase Auth). MVP-nya sudah berfungsi penuh untuk siklus bisnis inti: **armada → kontrak → timesheet → persetujuan → invoice → dokumen PDF (SPH/BAST/Invoice) dengan QR verifikasi publik**.
+
+| Aspek | Status | Catatan |
+|---|---|---|
+| Fungsionalitas inti (7 modul) | ✅ Selesai | Fleet, Clients, Contracts, Timesheets, BAST, Invoices, Settings |
+| Autentikasi Supabase | ✅ Terintegrasi | `@supabase/ssr`, validasi `getUser()`, role dari tabel `profiles` |
+| Skema DB + RLS | ✅ Tersedia | `schema.sql` siap Supabase (FK `auth.users`, policy RLS per role) |
+| Dokumen PDF + verifikasi QR | ✅ Selesai | Invoice, SPH, BAST · A4 · kop surat · QR publik |
+| Keamanan layer server | ⚠️ Perlu penajaman | Semua mutasi diotorisasi, tetapi route laporan/PDF belum membatasi role |
+| Performa & skala | ⚠️ Utang teknis | Full-table scan 7 tabel, dimuat 2× per request, tanpa pagination SQL |
+| Testing & CI | ❌ Belum ada | Playwright terpasang tapi 0 test; tidak ada CI pipeline |
+| Fitur lanjutan (audit log, payment ledger, dsb.) | ❌ Belum ada | Sudah diakui di README sebagai iterasi berikutnya |
+
+**Kesimpulan besar:** aplikasi ini *sudah Supabase-ready* untuk auth dan skema — yang tersisa untuk produksi adalah **hardening** (provisioning user, pooler, signup tertutup, SMTP) dan **pembayaran utang teknis** (performa, test, index) sebelum fitur baru. Roadmap di Bagian 7 disusun dalam 4 fase dengan prioritas tersebut.
+
+---
+
+## 2. Profil Repositori & Stack Teknologi
+
+| Lapisan | Teknologi | Versi | Peran |
+|---|---|---|---|
+| Framework | Next.js (App Router, Turbopack) | 16.3.4 | SSR, Server Actions, Route Handlers |
+| UI runtime | React | 19.2.6 | Server + Client Components |
+| Bahasa | TypeScript (strict) | 5.9.3 | Seluruh kode |
+| Database | PostgreSQL | — | Data operasional + generated columns + constraints |
+| ORM | Drizzle ORM + drizzle-kit | 0.45.2 | Query, transaksi, schema definition |
+| Auth | Supabase Auth (`@supabase/ssr`, `@supabase/supabase-js`) | 0.12.7 / 2.116 | Password sign-in, sesi cookie |
+| UI kit | Radix UI (Dialog, Slot) + Tailwind CSS 4 + lucide-react | 1.x / 4.1.17 | Primitif komponen + styling |
+| Chart | Recharts | 3.10.1 | Grafik pendapatan & distribusi armada |
+| PDF | `@react-pdf/renderer` + `qrcode` | 4.9.0 / 1.5.4 | PDF server-side + QR verifikasi |
+| Testing (terpasang, belum dipakai) | Playwright | 1.63.0 | — |
+
+**Konvensi penting di repo ini:**
+
+- Antarmuka 100% Bahasa Indonesia; format uang `Intl.NumberFormat('id-ID', IDR)`.
+- Tanpa landing page — `/` langsung redirect ke `/dashboard`.
+- Semua mutasi data lewat **Server Actions** (`src/app/actions.ts`); Route Handler hanya untuk health, CSV, dan PDF.
+- `proxy.ts` adalah middleware generasi Next.js 16 (pengganti `middleware.ts`) — dipakai khusus refresh sesi Supabase.
+- Dua sumber skema: `src/db/schema.ts` (Drizzle, untuk lokal/pratinjau via `drizzle-kit push`) dan `schema.sql` (untuk produksi Supabase, termasuk FK `auth.users` + RLS). **Keduanya harus selalu sinkron** (lihat temuan §4.4).
+
+---
+
+## 3. Struktur Kode & Arsitektur
+
+### 3.1 Peta direktori
+
+```
+rentalin/
+├── schema.sql                  # Skema produksi Supabase: tabel, constraint, RLS, fungsi current_app_role()
+├── drizzle.config.json         # Konfigurasi drizzle-kit (DB lokal pratinjau)
+├── src/
+│   ├── proxy.ts                # Middleware Next 16: refresh sesi Supabase utk /dashboard, /login, /api/documents
+│   ├── db/
+│   │   ├── index.ts            # Pool `pg` + instance Drizzle (singleton via globalThis)
+│   │   ├── schema.ts           # Definisi Drizzle: 8 tabel + unique/check constraint + generated columns
+│   │   └── seed.ts             # Seed data demo (hanya mode pratinjau, advisory lock, idempotent)
+│   ├── lib/
+│   │   ├── auth.ts             # Klien Supabase SSR, requireUser(roles), flag isConfigured/isPreview
+│   │   ├── data.ts             # getWorkspaceData(): muat seluruh data workspace + type WorkspaceData
+│   │   └── format.ts           # Format uang/tanggal, kamus label status, todayISO
+│   ├── app/
+│   │   ├── actions.ts          # Server Actions: saveRecord, changeStatus, deleteClient, signIn, signOut
+│   │   ├── login/page.tsx      # Halaman login (LoginForm client component)
+│   │   ├── dashboard/
+│   │   │   ├── layout.tsx      # Shell + getWorkspaceData()  ← muat data ke-1
+│   │   │   ├── page.tsx        # Overview metrik/grafik     ← muat data ke-2
+│   │   │   ├── [module]/page.tsx  # Router modul generik (fleet|clients|contracts|timesheets|bast|invoices|settings)
+│   │   │   └── timesheets/new/page.tsx
+│   │   ├── verify/doc/page.tsx # Halaman verifikasi dokumen PUBLIK (hanya nomor + jenis dokumen)
+│   │   └── api/
+│   │       ├── health/route.ts         # Cek koneksi DB
+│   │       ├── report/route.ts         # Export CSV laporan operasional
+│   │       └── documents/[kind]/[id]/route.ts  # PDF invoice|sph|bast + QR
+│   └── components/             # Shell, Overview, ModuleWorkspace (UI generik 7 modul), PDF, form login
+```
+
+### 3.2 Diagram arsitektur
+
+```
+┌──────────────────────────── Browser ────────────────────────────┐
+│  Client Components (Shell, Overview, ModuleWorkspace, LoginForm) │
+└──────────────┬───────────────────────────────┬───────────────────┘
+               │ Server Actions (POST)         │ GET
+┌──────────────▼───────────────────────────────▼───────────────────┐
+│                 Next.js 16 Server (Vercel / Node)                 │
+│                                                                   │
+│  proxy.ts ── refresh sesi Supabase (cookie)                       │
+│                                                                   │
+│  lib/auth.ts  requireUser(roles?)                                 │
+│    ├─ mode pratinjau (tanpa Supabase & bukan Vercel) → admin demo │
+│    ├─ Supabase Auth.getUser()  ◄──── validasi JWT server-side     │
+│    └─ lookup role di tabel profiles (Drizzle)                     │
+│                                                                   │
+│  Server Actions (actions.ts)      Route Handlers                  │
+│   ├─ saveRecord (7 modul)          ├─ /api/health                 │
+│   ├─ changeStatus                  ├─ /api/report (CSV)           │
+│   ├─ deleteClient                  └─ /api/documents/[kind]/[id]  │
+│   └─ signIn / signOut                    └─ render PDF + QR       │
+│               │                              │                    │
+└───────────────┼──────────────────────────────┼────────────────────┘
+                │ Drizzle (pg Pool, koneksi langsung)                │
+┌───────────────▼──────────────────────────────▼────────────────────┐
+│                    PostgreSQL / Supabase                          │
+│  8 tabel · generated columns (jam efektif) · CHECK constraints    │
+│  partial unique index (1 kontrak aktif/unit) · RLS utk Data API   │
+└───────────────────────────────────────────────────────────────────┘
+                ▲
+                │ (publik, tanpa auth — hanya UUID dokumen)
+        /verify/doc  → cek nomor invoice/BAST/SPH
+```
+
+**Pola otorisasi berlapis:** (a) validasi sesi `getUser()` di server; (b) cek role dari `profiles` di *setiap* Server Action dan Route Handler; (c) constraint DB (unique/check) sebagai benteng terakhir; (d) RLS di `schema.sql` mengamankan akses langsung via Supabase Data API (yang tidak dipakai aplikasi — koneksi Drizzle mem-bypass RLS sebagai kredensial trusted server).
+
+---
+
+## 4. Analisa Kode
+
+### 4.1 Kekuatan
+
+1. **Transaksi dan locking yang benar.** Penugasan unit ke kontrak dan pembuatan invoice memakai `SELECT … FOR UPDATE` dalam transaksi, mencegah race condition: satu unit tidak bisa dikontrak ganda, satu timesheet tidak bisa ditagih dua kali.
+2. **Validasi digeser ke database.** Generated columns (`total_hours`, `effective_hours`), `CHECK` constraint (HM awal ≤ akhir, breakdown ≤ total), partial unique index (satu kontrak aktif per unit), `UNIQUE(contract_id, date)` untuk timesheet harian. Logika bisnis kritis tidak bergantung pada UI.
+3. **Otorisasi per-aksi, bukan per-halaman.** Setiap Server Action memanggil `requireUser([roles])`; role dibaca dari tabel `profiles` (bukan metadata auth yang bisa diedit user) — keputusan keamanan yang tepat.
+4. **Fail-closed.** Tanpa konfigurasi Supabase di Vercel: login menolak, dashboard redirect. Mode pratinjau (admin demo + seed) hanya aktif di luar Vercel dan ditandai jelas.
+5. **Kebersihan keluaran.** CSV di-escape terhadap formula injection (`=+@-`), dokumen publik hanya membocorkan nomor + jenis, PDF route memvalidasi format UUID.
+6. **UX solid untuk MVP.** Satu komponen `ModuleWorkspace` generik melayani 7 modul (cari, filter, sort, pagination klien, modal, konfirmasi destruktif, toast), notifikasi badge, global search ⌘K.
+
+### 4.2 Temuan — Performa & Skala
+
+| # | Temuan | Dampak | Prioritas |
+|---|---|---|---|
+| P1 | `getWorkspaceData()` melakukan `SELECT *` penuh pada 7 tabel tanpa `LIMIT`, dan **dipanggil dua kali per request** (di `dashboard/layout.tsx` **dan** di halaman `page.tsx`/`[module]/page.tsx`) | Dengan data ribuan baris, payload server→client membengkak; TTFB naik; konsumsi memori Vercel naik | 🔴 Tinggi |
+| P2 | Pencarian, filter, sort, dan pagination dilakukan di client component atas data penuh | Tidak scale; memori browser | 🔴 Tinggi |
+| P3 | Belum ada indeks pada kolom FK yang sering di-join: `contracts.client_id`, `invoices.contract_id`, `handovers.contract_id`, `timesheets.operator_id`, `timesheets.invoice_id`, `fleet.status` | Query agregasi melambat seiring pertumbuhan | 🟡 Sedang |
+| P4 | Dashboard metrik (pendapatan bulan ini, growth) dihitung di client dari data penuh; sebaiknya agregasi SQL (`SUM … GROUP BY month`) | Akurat & hemat | 🟡 Sedang |
+
+**Rekomendasi:** bungkus `getWorkspaceData` dengan React `cache()` untuk menghilangkan fetch ganda (perbaikan cepat), lalu pecah menjadi query per-modul + pagination server-side (Fase 2). Tambahkan indeks FK di `schema.sql` **dan** `schema.ts` sekaligus.
+
+### 4.3 Temuan — Keamanan & Otorisasi
+
+| # | Temuan | Dampak | Prioritas |
+|---|---|---|---|
+| S1 | `/api/report` (CSV berisi seluruh tagihan) dan `/api/documents/[kind]/[id]` (PDF invoice) hanya `requireUser()` tanpa batasan role → **operator** dapat mengunduh data finansial | Kebocoran internal; bertentangan dengan ketatnya RLS (operator read-only *tanpa* akses invoice via Data API) | 🔴 Tinggi |
+| S2 | Tidak ada kebijakan audit: siapa mengubah apa tidak terekam | Sulit investigasi; wajib untuk ERP keuangan | 🟡 Sedang (Fase 2) |
+| S3 | Halaman `/verify/doc` menampilkan nama perusahaan hardcoded "PT Penyewaan Alat Berat", bukan dari `company_settings` | Inkonsistensi identitas dokumen | 🟢 Rendah |
+| S4 | Rate-limit login bergantung sepenuhnya pada bawaan Supabase Auth | Cukup, tetapi perlu dikonfirmasi saat hardening produksi | 🟢 Rendah |
+| S5 | Tidak ada mekanisme reset password / undangan user dari dalam aplikasi | Ketergantungan pada admin Supabase dashboard | 🟡 Sedang (Fase 1–2) |
+
+> Catatan positif: mode pratinjau berisiko rendah karena (a) tidak aktif bila `VERCEL` terdeteksi, (b) ditandai eksplisit di UI, (c) seed dijamin idempotent dengan advisory lock.
+
+### 4.4 Temuan — Konsistensi Skema (schema.sql vs schema.ts)
+
+Dua sumber kebenaran ini sudah hampir identik, tetapi ada divergensi kecil yang bisa menyebabkan perilaku berbeda antara pratinjau lokal dan produksi:
+
+| Item | `schema.sql` (produksi) | `schema.ts` (Drizzle/pratinjau) | Risiko |
+|---|---|---|---|
+| `timesheets.operator_id` | Nullable (`REFERENCES profiles(id)`) | `notNull()` | Insert tanpa operator gagal di pratinjau tapi lolos di produksi (atau sebaliknya saat membaca) |
+| `timesheets.invoice_id` FK | `ON DELETE RESTRICT` | Default (`NO ACTION`) | Praktis setara; tetap layak diseragamkan |
+| CHECK tanggal kontrak | Inline `CHECK (end_date >= start_date)` | bernama `contract_dates` | Kosmetik |
+| Policy RLS | Ada | Tidak dimodelkan Drizzle | By design (RLS hanya relevan untuk Data API) |
+
+**Rekomendasi:** jadikan `src/db/schema.ts` satu-satunya sumber kebenaran untuk tabel bisnis; hasilkan SQL migrasi dengan `drizzle-kit generate` dan simpan di repo (`drizzle/`), sementara `schema.sql` menjadi *bootstrap Supabase* yang memakai migrasi tersebut + bagian Supabase-specific (FK `auth.users`, RLS, fungsi role). Ini mencegah drift seiring roadmap berjalan.
+
+### 4.5 Temuan — Logika Bisnis
+
+| # | Temuan | Detail |
+|---|---|---|
+| B1 | **PPN 11% hardcoded** di dua tempat (`actions.ts` dan teks PDF). README sudah memperingatkan untuk verifikasi aturan pajak. Sebaiknya jadi pengaturan (`company_settings.ppn_rate`) | 🟡 |
+| B2 | **Penomoran dokumen** `PREFIX/TAHUN/<timestamp8>-<random4>` — unik tapi tidak berurutan/estetik untuk dokumen formal (invoice/kontrak). Pertimbangkan sequence per tahun per prefix | 🟢 |
+| B3 | **Seed data** menghitung PPN dengan formula *tax-inclusive* (`amount*11/111`) sementara aksi invoice memakai *add-on* (`subtotal*0.11`) — angka demo tidak persis mencerminkan perhitungan nyata | 🟢 |
+| B4 | **Status invoice `overdue` tidak pernah otomatis** — harus diubah manual; belum ada cron | 🟡 |
+| B5 | **Pelunasan semua-atau-tidak-sama-sekali**: `changeStatus('invoices', id, 'paid')` melompat dari status apa pun ke `paid`; `partial` ada di skema tapi belum ada ledger alokasi pembayaran | 🟡 |
+| B6 | **Operator self-record**: `operatorId` selalu = user yang login. Admin memakai akunnya sendiri saat mencatatkan atas nama operator (belum ada penugasan operator per kontrak) | 🟡 |
+| B7 | Timesheet boleh diisi mundur sampai `contract.startDate` tanpa batas window (mis. 30 hari) — potensi backdating | 🟢 |
+| B8 | `error.tsx` dashboard menangkap error render, tetapi error role di `requireUser` dilempar sebagai `Error` generik — pesan Indonesia tampil apa adanya ke user (acceptable, tapi bisa dipisah `auth` vs `system`) | 🟢 |
+
+### 4.6 Temuan — Kualitas Proses
+
+- ❌ **Nol test** (unit/integrasi/e2e) padahal Playwright sudah ada di dependencies — transaksi invoice dan validasi timesheet adalah kandidat test pertama karena berisiko finansial.
+- ❌ Tidak ada CI (lint/typecheck/build otomatis di PR).
+- ❌ Tidak ada `.env.example` — daftar variabel hanya di README.
+- ⚠️ `drizzle.config.json` berisi kredensial lokal plaintext (wajar untuk lokal, tapi sebaiknya baca dari env).
+- ⚠️ `<html lang="en">` padahal UI Indonesia (minor aksesibilitas/SEO).
+
+---
+
+## 5. Alur Kerja Aplikasi
+
+### 5.1 Alur bisnis utama (happy path)
+
+```
+ [Admin/Operations]           [Admin/Operations]        [Operator]
+ Register Armada (fleet)      Register Klien (clients)      │
+        └────────────┬───────────────┘                        │
+                     ▼                                        │
+          Buat Kontrak Sewa (contracts)  ◄── unit harus 'available'
+            status unit → 'renting'   (lock FOR UPDATE, 1 kontrak aktif/unit)
+                     │                                        │
+                     │  (opsional) BAST Mobilisasi ───────────┤
+                     ▼                                        ▼
+        Catatan Timesheet Harian  ◄── UNIQUE(contract, tanggal)
+              HM awal/akhir + jam breakdown (CHECK constraint)
+              status awal: 'pending'
+                     │
+                     ▼
+        Persetujuan Manajer (admin/operations)
+              'approved' / 'rejected'   (hanya status pending, belum tertagih)
+                     │
+                     ▼
+        [Admin/Finance] Buat Invoice  ◄── lock kontrak + lock timesheet
+              agregasi jam efektif × tarif + PPN 11%
+              semua timesheet dibill → invoice_id terisi (1 transaksi)
+                     │
+                     ▼
+        Dokumen PDF (Invoice / SPH / BAST) + QR → /verify/doc
+                     │
+                     ▼
+        Tandai Lunas (admin/finance)  ── kontrak selesai → unit 'available'
+```
+
+### 5.2 Matriks hak akses per modul
+
+| Modul | admin | operations | operator | finance |
+|---|---|---|---|---|
+| Fleet (buat/ubah) | ✅ | ✅ | 👁 lihat | 👁 lihat |
+| Clients (CRUD) | ✅ | ✅ | 👁 lihat | 👁 lihat |
+| Contracts (buat, selesaikan) | ✅ | ✅ | 👁 lihat | 👁 lihat |
+| Timesheets (submit) | ✅ | ✅ | ✅ (diri sendiri) | ❌ |
+| Timesheets (approve/reject) | ✅ | ✅ | ❌ | ❌ |
+| BAST | ✅ | ✅ | 👁 lihat | 👁 lihat |
+| Invoices (terbitkan, tandai lunas) | ✅ | ❌ | ❌ | ✅ |
+| Settings perusahaan | ✅ | ❌ | ❌ | ❌ |
+| CSV laporan & PDF (kondisi saat ini) | ✅ | ✅ | ⚠️ ✅ *(temuan S1 — sebaiknya dibatasi)* | ✅ |
+
+RLS di `schema.sql` konsisten dengan matriks ini untuk akses via Data API (operator: read-all kecuali write timesheet miliknya sendiri dengan `status='pending'` dan `operator_id = auth.uid()`).
+
+### 5.3 Alur autentikasi & sesi
+
+1. `POST` login → Server Action `signIn` → `supabase.auth.signInWithPassword` → cookie sesi diset via adapter cookie `@supabase/ssr` → redirect `/dashboard`.
+2. Setiap request halaman `/dashboard`: `proxy.ts` memanggil `getUser()` untuk **refresh token** bila kedaluwarsa (cookie baru ditulis ke response).
+3. Setiap Server Component / Action memvalid ulang via `requireUser()` → `getUser()` (tidak percaya cookie mentah) → ambil `profiles.role` → cek role yang diizinkan.
+4. `signOut` menghapus sesi Supabase → redirect `/login`.
+5. Mode pratinjau (tanpa env Supabase & tanpa Vercel): `requireUser` mengembalikan admin demo `Aditya Pratama` dan `seedPreview()` mengisi data contoh — dipanggil dari `getWorkspaceData` sehingga self-seeding saat kunjungan pertama.
+
+### 5.4 Alur dokumen PDF & verifikasi
+
+1. User klik ikon unduh → `GET /api/documents/{invoice|sph|bast}/{uuid}`.
+2. Route memuat `getWorkspaceData()` (seluruh workspace), menyusun `PdfData` sesuai jenis dokumen (invoice: subtotal/PPN/total + status; BAST: kondisi mesin/hidraulik/track; SPH: periode + tarif).
+3. QR berisi `${APP_URL}/verify/doc?id=<uuid>` digenerate → `renderToBuffer(BusinessDocument)` → PDF A4 dengan kop surat, tabel, ruang tanda tangan manual, footer QR.
+4. Pihak eksternal memindai QR → halaman publik `/verify/doc` → query langsung ke 3 tabel → tampilkan hanya **nomor & jenis** dokumen (tanpa nilai finansial).
+
+---
+
+## 6. Analisa Migrasi ke Supabase
+
+### 6.1 Status kesiapan — apa yang SUDAH ada
+
+Aplikasi ini **bukan** migrasi dari nol; integrasi Supabase sudah dirancang sejak awal:
+
+| Komponen | Status | Lokasi |
+|---|---|---|
+| Autentikasi password (server-side) | ✅ | `actions.ts#signIn`, `lib/auth.ts` |
+| Validasi sesi `getUser()` di setiap permintaan server | ✅ | `lib/auth.ts#requireUser` |
+| Refresh sesi otomatis (middleware) | ✅ | `proxy.ts` |
+| Role dari tabel `profiles` (bukan user metadata) | ✅ | `lib/auth.ts`, `schema.sql` |
+| Skema produksi dengan FK `auth.users` | ✅ | `schema.sql` |
+| RLS policy per role utk Supabase Data API | ✅ | `schema.sql` (`current_app_role()`) |
+| Strategi koneksi: Drizzle langsung via `DATABASE_URL` (trusted, bypass RLS) + otorisasi di layer server | ✅ | `db/index.ts` |
+| Flag fail-closed produksi | ✅ | `isConfigured()`, `isPreview()` |
+
+### 6.2 Gap yang harus ditutup untuk produksi
+
+| # | Gap | Keterangan |
+|---|---|---|
+| G1 | **Provisioning user** | Tidak ada mekanisme membuat `auth.users` + `profiles` berpasangan. Butuh: prosedur admin (SQL/Edge Function) atau trigger `AFTER INSERT ON auth.users` yang membuat `profiles` ber-role default, plus UI manajemen user (Fase 2). Public signup **harus dimatikan**. |
+| G2 | **Connection pooling** | Vercel serverless + Supabase: wajib lewat **Supavisor**. Untuk Drizzle `node-postgres`, gunakan **session pooler** (port 5432) atau transaction pooler (port 6543) dengan prepared statement dimatikan dan `max` pool kecil (≤5). Tanpa ini, koneksi TCP habis. |
+| G3 | **Variabel lingkungan** | `DATABASE_URL` (pooler + `sslmode=require`), `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`/`ANON_KEY`, `NEXT_PUBLIC_APP_URL` (origin kanonik untuk QR). Belum ada `.env.example` di repo. |
+| G4 | **Konfigurasi project Supabase** | Nonaktifkan public signup, set Site URL & Redirect URLs ke domain produksi, custom SMTP + template email (invite/reset), kebijakan password. |
+| G5 | **Strategi migrasi skema** | Sekarang: dua artefak manual (`schema.sql` vs `drizzle-kit push`). Butuh disiplin migrasi (lihat §4.4) agar pratinjau lokal ≠ produksi tidak menimbulkan bug silang. |
+| G6 | **Backup & observability** | Aktifkan PITR/backup harian Supabase, pantau log Drizzle/pg, health check diperluas (sekarang hanya `select 1`). |
+| G7 | **Data historis (bila ada sistem lama)** | Belum ada skrip ETL/impor CSV untuk armada, klien, kontrak berjalan — diperlukan bila go-live dengan data nyata. |
+
+### 6.3 Opsi arsitektur akses data (keputusan penting)
+
+**Opsi A — Pertahankan pola sekarang (rekomendasi untuk fase ini):** Drizzle tetap konek langsung ke Postgres Supabase via Supavisor. Otorisasi tetap di Server Actions. RLS tetap aktif sebagai proteksi Data API (yang tidak dipakai publik). ✅ Perubahan minimal, transaksi & `FOR UPDATE` tetap berfungsi penuh.
+
+**Opsi B — Pindahkan query ke Supabase Data API + RLS:** menghapus kredensial DB dari server, tapi: (1) `FOR UPDATE`/advisory lock tidak tersedia via PostgREST, (2) transaksi multi-statement butuh RPC/Edge Function, (3) logika invoice harus ditulis ulang sebagai fungsi SQL. ❌ Terlalu mahal untuk sekarang; bisa dipertimbangkan parsial nanti (mis. read-only client-side search).
+
+**Opsi C — Hibrida:** tetap Opsi A, tambah Edge Function untuk cron `overdue` & webhook provisioning user. ✅ Direkomendasikan sebagai pelengkap.
+
+### 6.4 Checklist go-live Supabase (langkah demi langkah)
+
+```text
+□ 1. Buat project Supabase (region terdekat: Singapore).
+□ 2. Jalankan schema.sql di SQL Editor (database kosong!). Verifikasi:
+     - 8 tabel + constraint + generated columns
+     - RLS enabled + policy terpasang (SELECT pg_policies)
+□ 3. Authentication → Providers: matikan "Enable Signup" (internal-only).
+□ 4. Authentication → URL Configuration: Site URL = domain produksi;
+     tambah redirect /login dan /dashboard.
+□ 5. (Opsional) Custom SMTP + template undangan/reset password.
+□ 6. Buat user: auth.admin.createuser (dashboard) → lalu INSERT profiles:
+       INSERT INTO profiles (id, full_name, role)
+       VALUES ('<uuid-user>', '<nama>', 'admin');   -- ulangi per pengguna
+□ 7. Ambil kredensial:
+     - Project Settings → Database → Connection string → Session pooler (5432)
+     - Project Settings → API → URL + publishable/anon key
+□ 8. Set env di Vercel:
+     DATABASE_URL=postgresql://postgres.<ref>:<pwd>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
+     NEXT_PUBLIC_SUPABASE_URL=...
+     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
+     NEXT_PUBLIC_APP_URL=https://<domain>
+□ 9. Deploy Vercel → cek /api/health (ok:true).
+□ 10. Login akun admin → lengkapi Pengaturan (kop surat) → uji:
+      buat unit → klien → kontrak → timesheet → approval → invoice → PDF → QR verify.
+□ 11. Aktifkan backup (PITR) + simpan schema.sql versi terkunci di repo.
+□ 12. Dokumentasikan runbook provisioning user untuk admin non-teknis.
+```
+
+> ⚠️ Jangan jalankan `schema.sql` dan `drizzle-kit push` ke database produksi yang sama (peringatan README). Lokal pratinjau = `drizzle-kit push`; produksi = `schema.sql`/migrasi terkontrol.
+
+---
+
+## 7. Roadmap Pengembangan
+
+Estimasi = effort relatif untuk 1–2 engineer. Prioritas mengikuti prinsip: **keamanan → kebenaran finansial → performa → fitur**.
+
+### Fase 0 — Stabilisasi & Kualitas Dasar *(±1–2 minggu)* — 🔴 mulai di sini
+
+| # | Item | Detail | Prioritas |
+|---|---|---|---|
+| 0.1 | Batasi role pada `/api/report` & `/api/documents` | Hanya `admin, finance, operations` (temuan S1) | 🔴 |
+| 0.2 | Hilangkan fetch ganda | `cache()` pada `getWorkspaceData` (atau pindah fetch ke layout dan teruskan via props/context) | 🔴 |
+| 0.3 | `.env.example` + dokumentasi variabel | Semua env dari §6.4 | 🔴 |
+| 0.4 | CI pipeline | GitHub Actions: `npm run lint`, `typecheck`, `next build`, `next typegen` tiap PR | 🔴 |
+| 0.5 | Test inti finansial | Unit/integrasi: pembuatan invoice (idempotensi penagihan), validasi timesheet, penugasan kontrak; e2e Playwright: login → alur kontrak | 🔴 |
+| 0.6 | Indeks FK & status | `contracts.client_id`, `invoices.contract_id`, `handovers.contract_id`, `timesheets.operator_id/invoice_id`, `fleet.status` di **kedua** skema | 🟡 |
+| 0.7 | Satukan sumber skema | `drizzle-kit generate` → folder `drizzle/` migrasi; `schema.sql` jadi bootstrap Supabase; seragakan nullable `operator_id` | 🟡 |
+| 0.8 | Perbaikan kecil | `lang="id"`, verify page pakai `company_settings`, konsistensi formula PPN seed, `drizzle.config.json` baca env | 🟢 |
+
+**Kriteria selesai:** CI hijau, test inti lulus, tidak ada fetch ganda, semua rute finansial ber-role, indeks terpasang.
+
+### Fase 1 — Produksi Supabase *(±2–3 minggu, paralel dengan uji coba lapangan)*
+
+| # | Item | Detail |
+|---|---|---|
+| 1.1 | Hardening project Supabase | Checklist §6.4 lengkap (signup off, redirect, SMTP, backup/PITR) |
+| 1.2 | Provisioning user | Skrip SQL/Edge Function pembuat `profiles` otomatis dari `auth.users` (role default `operator`, admin ubah via SQL/panel) + runbook |
+| 1.3 | Konfigurasi pooler | Session pooler via Supavisor, ukuran pool ketat, uji beban halaman berat |
+| 1.4 | Reset password & undangan | Flow "lupa sandi" di `/login` + halaman reset; undangan user via email admin |
+| 1.5 | Observability | `/api/health` diperluas (cek Supabase Auth reachable), log error terstruktur (mis. Sentry), alert Vercel |
+| 1.6 | Data historis | Skrip impor CSV armada/klien/kontrak berjalan + validasi pra-go-live (bila perlu) |
+| 1.7 | Pilot terbatas | 1–2 kontrak nyata berjalan paralel dengan proses manual selama 2 minggu |
+
+**Kriteria selesai:** produksi live dengan auth nyata, runbook teruji, pilot tanpa insiden kritis.
+
+### Fase 2 — Penguatan Operasional *(±4–6 minggu)*
+
+| # | Item | Detail |
+|---|---|---|
+| 2.1 | **Audit log** | Tabel `audit_log(actor, action, entity, entity_id, before/after jsonb, at)` diisi dari Server Actions; tampilan riwayat per record untuk admin |
+| 2.2 | **Payment ledger** | Tabel `payments(invoice_id, amount, method, reference, paid_at)`; status invoice dihitung dari akumulasi (unpaid/partial/paid) — menggantikan toggle manual |
+| 2.3 | **Overdue otomatis** | pg_cron/Edge Function harian: invoice `due_date < today` & belum lunas → `overdue` + notifikasi |
+| 2.4 | **Penugasan operator** | Tabel `contract_operators(contract_id, operator_id)`; operator hanya melihat/mengisi kontraknya; admin bisa submit atas nama operator |
+| 2.5 | **Pagination & filter server-side** | Query per-modul dengan `WHERE/LIMIT/OFFSET`, search SQL (`ILIKE`/trigram index), agregasi dashboard di SQL |
+| 2.6 | **UI manajemen user** | Admin mengelola user & role dari `/dashboard/users` (via service role/admin API + audit) |
+| 2.7 | **Lampiran foto BAST** | Supabase Storage bucket privat, upload dari form BAST, tampil di PDF & halaman detail; RLS storage per role |
+| 2.8 | **Notifikasi** | In-app (sudah ada badge) + email opsional: timesheet menunggu approval, invoice jatuh tempo, SIKO/asuransi 30 hari |
+| 2.9 | **PPN configurable** | `company_settings.ppn_rate` + validasi; dokumen & invoice memakai nilai setting |
+| 2.10 | Penomoran dokumen berurutan | Sequence per prefix per tahun dengan retry aman terhadap 23505 |
+
+### Fase 3 — Skala & Nilai Tambah *(±kuarter berikutnya, prioritas ditentukan feedback pilot)*
+
+- **Mobile/PWA untuk operator**: input timesheet dari lapangan, draft offline + sinkronisasi (Supabase Realtime/queue).
+- **Analitik lanjutan**: utilisasi armada per unit, profitabilitas per kontrak/klien, proyeksi pendapatan, biaya perawatan vs jam operasi.
+- **Manajemen perawatan**: jadwal servis berkala berbasis HM, riwayat kerusakan mengikat ke `breakdown_hours`.
+- **Integrasi akuntansi**: export jurnal ke sistem akunting (jurnal PPN, piutang), rekonsiliasi pembayaran.
+- **E-signature**: tanda tangan digital BAST/kontrak (penyimpanan gambar ttd + hash dokumen) — melampaui QR verification saat ini.
+- **Multi-entitas/perusahaan**: isolasi data per legal entity (`company_id` di semua tabel + RLS).
+- **Rate card & musiman**: tarif per kategori unit dengan periode efektif, diskon, tarif mobilisasi.
+
+---
+
+## 8. Risiko & Mitigasi
+
+| Risiko | Dampak | Likelihood | Mitigasi |
+|---|---|---|---|
+| Kehabisan koneksi DB di Vercel (tanpa pooler) | Down total | Tinggi bila diabaikan | Fase 1.3 (Supavisor session pooler + pool kecil) |
+| Drift `schema.sql` vs `schema.ts` menimbulkan bug hanya-di-produksi | Bug silen | Sedang | Fase 0.7 (migrasi tergenerate, satu sumber kebenaran) |
+| Operator/role salah melihat data finansial (S1) | Kebocoran internal | Sedang | Fase 0.1 (quick win, ≤1 hari) |
+| Bug perhitungan invoice tanpa test jaring pengaman | Kerugian finansial | Sedang | Fase 0.5 (test idempotensi penagihan wajib sebelum go-live) |
+| Tanpa audit log, sengketa pembayaran/kontrak sulit dibuktikan | Operasional/hukum | Sedang | Fase 2.1 |
+| Akses DB langsung salah konfigurasi (env bocor di client) | Kompromi total | Rendah (pola sudah benar) | Audit env NEXT_PUBLIC_*, CI check |
+| Supabase Auth signup terbuka saat produksi | Akun liar | Rendah (satu klik) | Checklist go-live item 3 |
+| PPN berubah regulasi | Dokumen pajak salah | Rendah–Sedang | Fase 2.9 (konfigurasi) + verifikasi berkala |
+
+---
+
+## 9. Lampiran
+
+### 9.1 Perintah harian
+
+```sh
+npx drizzle-kit push          # sinkron skema ke DB lokal pratinjau
+npm run dev -- --turbopack    # jalankan lokal (mode pratinjau aktif tanpa env Supabase)
+npm run lint && npm run typecheck
+npx next typegen && npm exec tsc -- --noEmit
+npm run build                 # validasi produksi
+```
+
+### 9.2 Variabel lingkungan
+
+| Variabel | Wajib? | Fungsi |
+|---|---|---|
+| `DATABASE_URL` | ✅ | Koneksi Postgres (Supabase: connection string **session pooler** + `sslmode=require`) |
+| `NEXT_PUBLIC_SUPABASE_URL` | Produksi | URL project Supabase (auth) |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Produksi | Kunci publik auth (bukan service role!) |
+| `NEXT_PUBLIC_APP_URL` | Produksi | Origin kanonik untuk tautan QR verifikasi PDF |
+| `VERCEL` | Otomatis | Menonaktifkan mode pratinjau demo |
+
+> **Jangan pernah** menyetel `SUPABASE_SERVICE_ROLE_KEY` ke aplikasi ini — semua akses sudah lewat `DATABASE_URL` trusted di server; menambah service role di sisi client adalah pintu belakang.
+
+### 9.3 Glosarium istilah domain
+
+| Istilah | Arti |
+|---|---|
+| **HM** (Hour Meter) | Pembacaan jam kerja mesin unit; dasar perhitungan sewa |
+| **SIKO** | Izin kerja alat berat (Surat Izin Kerja/Operasi) dengan masa berlaku |
+| **BAST** | Berita Acara Serah Terima unit (mobilisasi/demobilisasi) |
+| **SPH** | Surat Penawaran Harga — PDF yang digenerate dari kontrak |
+| **PPN** | Pajak Pertambahan Nilai; diaplikasi ini tetap 11% |
+| **Breakdown hours** | Jam mesin berhenti karena kerusakan — dikurangi dari jam efektif |
+
+---
+
+*Dokumen ini hidup: perbarui status checklist dan fase seiring progres. Rekomendasi urutan kerja berikutnya: langsung eksekusi Fase 0 (semua item ≤ prioritas tinggi bisa tuntas < 1 minggu), lalu jalankan checklist go-live §6.4 sambil mengerjakan Fase 1.*
