@@ -1,0 +1,3 @@
+import type { SVGProps } from 'react';
+export function EquipmentIcon(props:SVGProps<SVGSVGElement>){return <svg width="25" height="25" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M5 22h13a3 3 0 0 1 0 6H5a3 3 0 0 1 0-6Z"/><path d="M5 25h13M6 22v-9h8l4 9M8 13V8h5l4 9H6M18 18l4-13 4 1 3 12M25 18h5v5h-6l-2-3M19 12l5-5"/></svg>;}
+export function BrandMark(){return <span className="brand-mark"><svg viewBox="0 0 32 32" fill="none"><path d="M7 9h7v5H7zM18 9h7v5h-7zM7 18h7v5H7zM18 18h7v5h-7z" fill="currentColor"/><path d="M12 12h8v8h-8z" fill="currentColor"/></svg></span>;}

@@ -1,0 +1,21 @@
+import 'server-only';
+import { db } from '@/db';
+import * as s from '@/db/schema';
+import { asc, desc } from 'drizzle-orm';
+import { requireUser } from '@/lib/auth';
+import { seedPreview } from '@/db/seed';
+export async function getWorkspaceData() {
+ const user = await requireUser();
+ await seedPreview();
+ const [fleet,clients,contracts,timesheets,invoices,handovers,settings] = await Promise.all([
+ db.select().from(s.fleet).orderBy(asc(s.fleet.createdAt),asc(s.fleet.unitCode)),
+ db.select().from(s.clients).orderBy(asc(s.clients.companyName)),
+ db.select().from(s.contracts).orderBy(desc(s.contracts.createdAt)),
+ db.select().from(s.timesheets).orderBy(desc(s.timesheets.date)),
+ db.select().from(s.invoices).orderBy(desc(s.invoices.issueDate)),
+ db.select().from(s.handovers).orderBy(desc(s.handovers.date)),
+ db.select().from(s.companySettings).limit(1),
+ ]);
+ return {user,fleet,clients,contracts,timesheets,invoices,handovers,settings:settings[0]||{id:'main',companyName:'PT Penyewaan Alat Berat',address:'Jakarta, Indonesia',email:'',phone:''}};
+}
+export type WorkspaceData = Awaited<ReturnType<typeof getWorkspaceData>>;

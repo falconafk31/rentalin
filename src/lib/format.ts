@@ -1,0 +1,5 @@
+export const money = (value: number | string) => new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(Number(value));
+export const shortMoney = (value: number) => value >= 1e9 ? `Rp ${(value/1e9).toLocaleString('id-ID',{maximumFractionDigits:1})} M` : `Rp ${(value/1e6).toLocaleString('id-ID',{maximumFractionDigits:1})} jt`;
+export const dateLabel = (value: string | Date) => new Date(value).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'});
+export const labels: Record<string,string> = {available:'Tersedia',renting:'Disewa',maintenance:'Perawatan',in_transit:'Dalam Mobilisasi',active:'Aktif',draft:'Draf',completed:'Selesai',pending:'Menunggu Persetujuan',approved:'Disetujui',rejected:'Ditolak',unpaid:'Belum Dibayar',partial:'Dibayar Sebagian',paid:'Lunas',overdue:'Jatuh Tempo',mobilization:'Mobilisasi',demobilization:'Demobilisasi',admin:'Administrator',operations:'Manajer Operasional',operator:'Operator',finance:'Staf Keuangan'};
+export const todayISO = () => new Date().toISOString().slice(0,10);

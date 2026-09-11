@@ -1,0 +1,1 @@
+export default function Loading(){return <div className="loading-view"><div className="loading-bar"/><div className="loading-cards">{[1,2,3,4].map(i=><div key={i}/>)}</div><div className="loading-chart"/><p>Memuat data operasional...</p></div>;}
