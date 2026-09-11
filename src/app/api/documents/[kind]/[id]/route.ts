@@ -40,7 +40,7 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
   const rate=Number(invoice.taxRate??ppnRate);data.subtotal=money(invoice.subtotalAmount??(Number(invoice.totalAmount)-Number(invoice.taxAmount)));data.tax=money(invoice.taxAmount);data.taxLabel=`PPN ${rate}%`;data.total=money(invoice.totalAmount);data.dueDate=dateLabel(invoice.dueDate);
   if(history.length){
    data.paidTotal=money(paidTotal);data.remaining=money(Math.max(0,Number(invoice.totalAmount)-paidTotal));
-   data.payments=history.slice(0,10).map(p=>({label:`${dateLabel(p.paidAt)} · ${labels[p.method]}${p.reference?` · ${p.reference}`:''}`,value:money(p.amount)}));
+   data.payments=history.slice(0,10).map(p=>({label:`${dateLabel(p.paidAt)} · ${labels[p.method]}${p.reference?` · ${p.reference}`:''}${p.notes?` — ${p.notes.slice(0,60)}`:''}`,value:money(p.amount)}));
   }
   data.notes=`Pembayaran dilakukan sesuai kesepakatan dalam kontrak sewa. Cantumkan nomor tagihan pada bukti pembayaran dan sampaikan konfirmasi kepada bagian keuangan. PPN dihitung sebesar ${rate}% dari subtotal.`;
  }

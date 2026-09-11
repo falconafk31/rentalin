@@ -739,7 +739,7 @@ function PaymentsModal({ invoice, payments, onClose, onPay }: {
           {history.length > 0 && (
             <div className="invoice-preview span-2">
               <h4>Riwayat Pembayaran ({history.length})</h4>
-              {history.map(p => <div key={p.id}><span>{dateLabel(p.paidAt)} · {labels[p.method]}{p.reference ? ` · ${p.reference}` : ''}</span><b>{money(p.amount)}</b></div>)}
+              {history.map(p => <div key={p.id} className="payment-row"><span>{dateLabel(p.paidAt)} · {labels[p.method]}{p.reference ? ` · ${p.reference}` : ''}{p.notes ? <><br />{p.notes}</> : null}</span><b>{money(p.amount)}</b></div>)}
             </div>
           )}
           {!settled && (
@@ -748,6 +748,7 @@ function PaymentsModal({ invoice, payments, onClose, onPay }: {
               <label className="form-field"><span>Metode <i>*</i></span><select name="method" defaultValue="transfer">{['transfer', 'cash', 'giro', 'other'].map(m => <option key={m} value={m}>{labels[m]}</option>)}</select>{errors?.method && <small className="field-error">{errors.method}</small>}</label>
               <label className="form-field"><span>Tanggal Bayar <i>*</i></span><input name="paidAt" type="date" required defaultValue={todayISO()} max={todayISO()} />{errors?.paidAt && <small className="field-error">{errors.paidAt}</small>}</label>
               <label className="form-field"><span>Referensi</span><input name="reference" maxLength={100} placeholder="No. bukti / keterangan" />{errors?.reference && <small className="field-error">{errors.reference}</small>}</label>
+              <label className="form-field span-2"><span>Catatan</span><textarea name="notes" maxLength={500} rows={2} placeholder="Catatan internal pembayaran (opsional)" />{errors?.notes && <small className="field-error">{errors.notes}</small>}</label>
               <div className="info-callout span-2"><Info size={18} /><p>Pembayaran sebagian mengubah status menjadi <b>Dibayar Sebagian</b>. Tagihan lunas otomatis saat akumulasi mencapai total.</p></div>
             </>
           )}

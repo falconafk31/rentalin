@@ -222,6 +222,7 @@ export async function recordPayment(form:FormData): Promise<ActionResult> {
   const paidAt=validDate(form,'paidAt');
   if(paidAt>todayISO())throw new FieldError({paidAt:'Tanggal bayar tidak boleh di masa depan.'});
   const reference=text(form,'reference').slice(0,100);
+  const notes=text(form,'notes').slice(0,500);
   let invoiceNo = '';
   await db.transaction(async tx=>{
    const [invoice]=await tx.select().from(s.invoices).where(eq(s.invoices.id,invoiceId)).for('update');
@@ -232,7 +233,7 @@ export async function recordPayment(form:FormData): Promise<ActionResult> {
    const paidSoFar=paid.reduce((a,p)=>a+Number(p.amount),0);
    const remaining=remainingBalance(invoice.totalAmount,paidSoFar);
    if(amount-remaining>0.005)throw new FieldError({amount:`Melebihi sisa tagihan (${money(remaining)}).`});
-   await tx.insert(s.payments).values({invoiceId,amount:amount.toFixed(2),method,reference:reference||null,paidAt,notedBy:user.id});
+   await tx.insert(s.payments).values({invoiceId,amount:amount.toFixed(2),method,reference:reference||null,notes:notes||null,paidAt,notedBy:user.id});
    await tx.update(s.invoices).set({status:resolveInvoiceStatus(invoice.totalAmount,paidSoFar+amount,invoice.dueDate,todayISO())}).where(eq(s.invoices.id,invoiceId));
   });
   await logAudit({ actorId: user.id, actorName: user.fullName, action: 'pay', entity: 'invoices', entityId: invoiceId, summary: `Mencatat pembayaran ${money(amount)} untuk ${invoiceNo}` });
