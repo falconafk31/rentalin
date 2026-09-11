@@ -4,11 +4,19 @@ import QRCode from 'qrcode';
 import { getWorkspaceData } from '@/lib/data';
 import { BusinessDocument, type PdfData } from '@/components/pdf-document';
 import { dateLabel, money, labels } from '@/lib/format';
+import { requireUser } from '@/lib/auth';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
+// Pembatasan akses (audit.md A1 / Quick Win #1): PDF invoice memuat nilai finansial —
+// hanya admin/finance/operations. SPH & BAST tetap terbuka bagi seluruh role internal
+// karena bersifat operasional, bukan finansial.
 export async function GET(request:Request,{params}:{params:Promise<{kind:string;id:string}>}){
  const {kind,id}=await params;
  if(!['invoice','sph','bast'].includes(kind)||! /^[0-9a-f-]{36}$/i.test(id))return Response.json({message:'Dokumen tidak ditemukan.'},{status:404});
+ if(kind==='invoice'){
+  try{await requireUser(['admin','finance','operations']);}
+  catch(error){if(((error as Error).message||'').includes('NEXT_REDIRECT'))throw error;return Response.json({message:'Anda tidak memiliki izin mengunduh dokumen tagihan.'},{status:403});}
+ }
  const workspace=await getWorkspaceData();
  const invoice=kind==='invoice'?workspace.invoices.find(i=>i.id===id):undefined;
  const handover=kind==='bast'?workspace.handovers.find(h=>h.id===id):undefined;
