@@ -59,4 +59,4 @@ npm audit                       # tidak boleh ada severity HIGH
 
 - ✅ Audit penuh selesai (`audit.md`) — 4 Quick Wins Utama **sudah dikerjakan**: role check route finansial (+ RLS invoices di migration 0004), lint bersih, lazy-init DB (build lolos tanpa env), postcss 8.5.28 (HIGH tertutup).
 - ✅ Dokumentasi handoff lengkap: `roadmap.md`, `audit.md`, `supabase/README.md` (+ migrations 0001–0005, seed, template provisioning user).
-- ⏭️ Berikutnya: isu `#2`–`#7` (sisa Fase 0 cepat), lalu `#8`–`#9`, lalu `#10` — setelah itu Fase 1 mengikuti `supabase/README.md`.
+- ⏭️ Berikutnya: isu `#2`–`#7` (sisa Fase 0 cepat), lalu `#8`–`#9` — setelah itu Fase 1 mengikuti `supabase/README.md`. (Isu `#10` pagination server-side sudah dikerjakan; saat deploy jalankan juga migrasi `0017_pagination_indexes.sql`.)

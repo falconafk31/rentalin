@@ -94,7 +94,7 @@ Seluruh temuan di bawah sudah diverifikasi dengan menjalankan tool langsung terh
 
 | # | Item | Lokasi | Detail | Dampak |
 |---|---|---|---|---|
-| O1 | **Query per-modul + pagination server-side** | `src/lib/data.ts` | Ganti `SELECT *` 7 tabel penuh dengan query per halaman + `WHERE/LIMIT/OFFSET` + agregasi dashboard (`SUM … GROUP BY bulan`) di SQL. Saat ini seluruh tabel dikirim ke browser. | 🔴 Skala utama |
+| O1 | **✅ SELESAI (11 Sep 2026) — Query per-modul + pagination server-side** | `src/lib/data.ts` | Dikerjakan sebagai item O-A di `ui-audit.md` §3a: `getShellData()` (layout ramping: user + settings + 4 count), `getModulePage(module, {q,status,category,expiringOnly,page,sort})` (WHERE/ORDER BY/LIMIT/OFFSET per modul, JOIN label + subquery agregat), `getDashboardData()` (SUM/GROUP BY bulan + count + daftar terbaru terbatas), `getReportData()`/`getDocumentBundle()` (ekspor terarah), `/api/search` (ILIKE, pengganti corpus client). Indeks pendukung: migration `0017_pagination_indexes.sql`. | 🔴→🟢 Skala utama tertutup |
 | O2 | **Indeks kolom FK & status** | `supabase/migrations/0005_performance_indexes.sql` | Sudah disiapkan — tinggal dijalankan. PostgreSQL tidak mengindeks FK otomatis. | 🔴 Query lambat |
 | O3 | **Fix lint error `set-state-in-effect`** | `module-workspace.tsx:19` | Sinkronisasi props→state via `useEffect` adalah anti-pattern React 19 (deteksi baru eslint-plugin-react-hooks v6). Solusi idiomatik: reset state via `key` komponen saat props berubah, atau derived-state-with-prev pattern. | 🔴 Lint merah |
 | O4 | **Warning a11y `alt-text`** | `pdf-document.tsx` | Gambar QR di PDF tanpa atribut alt. Tambah alt deskriptif. | 🟢 |

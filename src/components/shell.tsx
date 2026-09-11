@@ -1,13 +1,13 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState, useEffect, useRef, useMemo, useDeferredValue } from 'react';
-import { LayoutDashboard, UsersRound, FileText, ClipboardList, ClipboardCheck, ReceiptText, Settings2, Search, Bell, ChevronDown, ChevronRight, ChevronsLeft, PanelLeftOpen, CircleHelp, ArrowUpRight, X, LogOut, Home, Menu, ScrollText } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { LayoutDashboard, UsersRound, FileText, ClipboardList, ClipboardCheck, ReceiptText, Settings2, Search, Bell, ChevronDown, ChevronRight, ChevronsLeft, PanelLeftOpen, CircleHelp, ArrowUpRight, X, LogOut, Home, Menu, ScrollText, LoaderCircle } from 'lucide-react';
 import { EquipmentIcon, BrandMark } from './icons';
 import { Modal } from './ui/dialog';
 import { signOut } from '@/app/actions';
-import { labels, dateLabel, isExpiringSoon, isPastDue } from '@/lib/format';
-import type { WorkspaceData } from '@/lib/data';
+import { labels, dateLabel } from '@/lib/format';
+import type { ShellData, SearchResult } from '@/lib/data';
 import type { ElementType } from 'react';
 
 type NavEntry = { path: string; label: string; icon: ElementType; section: string; adminOnly?: boolean };
@@ -25,14 +25,16 @@ export const navigation: NavEntry[] = [
 ];
 const navSections = ['DATA POKOK', 'SEWA BERJALAN', 'KEUANGAN', 'LAINNYA'];
 
-export function Shell({ data, children }: { data: WorkspaceData; children: React.ReactNode }) {
+export function Shell({ data, children }: { data: ShellData; children: React.ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [notifications, setNotifications] = useState(false);
   const [profile, setProfile] = useState(false);
   const [help, setHelp] = useState(false);
-  const warnDays = Number(data.settings.expiryWarningDays ?? 30) || 30;
+  // O-A: angka badge/pemberitahuan berasal dari count SQL (data.counts) —
+  // shell tidak lagi menerima koleksi penuh untuk menghitungnya di client.
+  const { pendingTimesheets: pending, unpaidInvoices: unpaid, overdueInvoices: overdue, expiringFleet } = data.counts;
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -46,10 +48,6 @@ export function Shell({ data, children }: { data: WorkspaceData; children: React
     () => navigation.find(n => n.path === pathname) || navigation.find(n => n.path !== '/dashboard' && pathname.startsWith(n.path)),
     [pathname],
   );
-  const pending = useMemo(() => data.timesheets.filter(t => t.status === 'pending').length, [data.timesheets]);
-  const unpaid = useMemo(() => data.invoices.filter(i => i.status !== 'paid').length, [data.invoices]);
-  const expiring = useMemo(() => data.fleet.filter(f => [f.sikoExpiry, f.insuranceExpiry].some(d => isExpiringSoon(d, warnDays))), [data.fleet, warnDays]);
-  const overdue = useMemo(() => data.invoices.filter(i => i.status !== 'paid' && (i.status === 'overdue' || isPastDue(i.dueDate))).length, [data.invoices]);
   const visibleNav = useMemo(() => navigation.filter(n => !n.adminOnly || data.user.role === 'admin'), [data.user.role]);
 
   return (
@@ -98,16 +96,16 @@ export function Shell({ data, children }: { data: WorkspaceData; children: React
             <b>{current?.label || 'Dasbor Utama'}</b>
           </div>
           <div className="header-actions">
-            <GlobalSearch data={data} />
+            <GlobalSearch role={data.user.role} />
             <div className="header-popover-wrap">
               <button className={`notification-button icon-button ${notifications ? 'selected' : ''}`} aria-label="Lihat pemberitahuan" onClick={() => { setNotifications(!notifications); setProfile(false); }}>
-                <Bell size={20} />{(pending > 0 || expiring.length > 0 || overdue > 0) && <i />}
+                <Bell size={20} />{(pending > 0 || expiringFleet > 0 || overdue > 0) && <i />}
               </button>
               {notifications && (
                 <div className="header-popover notifications">
-                  <h4>Pemberitahuan <span>{pending + expiring.length + overdue}</span></h4>
+                  <h4>Pemberitahuan <span>{pending + expiringFleet + overdue}</span></h4>
                   <Link href="/dashboard/timesheets" onClick={() => setNotifications(false)}><span className="activity-icon orange"><ClipboardList size={18} /></span><div><b>{pending} catatan menunggu persetujuan</b><p>Periksa catatan kerja harian operator.</p></div></Link>
-                  <Link href="/dashboard/fleet?filter=expiring" onClick={() => setNotifications(false)}><span className="activity-icon amber"><FileText size={18} /></span><div><b>{expiring.length} dokumen perlu diperhatikan</b><p>SIKO atau asuransi akan berakhir.</p></div></Link>
+                  <Link href="/dashboard/fleet?filter=expiring" onClick={() => setNotifications(false)}><span className="activity-icon amber"><FileText size={18} /></span><div><b>{expiringFleet} dokumen perlu diperhatikan</b><p>SIKO atau asuransi akan berakhir.</p></div></Link>
                   {overdue > 0 && <Link href="/dashboard/invoices" onClick={() => setNotifications(false)}><span className="activity-icon green"><ReceiptText size={18} /></span><div><b>{overdue} tagihan jatuh tempo</b><p>Segera tindak lanjuti pembayaran klien.</p></div></Link>}
                 </div>
               )}
@@ -135,8 +133,7 @@ export function Shell({ data, children }: { data: WorkspaceData; children: React
       </div>
       <Modal open={help} onOpenChange={setHelp} title="Pusat Bantuan HeavyOps" description="Dukungan untuk kelancaran operasional Anda.">
         <div className="help-content">
-          <div className="info-callout"><CircleHelp size={20} /><p>Untuk kendala akses, perubahan hak pengguna, atau pertanyaan operasional, silakan hubungi administrator perusahaan.</p></div>
-          <h4>Hubungi tim operasional</h4>
+          <div className="info-callout"><CircleHelp size={20} /><p>Untuk kendala akses, perubahan hak pengguna, atau pertanyaan operasional, silakan hubungi administrator sistem Anda.</p></div>
           <a href={`mailto:${data.settings.email}`}>{data.settings.email || 'Surel belum diatur'}</a>
           <a href={`tel:${data.settings.phone}`}>{data.settings.phone || 'Telepon belum diatur'}</a>
           <hr />
@@ -156,12 +153,17 @@ export function Shell({ data, children }: { data: WorkspaceData; children: React
 
 // ---------------------------------------------------------------------------
 // Pencarian global — state ketikan terisolasi di komponen sendiri.
+// O-A: corpus record TIDAK lagi berasal dari payload layout; ketikan di-debounce
+// 250 ms lalu ditanyakan ke /api/search (ILIKE di server, maks 7 hasil). Item
+// menu tetap dicari di client dari daftar navigasi statis.
 // Sebelumnya query tinggal di Shell sehingga tiap ketikan me-render ulang
 // seluruh sidebar + topbar dan membangun ulang daftar semua record.
 // ---------------------------------------------------------------------------
-function GlobalSearch({ data }: { data: WorkspaceData }) {
+function GlobalSearch({ role }: { role: string }) {
   const [query, setQuery] = useState('');
-  const deferredQuery = useDeferredValue(query);
+  // Hasil terakhir disimpan bersama query-nya; "loading" dan "hasil" DITURUNKAN
+  // (bukan state yang di-set sinkron di effect — anti-pattern react-hooks v6).
+  const [loaded, setLoaded] = useState<{ q: string; items: SearchResult[] }>({ q: '', items: [] });
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -173,20 +175,33 @@ function GlobalSearch({ data }: { data: WorkspaceData }) {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  const corpus = useMemo(() => [
-    ...navigation.filter(n => !n.adminOnly || data.user.role === 'admin').map(n => ({ label: n.label, sub: n.section ? `${n.section} · Menu` : 'Menu ruang kerja', path: n.path })),
-    ...data.fleet.map(f => ({ label: `${f.unitCode} · ${f.brandModel}`, sub: 'Armada Alat Berat', path: `/dashboard/fleet?q=${encodeURIComponent(f.unitCode)}` })),
-    ...data.clients.map(c => ({ label: c.companyName, sub: 'Data Klien', path: `/dashboard/clients?q=${encodeURIComponent(c.companyName)}` })),
-    ...data.contracts.map(c => ({ label: c.contractNumber, sub: '1. Kontrak Sewa', path: `/dashboard/contracts?q=${encodeURIComponent(c.contractNumber)}` })),
-    ...data.handovers.map(h => ({ label: h.documentNumber, sub: '2. BAST Serah Terima', path: `/dashboard/bast?q=${encodeURIComponent(h.documentNumber)}` })),
-    ...data.invoices.map(i => ({ label: i.invoiceNumber, sub: '4. Penagihan Invoice', path: `/dashboard/invoices?q=${encodeURIComponent(i.invoiceNumber)}` })),
-  ], [data]);
+  const trimmed = query.trim();
 
-  const results = useMemo(() => {
-    const q = deferredQuery.trim().toLowerCase();
+  useEffect(() => {
+    if (!trimmed) return;
+    const controller = new AbortController();
+    // Debounce 250 ms agar tidak satu request per ketikan.
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}`, { signal: controller.signal });
+        const json = res.ok ? await res.json() as { results?: SearchResult[] } : {};
+        setLoaded({ q: trimmed, items: json.results ?? [] });
+      } catch { /* dibatalkan request berikutnya / offline */ }
+    }, 250);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [trimmed]);
+
+  const menuMatches = useMemo(() => {
+    const q = trimmed.toLowerCase();
     if (!q) return [];
-    return corpus.filter(r => r.label.toLowerCase().includes(q)).slice(0, 7);
-  }, [corpus, deferredQuery]);
+    return navigation.filter(n => (!n.adminOnly || role === 'admin') && n.label.toLowerCase().includes(q))
+      .map(n => ({ label: n.label, sub: n.section ? `${n.section} · Menu` : 'Menu ruang kerja', path: n.path }));
+  }, [trimmed, role]);
+  const loading = trimmed.length > 0 && loaded.q !== trimmed;
+  const combined = useMemo(() => {
+    const serverResults = trimmed && loaded.q === trimmed ? loaded.items : [];
+    return [...menuMatches, ...serverResults].slice(0, 7);
+  }, [menuMatches, trimmed, loaded]);
 
   return (
     <div className="global-search">
@@ -195,8 +210,8 @@ function GlobalSearch({ data }: { data: WorkspaceData }) {
       <kbd>⌘ K</kbd>
       {query && (
         <div className="search-results">
-          <div className="popover-label">HASIL PENCARIAN<button aria-label="Tutup pencarian" onClick={() => setQuery('')}><X size={14} /></button></div>
-          {results.length ? results.map(r => <Link key={r.label} href={r.path} onClick={() => setQuery('')}><Search size={15} /><div>{r.label}<small>{r.sub}</small></div><ChevronRight size={14} /></Link>) : <p>Tidak ada hasil ditemukan.</p>}
+          <div className="popover-label">HASIL PENCARIAN{loading && <LoaderCircle size={13} className="spin" />} <button aria-label="Tutup pencarian" onClick={() => setQuery('')}><X size={14} /></button></div>
+          {combined.length ? combined.map(r => <Link key={`${r.path}-${r.label}`} href={r.path} onClick={() => setQuery('')}><Search size={15} /><div>{r.label}<small>{r.sub}</small></div><ChevronRight size={14} /></Link>) : <p>{loading ? 'Mencari...' : 'Tidak ada hasil ditemukan.'}</p>}
         </div>
       )}
     </div>

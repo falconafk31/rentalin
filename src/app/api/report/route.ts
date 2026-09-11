@@ -1,4 +1,4 @@
-import { getWorkspaceData } from '@/lib/data';
+import { getReportData } from '@/lib/data';
 import { labels } from '@/lib/format';
 import { requireUser } from '@/lib/auth';
 // Pembatasan akses (audit.md A1 / Quick Win #1): laporan CSV memuat data tagihan —
@@ -6,7 +6,8 @@ import { requireUser } from '@/lib/auth';
 export async function GET(){
  try{await requireUser(['admin','finance','operations']);}
  catch(error){if(((error as Error).message||'').includes('NEXT_REDIRECT'))throw error;return Response.json({message:'Anda tidak memiliki izin mengunduh laporan ini.'},{status:403});}
- const data=await getWorkspaceData();
+ // O-A: ekspor terarah — hanya settings + armada + invoice + pembayaran.
+ const data=await getReportData();
  const paidBy=new Map<string,number>();
  for(const p of data.payments)paidBy.set(p.invoiceId,(paidBy.get(p.invoiceId)||0)+Number(p.amount));
  const escape=(v:unknown)=>`"${String(v??'').replace(/^[=+@-]/,"'$&").replaceAll('"','""')}"`;

@@ -6,7 +6,7 @@ import { Button } from './ui/button';
 import { updateUserRole, inviteUser, updateUserProfile, setUserBanned } from '@/app/actions';
 import { labels, dateTimeLabel } from '@/lib/format';
 import { Badge } from './overview';
-import type { WorkspaceData } from '@/lib/data';
+import type { UsersData, AuditData } from '@/lib/data';
 
 export function AccessDenied() {
   return (
@@ -30,7 +30,7 @@ const entityLabels: Record<string, string> = {
 // Manajemen pengguna & peran (admin). Daftar dari profiles; undang via email
 // bila service-role tersedia, kalau tidak fallback ke template SQL.
 // ---------------------------------------------------------------------------
-export function UsersWorkspace({ data, banned }: { data: WorkspaceData; banned: Record<string, boolean> }) {
+export function UsersWorkspace({ data, banned }: { data: UsersData; banned: Record<string, boolean> }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [toast, setToast] = useState<{ success: boolean; message: string } | null>(null);
@@ -120,7 +120,7 @@ export function UsersWorkspace({ data, banned }: { data: WorkspaceData; banned: 
 // ---------------------------------------------------------------------------
 // Log audit (admin, read-only, 200 terbaru).
 // ---------------------------------------------------------------------------
-export function AuditWorkspace({ data }: { data: WorkspaceData }) {
+export function AuditWorkspace({ data }: { data: AuditData }) {
   const [query, setQuery] = useState('');
   const filtered = useMemo(() => {
     const q = query.toLowerCase();

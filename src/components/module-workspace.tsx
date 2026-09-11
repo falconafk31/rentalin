@@ -1,14 +1,15 @@
 'use client';
-import { useCallback, useDeferredValue, useEffect, useMemo, useOptimistic, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useOptimistic, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, Plus, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, Pencil, Trash2, FileDown, Check, X, TriangleAlert, LoaderCircle, CircleCheck, Building2, Filter, Info, Save, ShieldCheck, Wallet, ImagePlus } from 'lucide-react';
 import { EquipmentIcon } from './icons';
 import { Button } from './ui/button';
 import { Modal } from './ui/dialog';
 import { Badge } from './overview';
-import { saveRecord, bulkCreateFleet, changeStatus, deleteClient, resetDatabase, reviseContract, recordPayment } from '@/app/actions';
+import { saveRecord, bulkCreateFleet, changeStatus, deleteClient, resetDatabase, reviseContract, recordPayment, getFormOptions, getRevisionHistory, getBillableHours, getInvoicePayments } from '@/app/actions';
+import type { FormOptionsData } from '@/app/actions';
 import { money, dateLabel, dateTimeLabel, timeLabel, labels, todayISO, isPastDue, isExpiringSoon } from '@/lib/format';
-import type { WorkspaceData } from '@/lib/data';
+import type { ModulePageData, ModuleRow, FleetRow, ClientRow, ContractRow, TimesheetRow, HandoverRow, InvoiceRow, PaymentRow, CompanySettings, ModuleFilters } from '@/lib/data';
 import { calcInvoiceTotals, remainingBalance } from '@/lib/finance';
 
 const config: Record<string, { title: string; description: string; add: string; singular: string }> = {
@@ -36,127 +37,129 @@ const fleetCategories = ['Ekskavator', 'Buldozer', 'Vibro Roller', 'Crane', 'Whe
 const bastItems: [string, string, string][] = [['engine', 'Mesin', 'Mesin menyala normal, tidak ada kebocoran atau suara abnormal.'], ['hydraulics', 'Sistem Hidraulik', 'Tekanan stabil, selang dan silinder tanpa rembes.'], ['tracks', 'Rantai / Roda', 'Track shoe / ban, sprocket, dan roller kondisi baik.'], ['oil', 'Oli & Cairan', 'Level oli mesin, coolant, dan oli hidraulik aman.'], ['fuel', 'Bahan Bakar', 'Level BBM tercatat, tutup tangki dan selang baik.'], ['battery', 'Aki & Starter', 'Starter tokcer, terminal aki bersih dan kencang.'], ['lights', 'Lampu & Klakson', 'Lampu kerja, beacon, klakson, dan alarm mundur berfungsi.'], ['brakes', 'Rem & Kemudi', 'Rem dan kemudi responsif, tanpa speleng berlebih.'], ['bucket', 'Bucket / Attachment', 'Bucket / blade, gigi, pin, dan bushing tidak retak.'], ['cabin', 'Kabin & Kaca', 'Kabin / ROPS, jok, sabuk, spion, kaca, dan wiper baik.'], ['safety', 'APAR & P3K', 'APAR, kotak P3K, dan perlengkapan darurat tersedia.'], ['documents', 'SIKO & Dokumen', 'SIKO / SILO, STNK / KIR, dan catatan HM difoto.']];
 
 type EditableRecord = Record<string, string | number | boolean | string[] | Date | null>;
-type Row = { id: string; search: string; status: string; category?: string; cells: React.ReactNode[]; raw: EditableRecord };
-type FleetRow = WorkspaceData['fleet'][number];
+type Row = { id: string; status: string; cells: React.ReactNode[]; raw: EditableRecord };
 type StatusUpdate = { kind: 'timesheet' | 'invoice' | 'contract'; id: string; status: string };
+type RevisionRow = Awaited<ReturnType<typeof getRevisionHistory>>[number];
 
-// Satu collator dipakai bersama — localeCompare per perbandingan membuat
-// collator baru dan membuat sort O(n log n) jauh lebih mahal.
-const collator = new Intl.Collator('id');
 // Ambang peringatan (hari) kini konfigurasi, bukan hardcode 30 — perbandingan
 // memakai aritmetika kalender TZ-aman agar tidak geser ±1 hari di WIB.
 const isExpiringFleet = (f: Pick<FleetRow, 'sikoExpiry' | 'insuranceExpiry'>, warnDays = 30) =>
   [f.sikoExpiry, f.insuranceExpiry].some(d => isExpiringSoon(d, warnDays));
 
-// Lookup O(1) via Map — sebelumnya setiap baris tabel memanggil .find() di atas
-// seluruh koleksi (O(n²) setiap render, dan render terjadi tiap ketikan).
-function useLookups(data: WorkspaceData) {
-  const fleetById = useMemo(() => new Map(data.fleet.map(f => [f.id, f])), [data.fleet]);
-  const clientsById = useMemo(() => new Map(data.clients.map(c => [c.id, c])), [data.clients]);
-  const contractsById = useMemo(() => new Map(data.contracts.map(c => [c.id, c])), [data.contracts]);
-  const contractsByClient = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const c of data.contracts) m.set(c.clientId, (m.get(c.clientId) || 0) + 1);
-    return m;
-  }, [data.contracts]);
-  const getUnit = useCallback((id: string) => fleetById.get(id), [fleetById]);
-  const getClient = useCallback((id: string) => clientsById.get(id), [clientsById]);
-  const getContract = useCallback((id: string) => contractsById.get(id), [contractsById]);
-  return { getUnit, getClient, getContract, contractsByClient };
-}
-
 function PdfLink({ kind, id }: { kind: string; id: string }) {
   return <a className="icon-button" href={`/api/documents/${kind}/${id}`} target="_blank" rel="noreferrer" title="Unduh dokumen PDF" aria-label="Unduh dokumen PDF"><FileDown size={17} />Unduh</a>;
 }
 
-export function ModuleWorkspace({ module, data: sourceData, initialQuery = '', initialStatus = 'all', initialOpen = false, expiringOnly = false }: { module: string; data: WorkspaceData; initialQuery?: string; initialStatus?: string; initialOpen?: boolean; expiringOnly?: boolean }) {
+// ---------------------------------------------------------------------------
+// O-A (paginasi server-side): tabel TIDAK lagi menerima seluruh koleksi modul —
+// server (getModulePage) sudah mencari (?q), memfilter (?status/?category/
+// ?filter=expiring), mengurutkan (?sort), dan memotong 8 baris per halaman (?page).
+// State filter hidup di URL: ketikan di-debounce 300 ms (input tetap responsif,
+// daftar menyusul dari server lewat transisi), tab/pager/sort langsung navigasi.
+// Label baris (klien/unit/kontrak) sudah di-JOIN di server sehingga lookup
+// client (Map .find O(n²)) dihapus, dan label opsional modal (daftar kontrak,
+// unit, klien, riwayat revisi/pembayaran) diambil ASYNC saat modal dibuka —
+// bukan lagi dikirim utuh di payload halaman.
+// ---------------------------------------------------------------------------
+
+// Pager berjendela: jumlah halaman kini bisa ratusan (seluruh DB), jadi tampilkan
+// 1 … sekitar-halaman-aktif … N (±7 tombol) — bukan satu tombol per halaman.
+function pageItems(current: number, count: number): (number | 'gap')[] {
+  if (count <= 7) return Array.from({ length: count }, (_, i) => i + 1);
+  const items: (number | 'gap')[] = [1];
+  const start = Math.max(2, current - 1);
+  const end = Math.min(count - 1, current + 1);
+  if (start > 2) items.push('gap');
+  for (let p = start; p <= end; p++) items.push(p);
+  if (end < count - 1) items.push('gap');
+  items.push(count);
+  return items;
+}
+
+export function ModuleWorkspace({ module, data, filters, initialOpen = false, initialOptions = null }: { module: string; data: ModulePageData; filters: ModuleFilters; initialOpen?: boolean; initialOptions?: FormOptionsData | null }) {
   const router = useRouter();
-  // Optimistic UI (O-B): aksi status langsung tercermin di tabel, lalu
-  // disinkronkan ulang dari server (act me-refresh baik sukses maupun gagal).
-  const [data, applyStatus] = useOptimistic(sourceData, (prev: WorkspaceData, u: StatusUpdate) => {
-    if (u.kind === 'timesheet') return { ...prev, timesheets: prev.timesheets.map(t => t.id === u.id ? { ...t, status: u.status } : t) };
-    if (u.kind === 'invoice') return { ...prev, invoices: prev.invoices.map(i => i.id === u.id ? { ...i, status: u.status } : i) };
-    if (u.kind === 'contract') {
-      const target = prev.contracts.find(x => x.id === u.id);
-      return {
-        ...prev,
-        contracts: prev.contracts.map(x => x.id === u.id ? { ...x, status: u.status } : x),
-        fleet: target ? prev.fleet.map(f => f.id === target.unitId ? { ...f, status: 'available' } : f) : prev.fleet,
-      };
-    }
-    return prev;
-  });
-  const ppnRate = Number(sourceData.settings.ppnRate ?? 11);
-  const warnDays = Number(sourceData.settings.expiryWarningDays ?? 30) || 30;
+  // Optimistic UI (O-B): aksi status langsung tercermin di baris halaman ini,
+  // lalu disinkronkan ulang dari server (act me-refresh baik sukses maupun gagal).
+  const [optRows, applyStatus] = useOptimistic(data.rows, (prev: ModuleRow[], u: StatusUpdate) =>
+    prev.map(r => r.id === u.id ? ({ ...r, status: u.status } as ModuleRow) : r));
+  const ppnRate = Number(data.settings.ppnRate ?? 11);
+  const warnDays = Number(data.settings.expiryWarningDays ?? 30) || 30;
   const c = config[module];
   const { headers, statuses } = tableMeta[module];
-  const { getUnit, getClient, getContract, contractsByClient } = useLookups(data);
-  const [query, setQuery] = useState(initialQuery);
-  const [status, setStatus] = useState(initialStatus);
-  const [category, setCategory] = useState('all');
+
+  // State ketikan pencarian tetap lokal (input responsif); nilai resminya di URL.
+  const [query, setQuery] = useState(filters.q);
+  const [syncedQ, setSyncedQ] = useState(filters.q);
+  if (syncedQ !== filters.q) { setSyncedQ(filters.q); setQuery(filters.q); }
   const [open, setOpen] = useState(initialOpen);
   const [editing, setEditing] = useState<EditableRecord | null>(null);
   const [toast, setToast] = useState<{ success: boolean; message: string } | null>(null);
   const [pending, startTransition] = useTransition();
-  const [page, setPage] = useState(1);
-  const [sortDir, setSortDir] = useState<0 | 1 | -1>(0);
   const [confirm, setConfirm] = useState<{ title: string; text: string; action: () => Promise<{ success: boolean; message: string }>; optimistic?: StatusUpdate } | null>(null);
-  const [onlyExpiry, setOnlyExpiry] = useState(expiringOnly);
   const [resetOpen, setResetOpen] = useState(false);
   const [bulk, setBulk] = useState(false);
   const [revising, setRevising] = useState<EditableRecord | null>(null);
   const [formErrors, setFormErrors] = useState<Record<string, string> | null>(null);
-  const [paying, setPaying] = useState<WorkspaceData['invoices'][number] | null>(null);
+  const [paying, setPaying] = useState<InvoiceRow | null>(null);
+  // Select async (O-A): opsi referensi modal + riwayat revisi/pembayaran
+  // diambil tepat saat dibutuhkan, bukan dikirim utuh di payload halaman.
+  const [formOptions, setFormOptions] = useState<FormOptionsData | null>(initialOptions);
+  const [revisions, setRevisions] = useState<RevisionRow[] | null>(null);
+  const [payments, setPayments] = useState<PaymentRow[] | null>(null);
 
-  // Nilai pencarian yang dipakai untuk filter/menunda render daftar sampai
-  // browser idle — kolom input tetap responsif walau data besar.
-  const deferredQuery = useDeferredValue(query);
-
-  const fleetGroups = useMemo(() => Array.from(data.fleet.reduce((m, f) => {
-    const k = `${f.brandModel} · ${f.category}`;
-    m.set(k, (m.get(k) || 0) + 1);
-    return m;
-  }, new Map<string, number>())).sort((a, b) => b[1] - a[1]).slice(0, 6), [data.fleet]);
-  const expiring = useMemo(() => data.fleet.filter(f => isExpiringFleet(f, warnDays)), [data.fleet, warnDays]);
-  const paymentsByInvoice = useMemo(() => {
-    const m = new Map<string, { paid: number; count: number }>();
-    for (const p of data.payments) {
-      const cur = m.get(p.invoiceId) || { paid: 0, count: 0 };
-      cur.paid += Number(p.amount);
-      cur.count += 1;
-      m.set(p.invoiceId, cur);
-    }
-    return m;
-  }, [data.payments]);
-  const fleetCounts = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const f of data.fleet) m.set(f.status, (m.get(f.status) || 0) + 1);
-    return m;
-  }, [data.fleet]);
-  const invoiceTotals = useMemo(() => {
-    const all = data.invoices.reduce((a, i) => a + Number(i.totalAmount), 0);
-    const collected = data.payments.reduce((a, p) => a + Number(p.amount), 0);
-    return {
-      all,
-      paid: data.invoices.filter(i => i.status === 'paid'),
-      unpaid: data.invoices.filter(i => i.status !== 'paid'),
-      collected,
-      receivable: all - collected,
-    };
-  }, [data.invoices, data.payments]);
-  const pendingTimesheets = useMemo(() => data.timesheets.filter(t => t.status === 'pending').length, [data.timesheets]);
-  const fleetCategoryOptions = useMemo(() => Array.from(new Set(data.fleet.map(f => f.category))), [data.fleet]);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
 
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 5500); return () => clearTimeout(t); } }, [toast]);
 
-  // Sinkronisasi props URL → state saat navigasi terjadi pada komponen yang sama.
-  // Pola "adjust state during render" (dokumentasi React) — pengganti anti-pattern
-  // useEffect+setState yang ditandai aturan react-hooks/set-state-in-effect.
-  const [syncedProps, setSyncedProps] = useState({ initialQuery, initialStatus, expiringOnly });
-  if (syncedProps.initialQuery !== initialQuery || syncedProps.initialStatus !== initialStatus || syncedProps.expiringOnly !== expiringOnly) {
-    setSyncedProps({ initialQuery, initialStatus, expiringOnly });
-    setQuery(initialQuery); setStatus(initialStatus); setOnlyExpiry(expiringOnly); setPage(1);
-  }
+  const navigate = useCallback((patch: Record<string, string | number | null>, replace = false) => {
+    const params = new URLSearchParams();
+    if (filters.q) params.set('q', filters.q);
+    if (filters.status !== 'all') params.set('status', filters.status);
+    if (filters.category !== 'all') params.set('category', filters.category);
+    if (filters.sort !== 0) params.set('sort', String(filters.sort));
+    if (filters.expiringOnly) params.set('filter', 'expiring');
+    if (filters.page > 1) params.set('page', String(filters.page));
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null || value === '' || value === 'all') params.delete(key);
+      else params.set(key, String(value));
+    }
+    const qs = params.toString();
+    const url = `/dashboard/${module}${qs ? `?${qs}` : ''}`;
+    startTransition(() => { if (replace) router.replace(url, { scroll: false }); else router.push(url, { scroll: false }); });
+  }, [filters.q, filters.status, filters.category, filters.sort, filters.expiringOnly, filters.page, module, router, startTransition]);
+
+  // Pencarian tabel: input instan, navigasi ?q= menunggu 300 ms setelah ketikan
+  // terakhir (debounce) dan memakai replace agar riwayat tidak menumpuk.
+  const onSearchInput = useCallback((value: string) => {
+    setQuery(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => navigate({ q: value, page: null }, true), 300);
+  }, [navigate]);
+
+  const loadOptions = useCallback(async (opts?: { editingUnitId?: string; contractId?: string }) => {
+    setFormOptions(null);
+    setRevisions(null);
+    try {
+      const [options, revisionRows] = await Promise.all([
+        getFormOptions(module, opts?.editingUnitId),
+        opts?.contractId ? getRevisionHistory(opts.contractId) : Promise.resolve(null),
+      ]);
+      setFormOptions(options);
+      setRevisions(revisionRows);
+    } catch {
+      setFormOptions({ contracts: [], clients: [], fleet: [] });
+      setRevisions([]);
+    }
+  }, [module]);
+
+  const openCreate = useCallback(() => {
+    setEditing(null); setRevising(null); setBulk(false); setFormErrors(null); setOpen(true);
+    if (module === 'contracts' || module === 'timesheets' || module === 'bast' || module === 'invoices') void loadOptions();
+  }, [module, loadOptions]);
+  const openBulk = useCallback(() => {
+    setEditing(null); setRevising(null); setBulk(true); setFormErrors(null); setOpen(true);
+  }, []);
 
   const operational = ['admin', 'operations'].includes(data.user.role);
   const canWrite = module === 'invoices' ? ['admin', 'finance'].includes(data.user.role) : module === 'settings' ? data.user.role === 'admin' : module === 'timesheets' ? ['admin', 'operations', 'operator'].includes(data.user.role) : operational;
@@ -171,20 +174,28 @@ export function ModuleWorkspace({ module, data: sourceData, initialQuery = '', i
   }), [router]);
 
   const edit = useCallback((record: EditableRecord) => { setEditing(record); setRevising(null); setBulk(false); setFormErrors(null); setOpen(true); }, []);
-  const startRevise = useCallback((contract: EditableRecord) => { setRevising(contract); setEditing(null); setBulk(false); setFormErrors(null); setOpen(true); }, []);
+  const startRevise = useCallback((contract: EditableRecord) => {
+    setRevising(contract); setEditing(null); setBulk(false); setFormErrors(null); setOpen(true);
+    void loadOptions({ editingUnitId: String(contract.unitId || ''), contractId: String(contract.id || '') });
+  }, [loadOptions]);
   const askStatus = useCallback((id: string, next: string) => setConfirm({
     title: next === 'paid' ? 'Konfirmasi Pelunasan' : next === 'completed' ? 'Selesaikan Kontrak' : next === 'approved' ? 'Setujui Catatan Kerja' : 'Tolak Catatan Kerja',
     text: next === 'paid' ? 'Pastikan pembayaran telah diterima sebelum menandai tagihan sebagai lunas.' : next === 'completed' ? 'Kontrak akan diselesaikan dan unit akan kembali tersedia untuk disewakan.' : 'Status catatan akan diperbarui. Pastikan jam kerja dan keterangan telah diperiksa.',
     action: () => changeStatus(module, id, next),
     optimistic: module === 'timesheets' ? { kind: 'timesheet', id, status: next } : module === 'invoices' ? { kind: 'invoice', id, status: next } : module === 'contracts' ? { kind: 'contract', id, status: next } : undefined,
   }), [module]);
+  const openPayments = useCallback((invoice: InvoiceRow) => {
+    setPaying(invoice);
+    setPayments(null);
+    getInvoicePayments(invoice.id).then(setPayments).catch(() => setPayments([]));
+  }, []);
 
-  // Baris tabel di-memo: mengetik di kolom pencarian TIDAK membangun ulang
-  // seluruh JSX baris — hanya filter (yang di-defer) yang dihitung ulang.
+  // Baris tabel: hanya 8 baris halaman aktif — sel JSX dibangun dari data yang
+  // sudah dilengkapi label JOIN di server (tanpa lookup per baris).
   const rows: Row[] = useMemo(() => {
     if (module === 'fleet') {
-      return data.fleet.filter(f => !onlyExpiry || isExpiringFleet(f, warnDays)).map(f => ({
-        id: f.id, search: `${f.unitCode} ${f.brandModel} ${f.category} ${f.currentLocation}`, status: f.status, category: f.category, raw: f,
+      return (optRows as FleetRow[]).map(f => ({
+        id: f.id, status: f.status, raw: f as unknown as EditableRecord,
         cells: [
           <div className="unit-cell" key="unit"><span className="unit-icon"><EquipmentIcon /></span><span><b>{f.brandModel}</b><small>{f.unitCode}{isExpiringFleet(f, warnDays) && <TriangleAlert size={12} className="amber-text" />}</small></span></div>,
           <div key="category">{f.category}<small className="cell-sub">Tahun {f.year}</small></div>,
@@ -194,23 +205,23 @@ export function ModuleWorkspace({ module, data: sourceData, initialQuery = '', i
       }));
     }
     if (module === 'clients') {
-      return data.clients.map(client => ({
-        id: client.id, search: `${client.companyName} ${client.picName} ${client.picEmail}`, status: 'all', raw: client,
+      return (optRows as ClientRow[]).map(client => ({
+        id: client.id, status: 'all', raw: client as unknown as EditableRecord,
         cells: [
           <div className="unit-cell" key="company"><span className="unit-icon blue"><Building2 size={21} /></span><span><b>{client.companyName}</b><small>{client.address}</small></span></div>,
           client.npwp || '—', client.picName,
           <div key="contact">{client.picPhone || '—'}<small className="cell-sub">{client.picEmail}</small></div>,
-          `${contractsByClient.get(client.id) || 0} kontrak`,
+          `${client.contractCount} kontrak`,
           canWrite ? <div className="row-actions" key="actions"><button className="icon-button" onClick={() => edit(client)} aria-label={`Ubah ${client.companyName}`} title="Ubah data klien"><Pencil size={15} />Ubah</button><button className="icon-button danger-icon" aria-label={`Hapus ${client.companyName}`} title="Hapus data klien" onClick={() => setConfirm({ title: 'Hapus Data Klien', text: `Apakah Anda yakin ingin menghapus ${client.companyName}? Klien yang memiliki kontrak tidak dapat dihapus.`, action: () => deleteClient(client.id) })}><Trash2 size={15} />Hapus</button></div> : null,
         ],
       }));
     }
     if (module === 'contracts') {
-      return data.contracts.map(contract => ({
-        id: contract.id, search: `${contract.contractNumber} ${getClient(contract.clientId)?.companyName} ${getUnit(contract.unitId)?.unitCode}`, status: contract.status, raw: contract,
+      return (optRows as ContractRow[]).map(contract => ({
+        id: contract.id, status: contract.status, raw: contract as unknown as EditableRecord,
         cells: [
           <div key="number"><b className="document-number">{contract.contractNumber}</b><small className="cell-sub">Dibuat {dateTimeLabel(contract.createdAt)}</small></div>,
-          <div key="client"><b>{getClient(contract.clientId)?.companyName}</b><small className="cell-sub">{getUnit(contract.unitId)?.unitCode} · {getUnit(contract.unitId)?.brandModel}</small></div>,
+          <div key="client"><b>{contract.clientName}</b><small className="cell-sub">{contract.unitCode} · {contract.unitModel}</small></div>,
           <div key="dates">{dateLabel(contract.startDate)}<small className="cell-sub">s.d. {dateLabel(contract.endDate)}</small></div>,
           money(contract.ratePerHour), <Badge key="status" status={contract.status} />,
           <div className="row-actions" key="actions"><PdfLink kind="sph" id={contract.id} />{canWrite && contract.status === 'active' && <button className="icon-button" aria-label="Revisi kontrak" title="Revisi kontrak" onClick={() => startRevise(contract as unknown as EditableRecord)}><Pencil size={15} />Revisi</button>}{canWrite && contract.status === 'active' && <button className="icon-button green" aria-label="Selesaikan kontrak" title="Selesaikan kontrak" onClick={() => askStatus(contract.id, 'completed')}><CircleCheck size={17} />Selesai</button>}</div>,
@@ -218,11 +229,11 @@ export function ModuleWorkspace({ module, data: sourceData, initialQuery = '', i
       }));
     }
     if (module === 'timesheets') {
-      return data.timesheets.map(t => ({
-        id: t.id, search: `${t.date} ${getContract(t.contractId)?.contractNumber} ${getUnit(t.unitId)?.unitCode}`, status: t.status, raw: t,
+      return (optRows as TimesheetRow[]).map(t => ({
+        id: t.id, status: t.status, raw: t as unknown as EditableRecord,
         cells: [
-          <div key="date"><b>{dateLabel(t.date)}</b><small className="cell-sub">{getContract(t.contractId)?.contractNumber} · {timeLabel(t.createdAt)}</small></div>,
-          <div key="unit">{getUnit(t.unitId)?.brandModel}<small className="cell-sub">{getUnit(t.unitId)?.unitCode}</small></div>,
+          <div key="date"><b>{dateLabel(t.date)}</b><small className="cell-sub">{t.contractNumber} · {timeLabel(t.createdAt)}</small></div>,
+          <div key="unit">{t.unitModel}<small className="cell-sub">{t.unitCode}</small></div>,
           `${Number(t.startHm).toLocaleString('id-ID')} → ${Number(t.endHm).toLocaleString('id-ID')}`,
           <div key="hours"><b>{Number(t.effectiveHours).toLocaleString('id-ID')} jam</b><small className="cell-sub">Kerusakan: {Number(t.breakdownHours)} jam</small></div>,
           <Badge key="status" status={t.status} />,
@@ -231,14 +242,14 @@ export function ModuleWorkspace({ module, data: sourceData, initialQuery = '', i
       }));
     }
     if (module === 'bast') {
-      return data.handovers.map(h => {
+      return (optRows as HandoverRow[]).map(h => {
         const raw = h as unknown as Record<string, boolean>;
         const ok = bastFields.every(k => raw[k]);
         return {
-          id: h.id, search: `${h.documentNumber} ${getContract(h.contractId)?.contractNumber}`, status: h.type, raw: h,
+          id: h.id, status: h.type, raw: h as unknown as EditableRecord,
           cells: [
             <div key="number"><b className="document-number">{h.documentNumber}</b><small className="cell-sub">Dicatat {dateTimeLabel(h.createdAt)}{h.photoUrls.length > 0 && ` · ${h.photoUrls.length} foto`}</small></div>,
-            <div key="contract">{getContract(h.contractId)?.contractNumber}<small className="cell-sub">{getClient(getContract(h.contractId)?.clientId || '')?.companyName}</small></div>,
+            <div key="contract">{h.contractNumber}<small className="cell-sub">{h.clientName}</small></div>,
             dateLabel(h.date), <Badge key="type" status={h.type} />,
             <span key="condition" className={ok ? 'green' : 'amber-text'}>{ok ? 'Seluruh komponen baik' : 'Perlu perhatian'}</span>,
             <div className="row-actions" key="doc"><PdfLink kind="bast" id={h.id} /></div>,
@@ -247,41 +258,24 @@ export function ModuleWorkspace({ module, data: sourceData, initialQuery = '', i
       });
     }
     if (module === 'invoices') {
-      return data.invoices.map(i => {
-        const paid = paymentsByInvoice.get(i.id)?.paid || 0;
+      return (optRows as InvoiceRow[]).map(i => {
+        const paid = i.paidAmount;
         const remaining = remainingBalance(i.totalAmount, paid);
         const displayStatus = i.status !== 'paid' && isPastDue(i.dueDate) ? 'overdue' : i.status;
         return {
-          id: i.id, search: `${i.invoiceNumber} ${getClient(getContract(i.contractId)?.clientId || '')?.companyName}`, status: displayStatus, raw: i,
+          id: i.id, status: displayStatus, raw: i as unknown as EditableRecord,
           cells: [
             <div key="number"><b className="document-number">{i.invoiceNumber}</b><small className="cell-sub">Terbit {dateLabel(i.issueDate)} · {timeLabel(i.createdAt)}</small></div>,
-            <div key="client">{getClient(getContract(i.contractId)?.clientId || '')?.companyName}<small className="cell-sub">{getContract(i.contractId)?.contractNumber}</small></div>,
+            <div key="client">{i.clientName}<small className="cell-sub">{i.contractNumber}</small></div>,
             <div key="amount"><b>{money(i.totalAmount)}</b><small className="cell-sub">Termasuk PPN {Number(i.taxRate ?? ppnRate)}%{i.status !== 'paid' && paid > 0 && ` · Dibayar ${money(paid)}`}{i.status !== 'paid' && ` · Sisa ${money(remaining)}`}</small></div>,
             dateLabel(i.dueDate), <Badge key="status" status={displayStatus} />,
-            <div className="row-actions" key="actions">{['admin', 'finance', 'operations'].includes(data.user.role) && <PdfLink kind="invoice" id={i.id} />}{canWrite && <button className="icon-button green" aria-label={i.status === 'paid' ? `Riwayat pembayaran ${i.invoiceNumber}` : `Catat pembayaran ${i.invoiceNumber}`} title={i.status === 'paid' ? 'Riwayat pembayaran' : 'Catat pembayaran'} onClick={() => setPaying(i)}><Wallet size={16} />{i.status === 'paid' ? 'Riwayat' : 'Bayar'}</button>}</div>,
+            <div className="row-actions" key="actions">{['admin', 'finance', 'operations'].includes(data.user.role) && <PdfLink kind="invoice" id={i.id} />}{canWrite && <button className="icon-button green" aria-label={i.status === 'paid' ? `Riwayat pembayaran ${i.invoiceNumber}` : `Catat pembayaran ${i.invoiceNumber}`} title={i.status === 'paid' ? 'Riwayat pembayaran' : 'Catat pembayaran'} onClick={() => openPayments(i)}><Wallet size={16} />{i.status === 'paid' ? 'Riwayat' : 'Bayar'}</button>}</div>,
           ],
         };
       });
     }
     return [];
-  }, [module, data, contractsByClient, getUnit, getClient, getContract, canWrite, operational, onlyExpiry, pending, edit, askStatus, startRevise, ppnRate, paymentsByInvoice, warnDays]);
-
-  const filtered = useMemo(() => {
-    const q = deferredQuery.toLowerCase();
-    return rows
-      .filter(r => (status === 'all' || r.status === status) && (category === 'all' || r.category === category) && r.search.toLowerCase().includes(q))
-      .sort((a, b) => sortDir === 0 ? 0 : sortDir * collator.compare(a.search, b.search));
-  }, [rows, status, category, deferredQuery, sortDir]);
-
-  const statusCounts = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const r of rows) m.set(r.status, (m.get(r.status) || 0) + 1);
-    return m;
-  }, [rows]);
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / 8));
-  const currentPage = Math.min(page, pageCount);
-  const visible = useMemo(() => filtered.slice((currentPage - 1) * 8, currentPage * 8), [filtered, currentPage]);
+  }, [module, optRows, canWrite, operational, warnDays, ppnRate, pending, edit, askStatus, startRevise, openPayments, data.user.role]);
 
   const submit = useCallback((e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -317,9 +311,10 @@ export function ModuleWorkspace({ module, data: sourceData, initialQuery = '', i
   }, []);
   const confirmReset = useCallback((phrase: string) => act(() => resetAll(phrase)), [act, resetAll]);
 
-  const sortLabel = sortDir === 1 ? 'A–Z' : sortDir === -1 ? 'Z–A' : 'Urutkan';
+  const sortLabel = filters.sort === 1 ? 'A–Z' : filters.sort === -1 ? 'Z–A' : 'Urutkan';
   const tabAllLabel = module === 'fleet' ? 'unit' : module === 'clients' ? 'klien' : 'data';
   const searchPlaceholder = module === 'fleet' ? 'kode unit, merek, atau lokasi' : module === 'clients' ? 'nama perusahaan atau penanggung jawab' : 'nomor dokumen atau unit';
+  const filteredEmpty = !rows.length;
 
   return (
     <div className="module-page page-enter">
@@ -331,8 +326,8 @@ export function ModuleWorkspace({ module, data: sourceData, initialQuery = '', i
         </div>
         {canWrite && module !== 'settings' && (
           <div style={{ display: 'flex', gap: 8, paddingTop: 14 }}>
-            {module === 'fleet' && <Button variant="outline" onClick={() => { setEditing(null); setRevising(null); setBulk(true); setFormErrors(null); setOpen(true); }}><Plus size={17} />Tambah Banyak</Button>}
-            <Button onClick={() => { setEditing(null); setRevising(null); setBulk(false); setFormErrors(null); setOpen(true); }}><Plus size={17} />{c.add}</Button>
+            {module === 'fleet' && <Button variant="outline" onClick={openBulk}><Plus size={17} />Tambah Banyak</Button>}
+            <Button onClick={openCreate}><Plus size={17} />{c.add}</Button>
           </div>
         )}
       </div>
@@ -341,31 +336,31 @@ export function ModuleWorkspace({ module, data: sourceData, initialQuery = '', i
         <>
           <div className="module-stats">
             {['available', 'renting', 'maintenance', 'in_transit'].map(st => (
-              <button onClick={() => { setStatus(st); setPage(1); }} key={st} className={status === st ? 'selected' : ''}>
-                <Badge status={st} /><strong>{fleetCounts.get(st) || 0}<small>unit</small></strong>
+              <button onClick={() => navigate({ status: st, page: null })} key={st} className={filters.status === st ? 'selected' : ''}>
+                <Badge status={st} /><strong>{data.statusCounts[st] || 0}<small>unit</small></strong>
               </button>
             ))}
           </div>
-          {fleetGroups.length > 0 && <div className="info-callout"><Info size={19} /><p><b>Komposisi armada: </b>{fleetGroups.map(([k, n]) => `${k} (${n})`).join(' · ')}</p></div>}
-          {expiring.length > 0 && (
-            <button className="expiry-banner" onClick={() => { setOnlyExpiry(!onlyExpiry); setPage(1); }}>
+          {(data.fleetGroups?.length ?? 0) > 0 && <div className="info-callout"><Info size={19} /><p><b>Komposisi armada: </b>{(data.fleetGroups ?? []).map(([k, n]) => `${k} (${n})`).join(' · ')}</p></div>}
+          {(data.expiringCount ?? 0) > 0 && (
+            <button className="expiry-banner" onClick={() => navigate({ filter: filters.expiringOnly ? null : 'expiring', page: null })}>
               <TriangleAlert size={20} />
-              <div><b>{expiring.length} unit memerlukan pembaruan dokumen</b><span>SIKO atau asuransi berakhir dalam {warnDays} hari. Segera jadwalkan perpanjangan.</span></div>
-              <span className="expiry-link">{onlyExpiry ? 'Tampilkan semua unit' : 'Periksa dokumen'}<ChevronRight size={16} /></span>
+              <div><b>{data.expiringCount} unit memerlukan pembaruan dokumen</b><span>SIKO atau asuransi berakhir dalam {warnDays} hari. Segera jadwalkan perpanjangan.</span></div>
+              <span className="expiry-link">{filters.expiringOnly ? 'Tampilkan semua unit' : 'Periksa dokumen'}<ChevronRight size={16} /></span>
             </button>
           )}
         </>
       )}
 
-      {module === 'invoices' && (
+      {module === 'invoices' && data.invoiceTotals && (
         <div className="invoice-stats">
-          <div><span>Total Nilai Tagihan</span><strong>{money(invoiceTotals.all)}</strong><small>Seluruh periode · termasuk PPN</small></div>
-          <div><span>Pembayaran Diterima</span><strong className="green">{money(invoiceTotals.collected)}</strong><small>{invoiceTotals.paid.length} tagihan lunas</small></div>
-          <div><span>Piutang Belum Lunas</span><strong className="orange-text">{money(invoiceTotals.receivable)}</strong><small>{invoiceTotals.unpaid.length} tagihan menunggu pembayaran</small></div>
+          <div><span>Total Nilai Tagihan</span><strong>{money(data.invoiceTotals.all)}</strong><small>Seluruh periode · termasuk PPN</small></div>
+          <div><span>Pembayaran Diterima</span><strong className="green">{money(data.invoiceTotals.collected)}</strong><small>{data.invoiceTotals.paidCount} tagihan lunas</small></div>
+          <div><span>Piutang Belum Lunas</span><strong className="orange-text">{money(data.invoiceTotals.all - data.invoiceTotals.collected)}</strong><small>{data.invoiceTotals.unpaidCount} tagihan menunggu pembayaran</small></div>
         </div>
       )}
 
-      {module === 'timesheets' && <div className="info-callout"><Info size={19} /><p><b>{pendingTimesheets} catatan menunggu persetujuan.</b> Hanya jam kerja yang disetujui yang dapat ditagihkan kepada klien.</p></div>}
+      {module === 'timesheets' && <div className="info-callout"><Info size={19} /><p><b>{data.statusCounts.pending || 0} catatan menunggu persetujuan.</b> Hanya jam kerja yang disetujui yang dapat ditagihkan kepada klien.</p></div>}
 
       {module === 'settings' ? (
         <div className="settings-grid">
@@ -412,49 +407,51 @@ export function ModuleWorkspace({ module, data: sourceData, initialQuery = '', i
       ) : (
         <section className="panel module-table-panel">
           <div className="table-tabs">
-            <button className={status === 'all' ? 'active' : ''} onClick={() => { setStatus('all'); setPage(1); }}>Semua {tabAllLabel}<span>{rows.length}</span></button>
-            {statuses.map(st => <button className={status === st ? 'active' : ''} key={st} onClick={() => { setStatus(st); setPage(1); }}>{labels[st]}<span>{statusCounts.get(st) || 0}</span></button>)}
+            <button className={filters.status === 'all' ? 'active' : ''} onClick={() => navigate({ status: null, page: null })}>Semua {tabAllLabel}<span>{data.statusCounts.all ?? data.total}</span></button>
+            {statuses.map(st => <button className={filters.status === st ? 'active' : ''} key={st} onClick={() => navigate({ status: st, page: null })}>{labels[st]}<span>{data.statusCounts[st] || 0}</span></button>)}
           </div>
           <div className="table-toolbar">
             <label className="table-search">
               <Search size={17} />
-              <input value={query} onChange={e => { setQuery(e.target.value); setPage(1); }} placeholder={`Cari ${searchPlaceholder}...`} aria-label="Cari data" />
-              {query && <button onClick={() => setQuery('')} aria-label="Hapus pencarian"><X size={14} /></button>}
+              <input value={query} onChange={e => onSearchInput(e.target.value)} placeholder={`Cari ${searchPlaceholder}...`} aria-label="Cari data" />
+              {query && <button onClick={() => { setQuery(''); navigate({ q: null, page: null }, true); }} aria-label="Hapus pencarian"><X size={14} /></button>}
             </label>
             <div>
               {module === 'fleet' && (
                 <label className="small-select">
                   <Filter size={14} />
-                  <select value={category} onChange={e => { setCategory(e.target.value); setPage(1); }} aria-label="Filter kategori">
+                  <select value={filters.category} onChange={e => navigate({ category: e.target.value, page: null })} aria-label="Filter kategori">
                     <option value="all">Semua kategori</option>
-                    {fleetCategoryOptions.map(cat => <option key={cat}>{cat}</option>)}
+                    {(data.categoryOptions ?? []).map(cat => <option key={cat}>{cat}</option>)}
                   </select>
                   <ChevronDown size={13} />
                 </label>
               )}
-              <Button variant="outline" size="sm" onClick={() => setSortDir(d => d === 0 ? 1 : d === 1 ? -1 : 0)} title={sortDir === 0 ? 'Urutkan A–Z' : sortDir === 1 ? 'Urutkan Z–A' : 'Kembalikan urutan awal'}><ArrowUpDown size={14} />{sortLabel}</Button>
+              <Button variant="outline" size="sm" onClick={() => navigate({ sort: filters.sort === 0 ? '1' : filters.sort === 1 ? '-1' : null, page: null })} title={filters.sort === 0 ? 'Urutkan A–Z' : filters.sort === 1 ? 'Urutkan Z–A' : 'Kembalikan urutan awal'}><ArrowUpDown size={14} />{sortLabel}</Button>
             </div>
           </div>
-          <div className="table-scroll">
+          <div className="table-scroll" style={pending ? { opacity: 0.55 } : undefined}>
             <table>
               <thead><tr>{headers.map((h, i) => <th key={i} className={i === 0 ? 'col-no' : undefined}>{h}</th>)}</tr></thead>
-              <tbody>{visible.map((r, idx) => <tr key={r.id}><td className="col-no">{(currentPage - 1) * 8 + idx + 1}</td>{r.cells.map((cell, i) => <td key={i}>{cell}</td>)}</tr>)}</tbody>
+              <tbody>{rows.map((r, idx) => <tr key={r.id}><td className="col-no">{(data.page - 1) * 8 + idx + 1}</td>{r.cells.map((cell, i) => <td key={i}>{cell}</td>)}</tr>)}</tbody>
             </table>
-            {!visible.length && (
+            {filteredEmpty && (
               <div className="empty-state">
                 <span><Search size={26} /></span>
-                <h3>{query || status !== 'all' ? 'Data tidak ditemukan' : 'Belum ada data'}</h3>
-                <p>{query || status !== 'all' ? 'Coba ubah kata kunci atau filter pencarian Anda.' : 'Tambahkan data pertama untuk memulai operasional.'}</p>
-                <Button variant="outline" onClick={() => { setQuery(''); setStatus('all'); setCategory('all'); setOnlyExpiry(false); }}>Atur Ulang Filter</Button>
+                <h3>{query || filters.status !== 'all' ? 'Data tidak ditemukan' : 'Belum ada data'}</h3>
+                <p>{query || filters.status !== 'all' ? 'Coba ubah kata kunci atau filter pencarian Anda.' : 'Tambahkan data pertama untuk memulai operasional.'}</p>
+                <Button variant="outline" onClick={() => { setQuery(''); navigate({ q: null, status: null, category: null, filter: null }, true); }}>Atur Ulang Filter</Button>
               </div>
             )}
           </div>
           <div className="table-footer">
-            <span>Menampilkan {filtered.length ? (currentPage - 1) * 8 + 1 : 0}–{Math.min(currentPage * 8, filtered.length)} dari {filtered.length} data</span>
+            <span>Menampilkan {data.total ? (data.page - 1) * 8 + 1 : 0}–{Math.min(data.page * 8, data.total)} dari {data.total} data</span>
             <div className="pagination">
-              <button disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)} aria-label="Halaman sebelumnya"><ChevronLeft size={16} /></button>
-              {Array.from({ length: pageCount }, (_, i) => <button key={i} className={currentPage === i + 1 ? 'active' : ''} onClick={() => setPage(i + 1)}>{i + 1}</button>)}
-              <button disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)} aria-label="Halaman berikutnya"><ChevronRight size={16} /></button>
+              <button disabled={data.page === 1} onClick={() => navigate({ page: data.page - 1 })} aria-label="Halaman sebelumnya"><ChevronLeft size={16} /></button>
+              {pageItems(data.page, data.pageCount).map((item, i) => item === 'gap'
+                ? <span key={`gap-${i}`} style={{ alignSelf: 'center', padding: '0 4px', color: '#94a3b8', fontSize: 13 }}>…</span>
+                : <button key={item} className={data.page === item ? 'active' : ''} onClick={() => navigate({ page: item })}>{item}</button>)}
+              <button disabled={data.page === data.pageCount} onClick={() => navigate({ page: data.page + 1 })} aria-label="Halaman berikutnya"><ChevronRight size={16} /></button>
             </div>
           </div>
         </section>
@@ -462,16 +459,17 @@ export function ModuleWorkspace({ module, data: sourceData, initialQuery = '', i
 
       {/* Modal hanya di-mount saat terbuka: state ketikan di dalam form (HM,
           prefix bulk, dsb.) hidup di komponen anak sehingga TIDAK me-render
-          ulang tabel di belakangnya. */}
+          ulang tabel di belakangnya. Opsi referensi diambil async saat terbuka. */}
       {open && (
         <RecordModal
-          module={module} data={data} editing={editing} revising={revising} bulk={bulk}
+          module={module} settings={data.settings} editing={editing} revising={revising} bulk={bulk}
           pending={pending} canWrite={canWrite} formErrors={formErrors} ppnRate={ppnRate}
+          options={formOptions} revisions={revisions} categoryOptions={data.categoryOptions ?? []}
           onOpenChange={guardRecordModal} onCancel={closeRecordModal} onSubmit={submit}
         />
       )}
 
-      {paying && <PaymentsModal invoice={paying} payments={data.payments} onClose={() => setPaying(null)} onPay={submitPayment} />}
+      {paying && <PaymentsModal invoice={paying} payments={payments} onClose={() => setPaying(null)} onPay={submitPayment} />}
 
       <Modal open={!!confirm} onOpenChange={v => { if (!v && !pending) setConfirm(null); }} title={confirm?.title || 'Konfirmasi'} description={confirm?.text}>
         <div className="form-footer">
@@ -490,30 +488,36 @@ export function ModuleWorkspace({ module, data: sourceData, initialQuery = '', i
 // ---------------------------------------------------------------------------
 // Modal tambah/ubah — komponen terpisah dengan state ketikan lokal.
 // Mengetik di sini hanya me-render ulang form, bukan halaman kerja.
+// O-A: daftar kontrak/unit/klien datang dari `options` (server action
+// getFormOptions, dipanggil saat modal dibuka); jam dapat ditagih diambil
+// saat kontrak dipilih (getBillableHours); riwayat revisi dari `revisions`.
 // ---------------------------------------------------------------------------
-function RecordModal({ module, data, editing, revising, bulk, pending, canWrite, formErrors, ppnRate, onOpenChange, onCancel, onSubmit }: {
-  module: string; data: WorkspaceData; editing: EditableRecord | null; revising: EditableRecord | null; bulk: boolean;
+function RecordModal({ module, settings, editing, revising, bulk, pending, canWrite, formErrors, ppnRate, options, revisions, categoryOptions, onOpenChange, onCancel, onSubmit }: {
+  module: string; settings: CompanySettings; editing: EditableRecord | null; revising: EditableRecord | null; bulk: boolean;
   pending: boolean; canWrite: boolean; formErrors: Record<string, string> | null; ppnRate: number;
+  options: FormOptionsData | null; revisions: RevisionRow[] | null; categoryOptions: string[];
   onOpenChange: (v: boolean) => void; onCancel: () => void; onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
 }) {
   const c = config[module];
-  const warnDays = Number(data.settings.expiryWarningDays ?? 30) || 30;
+  const warnDays = Number(settings.expiryWarningDays ?? 30) || 30;
   const ferr = (n: string) => formErrors?.[n] ? <small className="field-error">{formErrors[n]}</small> : null;
-  const { getUnit, getClient } = useLookups(data);
   const [contractId, setContractId] = useState('');
   const [meter, setMeter] = useState({ start: 0, end: 0, breakdown: 0 });
   const [catCustom, setCatCustom] = useState(false);
   const [bPrefix, setBPrefix] = useState('EXC');
   const [bStart, setBStart] = useState(1);
   const [bCount, setBCount] = useState(5);
+  const [billable, setBillable] = useState<number | null>(null);
 
-  const fleetCats = useMemo(() => Array.from(new Set([...fleetCategories, ...data.fleet.map(f => f.category)])), [data.fleet]);
-  const selectedContract = useMemo(() => data.contracts.find(x => x.id === contractId), [data.contracts, contractId]);
-  const billable = useMemo(() => data.timesheets.filter(t => t.contractId === contractId && t.status === 'approved' && !t.invoiceId).reduce((a, t) => a + Number(t.effectiveHours), 0), [data.timesheets, contractId]);
-  const totals = useMemo(() => calcInvoiceTotals(billable, Number(selectedContract?.ratePerHour || 0), ppnRate), [billable, selectedContract, ppnRate]);
+  const contracts = useMemo(() => options?.contracts ?? [], [options]);
+  const fleetOptions = useMemo(() => options?.fleet ?? [], [options]);
+  const clientOptions = useMemo(() => options?.clients ?? [], [options]);
+  const fleetCats = useMemo(() => Array.from(new Set([...fleetCategories, ...categoryOptions])), [categoryOptions]);
+  const selectedContract = useMemo(() => contracts.find(x => x.id === contractId), [contracts, contractId]);
+  const totals = useMemo(() => calcInvoiceTotals(billable ?? 0, Number(selectedContract?.ratePerHour || 0), ppnRate), [billable, selectedContract, ppnRate]);
   const subtotal = totals.subtotal;
-  const revisionHistory = useMemo(() => revising ? data.revisions.filter(r => r.contractId === String(revising.id || '')) : [], [data.revisions, revising]);
-  const latestReason = useMemo(() => revisionHistory.slice().sort((a, b) => b.revisionNumber - a.revisionNumber)[0]?.reason || '', [revisionHistory]);
+  const revisionHistory = useMemo(() => revising ? (revisions ?? []) : [], [revisions, revising]);
+  const latestReason = useMemo(() => revisions?.[0]?.reason || '', [revisions]);
 
   const title = `${revising ? 'Revisi' : editing ? 'Ubah' : module === 'fleet' && bulk ? 'Tambah Banyak' : module === 'fleet' || module === 'clients' ? 'Tambah' : 'Buat'} ${c.singular}`;
 
@@ -525,16 +529,21 @@ function RecordModal({ module, data, editing, revising, bulk, pending, canWrite,
     </label>
   );
 
-  const contractOptions = useMemo(() => data.contracts
-    .filter(x => module === 'invoices' || x.status === 'active')
-    .map(x => <option key={x.id} value={x.id}>{x.contractNumber} — {getClient(x.clientId)?.companyName} ({getUnit(x.unitId)?.unitCode})</option>),
-    [data.contracts, module, getClient, getUnit]);
+  // Pemilihan kontrak pada form invoice memicu pengambilan jam dapat ditagih
+  // (select async) — sebelumnya dihitung client dari seluruh tabel timesheets.
+  const pickContract = useCallback((value: string) => {
+    setContractId(value);
+    setBillable(null);
+    if (module === 'invoices' && value) getBillableHours(value).then(r => setBillable(r.hours)).catch(() => setBillable(0));
+  }, [module]);
+
+  const contractOptions = useMemo(() => contracts.map(x => <option key={x.id} value={x.id}>{x.contractNumber} — {x.clientName} ({x.unitCode})</option>), [contracts]);
 
   const selectContract = (
     <label className="form-field span-2">
       <span>Kontrak Sewa <i>*</i></span>
-      <select name="contractId" required defaultValue="" onChange={e => setContractId(e.target.value)}>
-        <option value="" disabled>Pilih kontrak sewa</option>
+      <select name="contractId" required defaultValue="" onChange={e => pickContract(e.target.value)} disabled={!options}>
+        <option value="" disabled>{options ? 'Pilih kontrak sewa' : 'Memuat data referensi...'}</option>
         {contractOptions}
       </select>
       {ferr('contractId')}
@@ -591,8 +600,8 @@ function RecordModal({ module, data, editing, revising, bulk, pending, canWrite,
 
           {module === 'contracts' && revising ? (
             <>
-              <div className="info-callout span-2"><Info size={18} /><p>Merevisi <b>{String(revising.contractNumber || '')}</b> — {getClient(String(revising.clientId || ''))?.companyName || ''}. Tarif baru hanya berlaku untuk jam yang belum ditagihkan; jam yang sudah masuk invoice tidak berubah.</p></div>
-              <label className="form-field span-2"><span>Unit Alat Berat <i>*</i></span><select name="unitId" required defaultValue={String(revising.unitId || '')}>{data.fleet.filter(f => f.status === 'available' || f.id === String(revising.unitId || '')).map(f => <option key={f.id} value={f.id}>{f.unitCode} — {f.brandModel} ({f.status === 'available' ? 'Tersedia' : 'Terpakai kontrak ini'} · {money(f.hourlyRate)}/jam)</option>)}</select>{ferr('unitId')}</label>
+              <div className="info-callout span-2"><Info size={18} /><p>Merevisi <b>{String(revising.contractNumber || '')}</b> — {String(revising.clientName || '')}. Tarif baru hanya berlaku untuk jam yang belum ditagihkan; jam yang sudah masuk invoice tidak berubah.</p></div>
+              <label className="form-field span-2"><span>Unit Alat Berat <i>*</i></span><select name="unitId" required defaultValue={String(revising.unitId || '')} disabled={!options}>{fleetOptions.filter(f => f.status === 'available' || f.id === String(revising.unitId || '')).map(f => <option key={f.id} value={f.id}>{f.unitCode} — {f.brandModel} ({f.status === 'available' ? 'Tersedia' : 'Terpakai kontrak ini'} · {money(f.hourlyRate)}/jam)</option>)}</select>{ferr('unitId')}</label>
               <label className="form-field"><span>Tanggal Mulai <i>*</i></span><input name="startDate" type="date" required defaultValue={String(revising.startDate || '').slice(0, 10)} />{ferr('startDate')}</label>
               <label className="form-field"><span>Tanggal Selesai <i>*</i></span><input name="endDate" type="date" required defaultValue={String(revising.endDate || '').slice(0, 10)} />{ferr('endDate')}</label>
               <label className="form-field"><span>Tarif Sewa per Jam (Rp) <i>*</i></span><input name="ratePerHour" type="number" required min={1} step="0.01" defaultValue={String(revising.ratePerHour || '')} />{ferr('ratePerHour')}</label>
@@ -610,8 +619,8 @@ function RecordModal({ module, data, editing, revising, bulk, pending, canWrite,
           ) : module === 'contracts' && (
             <>
               {field('contractNumber', 'Nomor Kontrak', 'text', false, { placeholder: 'Dibuat otomatis apabila dikosongkan' })}
-              <label className="form-field"><span>Klien <i>*</i></span><select required name="clientId" defaultValue=""><option value="" disabled>Pilih perusahaan klien</option>{data.clients.map(x => <option key={x.id} value={x.id}>{x.companyName}</option>)}</select>{ferr('clientId')}</label>
-              <label className="form-field span-2"><span>Unit Tersedia <i>*</i></span><select name="unitId" required defaultValue=""><option value="" disabled>Pilih unit yang tersedia</option>{data.fleet.filter(f => f.status === 'available').map(f => <option key={f.id} value={f.id}>{f.unitCode} — {f.brandModel} ({money(f.hourlyRate)}/jam)</option>)}</select>{ferr('unitId')}</label>
+              <label className="form-field"><span>Klien <i>*</i></span><select required name="clientId" defaultValue="" disabled={!options}><option value="" disabled>{options ? 'Pilih perusahaan klien' : 'Memuat data referensi...'}</option>{clientOptions.map(x => <option key={x.id} value={x.id}>{x.companyName}</option>)}</select>{ferr('clientId')}</label>
+              <label className="form-field span-2"><span>Unit Tersedia <i>*</i></span><select name="unitId" required defaultValue="" disabled={!options}><option value="" disabled>{options ? 'Pilih unit yang tersedia' : 'Memuat data referensi...'}</option>{fleetOptions.map(f => <option key={f.id} value={f.id}>{f.unitCode} — {f.brandModel} ({money(f.hourlyRate)}/jam)</option>)}</select>{ferr('unitId')}</label>
               {field('startDate', 'Tanggal Mulai', 'date')}
               {field('endDate', 'Tanggal Selesai', 'date')}
               {field('ratePerHour', 'Tarif Sewa per Jam (Rp)', 'number', true, { min: 1, step: '0.01', placeholder: '350000' })}
@@ -658,7 +667,7 @@ function RecordModal({ module, data, editing, revising, bulk, pending, canWrite,
               {field('dueDate', 'Tanggal Jatuh Tempo', 'date', true, { min: todayISO() })}
               <div className="invoice-preview span-2">
                 <h4>Ringkasan Tagihan</h4>
-                <div><span>Jam kerja disetujui, belum ditagihkan</span><b>{billable.toLocaleString('id-ID')} jam</b></div>
+                <div><span>Jam kerja disetujui, belum ditagihkan</span><b>{billable === null ? '…' : billable.toLocaleString('id-ID')} jam</b></div>
                 <div><span>Tarif sewa per jam</span><b>{money(selectedContract?.ratePerHour || 0)}</b></div>
                 <hr />
                 <div><span>Subtotal</span><b>{money(subtotal)}</b></div>
@@ -671,7 +680,7 @@ function RecordModal({ module, data, editing, revising, bulk, pending, canWrite,
         </div>
         <div className="form-footer">
           <Button type="button" variant="outline" onClick={onCancel} disabled={pending}>Batal</Button>
-          <Button type="submit" disabled={pending || !canWrite || (module === 'invoices' && billable <= 0)}>
+          <Button type="submit" disabled={pending || !canWrite || (module === 'invoices' && (billable === null || billable <= 0))}>
             {pending ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}{' '}
             {pending ? 'Menyimpan...' : module === 'timesheets' ? 'Ajukan Catatan' : module === 'invoices' ? 'Terbitkan Tagihan' : module === 'contracts' && revising ? 'Simpan Revisi' : module === 'fleet' && bulk && !editing ? `Tambah ${bCount} Unit` : 'Simpan Data'}
           </Button>
@@ -704,15 +713,19 @@ function ResetModal({ pending, onOpenChange, onCancel, onReset }: {
 // ---------------------------------------------------------------------------
 // Modal pembayaran invoice — riwayat + pencatatan (penuh maupun cicilan).
 // Status dihitung server dari akumulasi: paid / partial / overdue.
+// O-A: riwayat pembayaran invoice ini diambil saat modal dibuka
+// (getInvoicePayments), bukan berasal dari seluruh tabel payments.
 // ---------------------------------------------------------------------------
 function PaymentsModal({ invoice, payments, onClose, onPay }: {
-  invoice: WorkspaceData['invoices'][number];
-  payments: WorkspaceData['payments'];
+  invoice: InvoiceRow;
+  payments: PaymentRow[] | null;
   onClose: () => void;
   onPay: (form: FormData) => Promise<{ success: boolean; message: string; fieldErrors?: Record<string, string> }>;
 }) {
-  const history = useMemo(() => payments.filter(p => p.invoiceId === invoice.id), [payments, invoice.id]);
-  const paid = history.reduce((a, p) => a + Number(p.amount), 0);
+  const history = useMemo(() => payments ?? [], [payments]);
+  // Saat riwayat belum termuat, pakai akumulasi dari server (row.paidAmount)
+  // agar ringkasan tetap benar; setelah termuat pakai jumlah riwayat.
+  const paid = history.length ? history.reduce((a, p) => a + Number(p.amount), 0) : Number(invoice.paidAmount);
   const remaining = Math.max(0, Number(invoice.totalAmount) - paid);
   const settled = invoice.status === 'paid' || remaining <= 0;
   const [errors, setErrors] = useState<Record<string, string> | null>(null);
@@ -736,7 +749,9 @@ function PaymentsModal({ invoice, payments, onClose, onPay }: {
             <div><span>Sudah dibayar</span><b>{money(paid)}</b></div>
             <div className="invoice-total"><span>Sisa tagihan</span><b>{money(remaining)}</b></div>
           </div>
-          {history.length > 0 && (
+          {!payments ? (
+            <div className="invoice-preview span-2"><h4>Riwayat Pembayaran</h4><p className="cell-sub">Memuat riwayat pembayaran...</p></div>
+          ) : history.length > 0 && (
             <div className="invoice-preview span-2">
               <h4>Riwayat Pembayaran ({history.length})</h4>
               {history.map(p => <div key={p.id} className="payment-row"><span>{dateLabel(p.paidAt)} · {labels[p.method]}{p.reference ? ` · ${p.reference}` : ''}{p.notes ? <><br />{p.notes}</> : null}</span><b>{money(p.amount)}</b></div>)}

@@ -87,7 +87,7 @@ PPN **tidak lagi hardcode**. Sekarang jadi konfigurasi perusahaan:
 
 | # | Status | Implementasi |
 |---|---|---|
-| O-A | ⏳ **DITUNDA (sengaja)** | Paginasi server-side sejati butuh rework backend 1–2 hari (query per modul + slim data shell + selects async) — berisiko regresi lintas modul. Lag ketikan **sudah sembuh** via memo/defer (gelombang 1), jadi O-A tidak lagi Mendesak. Desain follow-up: `getModulePage(module,{q,status,page,sort})` SQL `WHERE/LIMIT/OFFSET` + `getShellData()` ramping untuk layout. |
+| O-A | ✅ **SELESAI** (eksekusi desain follow-up yang tadinya ditunda) | Tepat sesuai rancangan: **(1)** `getShellData()` ramping untuk layout — user + settings + 4 count SQL (pending/unpaid/overdue/expiring), shell tak lagi menerima 7 tabel; **(2)** `getModulePage(module,{q,status,category,expiringOnly,page,sort})` — query per modul dengan `WHERE/ORDER BY/LIMIT/OFFSET`, JOIN label (klien/unit/kontrak) langsung di baris, subquery agregat (kontrak per klien, dibayar per invoice), CASE `overdue` dievaluasi di SQL, tab status dari `GROUP BY` (hitungan dataset = kunci `all`); **(3)** selects async — opsi modal via server action `getFormOptions` (+`getBillableHours`/`getRevisionHistory`/`getInvoicePayments` saat dibutuhkan), pencarian global pindah ke `/api/search` (ILIKE, debounce 250 ms); **(4)** dasbor via `getDashboardData()` (SUM/GROUP BY bulan + daftar terbaru LIMIT 5), PDF via `getDocumentBundle()` (query titik), CSV via `getReportData()`; **(5)** filter modul kini state URL (`?q/?status/?category/?sort/?page/?filter`) dengan input debounced 300 ms + transisi (tidak ada lag ketikan — state input tetap lokal), pager berjendela untuk ratusan halaman, optimistic UI dipertahankan; **(6)** `getWorkspaceData()` dihapus, `requireUser` di-`cache()` (verifikasi auth 1× per request), indeks pendukung `0017_pagination_indexes.sql` (aditif). |
 | O-B | ✅ | Optimistic UI via `useOptimistic` untuk approve/reject timesheet, selesai kontrak, pelunasan; `act()` selalu `router.refresh()` agar optimis tersinkron ulang. |
 | O-C | ✅ | Validasi per-field tanpa dep baru: `FieldError` di actions (pesan per kolom + mapping 23505 → kolom), UI menampilkan `.field-error` di bawah isian (modal + settings + pembayaran). |
 | O-D | ✅ | `daysUntil`/`isPastDue`/`isExpiringSoon` di `format.ts` (aritmetika kalender, TZ-aman); semua badge overdue/expiring memakai ini. |
@@ -130,7 +130,7 @@ PPN **tidak lagi hardcode**. Sekarang jadi konfigurasi perusahaan:
 
 | # | Item | Kenapa | Effort |
 |---|---|---|---|
-| O-A | **Paginasi + filter server-side per modul** (ganti `SELECT *` 7 tabel) | Satu-satunya obat permanen untuk L7; saat ini seluruh DB dikirim ke browser tiap navigasi | 1–2 hari (lihat O1 di `audit.md`) |
+| O-A | ~~**Paginasi + filter server-side per modul** (ganti `SELECT *` 7 tabel)~~ ✅ **dikerjakan** — lihat §3a | Satu-satunya obat permanen untuk L7; saat ini seluruh DB dikirim ke browser tiap navigasi | 1–2 hari (lihat O1 di `audit.md`) |
 | O-B | **Optimistic UI + sempitkan `router.refresh()`** | Sesudah simpan/approve, seluruh halaman refetch → kedip & jank sesaat | 0.5 hari |
 | O-C | **Validasi inline per-field** (ganti toast generik) | Form gagal simpan hanya bilang "periksa isian" — user menebak kolom mana | 0.5–1 hari (lihat O9/Zod) |
 | O-D | **Tanggal TZ-aman** (`new Date('YYYY-MM-DD')` = UTC → badge kadaluarsa bisa geser ±1 hari di WIB) | Akurasi badge "30 hari" & filter overdue | 1–2 jam (lihat O6) |

@@ -1,6 +1,6 @@
 import { renderToBuffer } from '@react-pdf/renderer';
 import QRCode from 'qrcode';
-import { getWorkspaceData } from '@/lib/data';
+import { getDocumentBundle } from '@/lib/data';
 import { BusinessDocument, type PdfData } from '@/components/pdf-document';
 import { dateLabel, money, labels } from '@/lib/format';
 import { requireUser, createAuthClient } from '@/lib/auth';
@@ -16,22 +16,21 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
   try{await requireUser(['admin','finance','operations']);}
   catch(error){if(((error as Error).message||'').includes('NEXT_REDIRECT'))throw error;return Response.json({message:'Anda tidak memiliki izin mengunduh dokumen tagihan.'},{status:403});}
  }
- const workspace=await getWorkspaceData();
- const invoice=kind==='invoice'?workspace.invoices.find(i=>i.id===id):undefined;
- const handover=kind==='bast'?workspace.handovers.find(h=>h.id===id):undefined;
- const contract=workspace.contracts.find(c=>c.id===(invoice?.contractId||handover?.contractId||(kind==='sph'?id:'')));
- if(!contract)return Response.json({message:'Dokumen tidak ditemukan.'},{status:404});
- const client=workspace.clients.find(c=>c.id===contract.clientId);const unit=workspace.fleet.find(f=>f.id===contract.unitId);
- if(!client||!unit)return Response.json({message:'Data dokumen tidak lengkap.'},{status:422});
+ // O-A: bundle titik — hanya dokumen + kontrak + klien + unit + settings yang
+ // terlibat (sebelumnya seluruh workspace di-fetch untuk satu PDF).
+ const bundle=await getDocumentBundle(kind as 'invoice'|'bast'|'sph',id);
+ if(!bundle.ok)return Response.json({message:'Dokumen tidak ditemukan.'},{status:bundle.reason==='incomplete'?422:404});
+ const {settings,contract,client,unit}=bundle;
+ const invoice=bundle.invoice,handover=bundle.handover;
  const origin=process.env.NEXT_PUBLIC_APP_URL||new URL(request.url).origin;
  // QR dibangun sebagai path SVG (kotak terisi) sehingga proses render tidak bergantung
  // pada decoder PNG runtime — penyebab QR kosong pada sebagian lingkungan dev.
  const matrix=QRCode.create(`${origin}/verify/doc?id=${id}`,{errorCorrectionLevel:'M'}).modules;const margin=2;const size=matrix.size;let qrPath='';for(let y=0;y<size;y++)for(let x=0;x<size;x++)if(matrix.data[y*size+x])qrPath+=`M${x+margin} ${y+margin}h1v1h-1z`;
- const ppnRate=Number(workspace.settings.ppnRate??11);
- const data:PdfData={title:invoice?'FAKTUR TAGIHAN':handover?'BERITA ACARA SERAH TERIMA':'SURAT PENAWARAN HARGA',number:invoice?.invoiceNumber||handover?.documentNumber||contract.contractNumber.replace('KTR','SPH'),company:workspace.settings,clientName:client.companyName,clientAddress:client.address||'',clientPic:client.picName,date:dateLabel(invoice?.issueDate||handover?.date||contract.createdAt),reference:contract.contractNumber,qrPath,qrSize:size+margin*2,verifyUrl:`${origin}/verify/doc?id=${id}`,rows:[{label:'Kode unit alat berat',value:unit.unitCode},{label:'Merek / model',value:unit.brandModel},{label:'Kategori',value:unit.category}],notes:''};
+ const ppnRate=Number(settings.ppnRate??11);
+ const data:PdfData={title:invoice?'FAKTUR TAGIHAN':handover?'BERITA ACARA SERAH TERIMA':'SURAT PENAWARAN HARGA',number:invoice?.invoiceNumber||handover?.documentNumber||contract.contractNumber.replace('KTR','SPH'),company:settings,clientName:client.companyName,clientAddress:client.address||'',clientPic:client.picName,date:dateLabel(invoice?.issueDate||handover?.date||contract.createdAt),reference:contract.contractNumber,qrPath,qrSize:size+margin*2,verifyUrl:`${origin}/verify/doc?id=${id}`,rows:[{label:'Kode unit alat berat',value:unit.unitCode},{label:'Merek / model',value:unit.brandModel},{label:'Kategori',value:unit.category}],notes:''};
  if(invoice){
-  const hours=workspace.timesheets.filter(t=>t.invoiceId===invoice.id).reduce((sum,t)=>sum+Number(t.effectiveHours),0);
-  const history=workspace.payments.filter(p=>p.invoiceId===invoice.id);
+  const hours=bundle.hours??0;
+  const history=bundle.payments??[];
   const paidTotal=history.reduce((a,p)=>a+Number(p.amount),0);
   data.rows.push({label:'Tarif sewa per jam',value:money(contract.ratePerHour)});
   if(hours)data.rows.push({label:'Jumlah jam kerja efektif yang disetujui',value:`${hours.toLocaleString('id-ID')} jam`});

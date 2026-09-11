@@ -5,8 +5,8 @@ import dynamic from 'next/dynamic';
 import { ArrowUpRight, ArrowRight, CalendarDays, ChevronDown, Download, FileText, CircleDollarSign, ReceiptText, MoreHorizontal, CircleCheck, Clock3, TriangleAlert, MapPin, ClipboardCheck, Plus, Activity } from 'lucide-react';
 import { EquipmentIcon } from './icons';
 import { Button } from './ui/button';
-import type { WorkspaceData } from '@/lib/data';
-import { money, shortMoney, labels, dateLabel, isExpiringSoon, isPastDue } from '@/lib/format';
+import type { DashboardData } from '@/lib/data';
+import { money, shortMoney, labels, dateLabel } from '@/lib/format';
 
 // Chart dimuat lazy di client saja — mengurangi JS first-load dasbor secara
 // signifikan (recharts tidak ikut bundle awal).
@@ -17,21 +17,26 @@ export function Badge({ status }: { status: string }) {
   return <span className={`status-badge status-${status}`}><i />{labels[status] || status}</span>;
 }
 
-export function Overview({ data }: { data: WorkspaceData }) {
+// O-A: dasbor menerima HASIL AGREGASI dari server (getDashboardData): jumlah
+// armada per status, pendapatan per bulan (SUM/GROUP BY di SQL), angka unpaid/
+// overdue/expiring, dan daftar terbaru terbatas. Sebelumnya halaman ini menerima
+// seluruh 7 tabel lalu mengagregasinya sendiri di client setiap render.
+export function Overview({ data }: { data: DashboardData }) {
   const [range, setRange] = useState('6');
   const [monthOffset, setMonthOffset] = useState('0');
   const warnDays = Number(data.settings.expiryWarningDays ?? 30) || 30;
-  const [fleetMenu, setFleetMenu] = useState(false);
 
   const now = useMemo(() => new Date(), []);
   const selected = useMemo(() => new Date(now.getFullYear(), now.getMonth() + Number(monthOffset), 1), [now, monthOffset]);
   const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  const revenue = useMemo(() => {
-    const byMonth = new Map<string, number>();
-    for (const i of data.invoices) byMonth.set(i.issueDate.slice(0, 7), (byMonth.get(i.issueDate.slice(0, 7)) || 0) + Number(i.totalAmount));
-    return (d: Date) => byMonth.get(monthKey(d)) || 0;
-  }, [data.invoices]);
+  const revenue = useMemo(() => (d: Date) => data.revenueByMonth[monthKey(d)] || 0, [data.revenueByMonth]);
 
+  const statusData = useMemo(() => [
+    { name: 'Disewa', value: data.fleetByStatus.renting || 0, color: '#f47727', status: 'renting' },
+    { name: 'Tersedia', value: data.fleetByStatus.available || 0, color: '#50a885', status: 'available' },
+    { name: 'Perawatan', value: data.fleetByStatus.maintenance || 0, color: '#efbf5b', status: 'maintenance' },
+    { name: 'Dalam Mobilisasi', value: data.fleetByStatus.in_transit || 0, color: '#7998bc', status: 'in_transit' },
+  ], [data.fleetByStatus]);
   const monthRevenue = revenue(selected);
   const previousRevenue = revenue(new Date(selected.getFullYear(), selected.getMonth() - 1, 1));
   const growth = previousRevenue ? ((monthRevenue - previousRevenue) / previousRevenue * 100) : 0;
@@ -39,17 +44,7 @@ export function Overview({ data }: { data: WorkspaceData }) {
     const date = new Date(selected.getFullYear(), selected.getMonth() - Number(range) + 1 + i, 1);
     return { name: date.toLocaleDateString('id-ID', { month: 'short' }), current: revenue(date) / 1e6, previous: revenue(new Date(date.getFullYear(), date.getMonth() - 1, 1)) / 1e6 };
   }), [range, selected, revenue]);
-  const statusData = useMemo(() => [
-    { name: 'Disewa', value: data.fleet.filter(f => f.status === 'renting').length, color: '#f47727', status: 'renting' },
-    { name: 'Tersedia', value: data.fleet.filter(f => f.status === 'available').length, color: '#50a885', status: 'available' },
-    { name: 'Perawatan', value: data.fleet.filter(f => f.status === 'maintenance').length, color: '#efbf5b', status: 'maintenance' },
-    { name: 'Dalam Mobilisasi', value: data.fleet.filter(f => f.status === 'in_transit').length, color: '#7998bc', status: 'in_transit' },
-  ], [data.fleet]);
-  const unpaid = useMemo(() => data.invoices.filter(i => i.status !== 'paid'), [data.invoices]);
-  const overdue = useMemo(() => unpaid.filter(i => i.status === 'overdue' || isPastDue(i.dueDate)), [unpaid]);
-  const expiring = useMemo(() => data.fleet.filter(f => [f.sikoExpiry, f.insuranceExpiry].some(d => isExpiringSoon(d, warnDays))), [data.fleet, warnDays]);
-  const recent = useMemo(() => [...data.fleet].sort((a, b) => Number(a.unitCode.split('-')[1]) - Number(b.unitCode.split('-')[1])).slice(0, 5), [data.fleet]);
-  const totalPeriod = useMemo(() => chartData.reduce((a, d) => a + d.current, 0) * 1e6, [chartData]);
+  const latest = data.latest;
 
   return (
     <div className="overview page-enter">
@@ -74,10 +69,10 @@ export function Overview({ data }: { data: WorkspaceData }) {
         </label>
       </div>
       <div className="metrics-grid">
-        <Metric title="Total Armada" value={String(data.fleet.length)} suffix="unit" icon={<EquipmentIcon />} tone="orange" foot={<><span className="green"><ArrowUpRight size={13} />{statusData[1].value} unit tersedia</span><span>siap disewakan</span></>} />
-        <Metric title="Unit Sedang Disewa" value={String(statusData[0].value)} suffix="unit" icon={<Activity size={21} />} tone="green" foot={<><span className="green"><ArrowUpRight size={13} />{data.fleet.length ? Math.round(statusData[0].value / data.fleet.length * 100) : 0}% utilisasi</span><span>dari total armada</span></>} />
+        <Metric title="Total Armada" value={String(data.fleetTotal)} suffix="unit" icon={<EquipmentIcon />} tone="orange" foot={<><span className="green"><ArrowUpRight size={13} />{statusData[1].value} unit tersedia</span><span>siap disewakan</span></>} />
+        <Metric title="Unit Sedang Disewa" value={String(statusData[0].value)} suffix="unit" icon={<Activity size={21} />} tone="green" foot={<><span className="green"><ArrowUpRight size={13} />{data.fleetTotal ? Math.round(statusData[0].value / data.fleetTotal * 100) : 0}% utilisasi</span><span>dari total armada</span></>} />
         <Metric title="Pendapatan Bulan Ini" value={shortMoney(monthRevenue)} icon={<CircleDollarSign size={22} />} tone="blue" foot={<><span className={growth >= 0 ? 'green' : 'red'}><ArrowUpRight size={13} />{Math.abs(growth).toLocaleString('id-ID', { maximumFractionDigits: 1 })}%{growth < 0 ? ' turun' : ''}</span><span>dari bulan lalu</span></>} />
-        <Metric title="Tagihan Belum Lunas" value={String(unpaid.length)} suffix="tagihan" icon={<ReceiptText size={21} />} tone="amber" foot={<><span className="amber-text"><Clock3 size={13} />{overdue.length} jatuh tempo</span><Link href="/dashboard/invoices">Lihat tagihan <ArrowUpRight size={12} /></Link></>} />
+        <Metric title="Tagihan Belum Lunas" value={String(data.unpaidCount)} suffix="tagihan" icon={<ReceiptText size={21} />} tone="amber" foot={<><span className="amber-text"><Clock3 size={13} />{data.overdueCount} jatuh tempo</span><Link href="/dashboard/invoices">Lihat tagihan <ArrowUpRight size={12} /></Link></>} />
       </div>
       <div className="analytics-grid">
         <section className="panel revenue-panel">
@@ -86,7 +81,7 @@ export function Overview({ data }: { data: WorkspaceData }) {
             <label className="small-select"><select value={range} onChange={e => setRange(e.target.value)} aria-label="Periode grafik pendapatan"><option value="6">6 bulan terakhir</option><option value="12">12 bulan terakhir</option><option value="3">3 bulan terakhir</option></select><ChevronDown size={13} /></label>
           </div>
           <div className="revenue-summary">
-            <div><strong>{money(totalPeriod)}</strong><span>Total pendapatan periode ini</span></div>
+            <div><strong>{money(totalPeriod(chartData))}</strong><span>Total pendapatan periode ini</span></div>
             <div className="chart-legend"><span><i className="orange-dot" />Pendapatan</span><span><i className="gray-dot" />Bulan sebelumnya</span></div>
           </div>
           <div className="revenue-chart"><RevenueChart data={chartData} /></div>
@@ -96,31 +91,31 @@ export function Overview({ data }: { data: WorkspaceData }) {
           <div className="panel-header"><div><h2>Status Armada</h2><p>Distribusi ketersediaan alat berat.</p></div><Link href="/dashboard/fleet" className="icon-button" aria-label="Lihat detail status armada"><MoreHorizontal size={20} /></Link></div>
           <div className="donut-wrap">
             <FleetDonut data={statusData} />
-            <div className="donut-center"><strong>{data.fleet.length}</strong><span>Total unit</span></div>
+            <div className="donut-center"><strong>{data.fleetTotal}</strong><span>Total unit</span></div>
           </div>
-          <div className="status-legend">{statusData.map(s => <Link key={s.status} href={`/dashboard/fleet?status=${s.status}`}><span><i style={{ background: s.color }} />{s.name}</span><b>{s.value} <small>unit</small></b><span className="status-percent">{data.fleet.length ? Math.round(s.value / data.fleet.length * 100) : 0}%</span></Link>)}</div>
-          <div className="utilization"><span>Utilisasi armada</span><b>{data.fleet.length ? Math.round(statusData[0].value / data.fleet.length * 100) : 0}%<ArrowUpRight size={13} /></b><div><i style={{ width: `${data.fleet.length ? statusData[0].value / data.fleet.length * 100 : 0}%` }} /></div></div>
+          <div className="status-legend">{statusData.map(s => <Link key={s.status} href={`/dashboard/fleet?status=${s.status}`}><span><i style={{ background: s.color }} />{s.name}</span><b>{s.value} <small>unit</small></b><span className="status-percent">{data.fleetTotal ? Math.round(s.value / data.fleetTotal * 100) : 0}%</span></Link>)}</div>
+          <div className="utilization"><span>Utilisasi armada</span><b>{data.fleetTotal ? Math.round(statusData[0].value / data.fleetTotal * 100) : 0}%<ArrowUpRight size={13} /></b><div><i style={{ width: `${data.fleetTotal ? statusData[0].value / data.fleetTotal * 100 : 0}%` }} /></div></div>
         </section>
       </div>
-      {expiring.length > 0 && <Link href="/dashboard/fleet?filter=expiring" className="expiry-banner"><span className="expiry-icon"><TriangleAlert size={18} /></span><div><b>Dokumen armada perlu diperhatikan</b><span>{expiring.length} unit memiliki SIKO atau asuransi yang akan berakhir dalam {warnDays} hari.</span></div><span className="expiry-link">Periksa dokumen <ArrowRight size={15} /></span></Link>}
+      {data.expiringCount > 0 && <Link href="/dashboard/fleet?filter=expiring" className="expiry-banner"><span className="expiry-icon"><TriangleAlert size={18} /></span><div><b>Dokumen armada perlu diperhatikan</b><span>{data.expiringCount} unit memiliki SIKO atau asuransi yang akan berakhir dalam {warnDays} hari.</span></div><span className="expiry-link">Periksa dokumen <ArrowRight size={15} /></span></Link>}
       <div className="operations-grid">
         <section className="panel fleet-overview">
           <div className="panel-header"><div><h2>Ringkasan Armada</h2><p>Status terkini unit alat berat Anda.</p></div><Link className="text-link" href="/dashboard/fleet">Lihat semua <ArrowRight size={14} /></Link></div>
           <div className="table-scroll">
             <table><thead><tr><th>UNIT ALAT BERAT</th><th>LOKASI SAAT INI</th><th>STATUS</th><th /></tr></thead>
-              <tbody>{recent.map(f => <tr key={f.id}><td><Link className="unit-cell" href={`/dashboard/fleet?q=${f.unitCode}`}><span className="unit-icon"><EquipmentIcon width={24} height={24} /></span><span><b>{f.brandModel}</b><small>{f.unitCode} <span>·</span> {f.category}</small></span></Link></td><td><span className="location-cell"><MapPin size={13} />{f.currentLocation}</span></td><td><Badge status={f.status} /></td><td><Link href={`/dashboard/fleet?q=${f.unitCode}`} className="icon-button" aria-label={`Lihat ${f.unitCode}`}><ChevronDown size={15} className="rotate-arrow" /></Link></td></tr>)}</tbody>
+              <tbody>{data.recentFleet.map(f => <tr key={f.id}><td><Link className="unit-cell" href={`/dashboard/fleet?q=${f.unitCode}`}><span className="unit-icon"><EquipmentIcon width={24} height={24} /></span><span><b>{f.brandModel}</b><small>{f.unitCode} <span>·</span> {f.category}</small></span></Link></td><td><span className="location-cell"><MapPin size={13} />{f.currentLocation || '—'}</span></td><td><Badge status={f.status} /></td><td><Link href={`/dashboard/fleet?q=${f.unitCode}`} className="icon-button" aria-label={`Lihat ${f.unitCode}`}><ChevronDown size={15} className="rotate-arrow" /></Link></td></tr>)}</tbody>
             </table>
           </div>
-          <div className="table-footer"><span>Menampilkan {recent.length} dari {data.fleet.length} unit</span><Link href="/dashboard/fleet?new=1"><Plus size={14} />Tambah unit</Link></div>
+          <div className="table-footer"><span>Menampilkan {data.recentFleet.length} dari {data.fleetTotal} unit</span><Link href="/dashboard/fleet?new=1"><Plus size={14} />Tambah unit</Link></div>
         </section>
         <section className="panel activity-panel">
           <div className="panel-header"><div><h2>Aktivitas Terbaru</h2><p>Perkembangan operasional terkini.</p></div><Clock3 size={18} className="muted" /></div>
           <div className="activity-list">
-            {data.timesheets[0] && <ActivityItem icon={<ClipboardCheck size={16} />} tone="green" title="Catatan kerja telah dicatat" text={`${data.timesheets.filter(t => t.status === 'pending').length} catatan menunggu persetujuan operasional.`} time={dateLabel(data.timesheets[0].date)} href="/dashboard/timesheets" />}
-            {data.invoices[0] && <ActivityItem icon={<ReceiptText size={16} />} tone="orange" title="Tagihan sewa diterbitkan" text={`${data.invoices[0].invoiceNumber} · ${money(data.invoices[0].totalAmount)}`} time={dateLabel(data.invoices[0].issueDate)} href="/dashboard/invoices" />}
-            {data.handovers[0] && <ActivityItem icon={<EquipmentIcon width={17} height={17} />} tone="blue" title="Serah terima unit tercatat" text="Pemeriksaan dan serah terima unit telah didokumentasikan." time={dateLabel(data.handovers[0].date)} href="/dashboard/bast" />}
-            {data.contracts[0] && <ActivityItem icon={<FileText size={16} />} tone="purple" title="Kontrak sewa aktif" text={`${data.contracts[0].contractNumber} siap untuk operasional.`} time={dateLabel(data.contracts[0].startDate)} href="/dashboard/contracts" />}
-            {!data.contracts.length && <p className="empty-inline">Belum ada aktivitas. Mulai dengan menambahkan armada dan klien.</p>}
+            {latest.timesheet && <ActivityItem icon={<ClipboardCheck size={16} />} tone="green" title="Catatan kerja telah dicatat" text={`${data.pendingTimesheets} catatan menunggu persetujuan operasional.`} time={dateLabel(latest.timesheet.date)} href="/dashboard/timesheets" />}
+            {latest.invoice && <ActivityItem icon={<ReceiptText size={16} />} tone="orange" title="Tagihan sewa diterbitkan" text={`${latest.invoice.invoiceNumber} · ${money(latest.invoice.totalAmount)}`} time={dateLabel(latest.invoice.issueDate)} href="/dashboard/invoices" />}
+            {latest.handover && <ActivityItem icon={<EquipmentIcon width={17} height={17} />} tone="blue" title="Serah terima unit tercatat" text="Pemeriksaan dan serah terima unit telah didokumentasikan." time={dateLabel(latest.handover.date)} href="/dashboard/bast" />}
+            {latest.contract && <ActivityItem icon={<FileText size={16} />} tone="purple" title="Kontrak sewa aktif" text={`${latest.contract.contractNumber} siap untuk operasional.`} time={dateLabel(latest.contract.startDate)} href="/dashboard/contracts" />}
+            {!latest.contract && <p className="empty-inline">Belum ada aktivitas. Mulai dengan menambahkan armada dan klien.</p>}
           </div>
           <Link className="activity-footer" href="/dashboard/timesheets">Lihat catatan operasional <ArrowRight size={14} /></Link>
         </section>
@@ -129,6 +124,8 @@ export function Overview({ data }: { data: WorkspaceData }) {
     </div>
   );
 }
+
+const totalPeriod = (chartData: { current: number }[]) => chartData.reduce((a, d) => a + d.current, 0) * 1e6;
 
 function Metric({ title, value, suffix, icon, tone, foot }: { title: string; value: string; suffix?: string; icon: React.ReactNode; tone: string; foot: React.ReactNode }) {
   return <section className="metric-card"><div className="metric-top"><span>{title}</span><span className={`metric-icon ${tone}`}>{icon}</span></div><div className="metric-value">{value}<small>{suffix}</small></div><div className="metric-foot">{foot}</div></section>;

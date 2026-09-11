@@ -1,7 +1,7 @@
 'use server';
 import { db } from '@/db';
 import * as s from '@/db/schema';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or, sql, desc } from 'drizzle-orm';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { requireUser, createAuthClient, isConfigured, isPreview } from '@/lib/auth';
 import { logAudit, getProfileNameBestEffort } from '@/lib/audit';
@@ -410,3 +410,69 @@ export async function signIn(form:FormData) {
  redirect('/dashboard');
 }
 export async function signOut(){if(isConfigured()){const auth=await createAuthClient();try{const {data:{user}}=await auth.auth.getUser();if(user){const [profile]=await db.select().from(s.profiles).where(eq(s.profiles.id,user.id));await logAudit({actorId:user.id,actorName:profile?.fullName||user.email||'Pengguna',action:'logout',entity:'profiles',entityId:user.id,summary:`Keluar: ${user.email||'pengguna'}`});}}catch{/* audit logout best-effort */}await auth.auth.signOut();}redirect('/login');}
+
+// ---------------------------------------------------------------------------
+// O-A — select async untuk modal (pengganti pengiriman seluruh tabel ke client).
+// Opsi referensi (kontrak/unit/klien), riwayat revisi, jam dapat ditagih, dan
+// riwayat pembayaran diambil TEPAT saat dibutuhkan — saat modal dibuka atau
+// pilihan berubah — bukan dikirim utuh di payload halaman setiap navigasi.
+// Semua read-only; otorisasi cukup requireUser() tanpa role khusus karena
+// tidak membocorkan data selain yang memang akan ditampilkan di form.
+// ---------------------------------------------------------------------------
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export type FormOptionsData = {
+  contracts: { id: string; contractNumber: string; ratePerHour: string; status: string; clientName: string | null; unitCode: string | null }[];
+  clients: { id: string; companyName: string }[];
+  fleet: { id: string; unitCode: string; brandModel: string; hourlyRate: string; status: string }[];
+};
+
+export async function getFormOptions(module: string, editingUnitId?: string): Promise<FormOptionsData> {
+  await requireUser();
+  const empty: FormOptionsData = { contracts: [], clients: [], fleet: [] };
+  if (module === 'contracts') {
+    const [clients, fleet] = await Promise.all([
+      db.select({ id: s.clients.id, companyName: s.clients.companyName }).from(s.clients).orderBy(s.clients.companyName),
+      db.select({ id: s.fleet.id, unitCode: s.fleet.unitCode, brandModel: s.fleet.brandModel, hourlyRate: s.fleet.hourlyRate, status: s.fleet.status })
+        .from(s.fleet)
+        .where(editingUnitId && UUID_RE.test(editingUnitId) ? or(eq(s.fleet.status, 'available'), eq(s.fleet.id, editingUnitId)) : eq(s.fleet.status, 'available'))
+        .orderBy(s.fleet.unitCode),
+    ]);
+    return { ...empty, clients, fleet };
+  }
+  if (module === 'timesheets' || module === 'bast' || module === 'invoices') {
+    // Form kontrak: timesheet/BAST hanya kontrak aktif; invoice boleh semua
+    // (paritas dengan perilaku lama sebelum select dipindah ke server).
+    const contracts = await db.select({
+      id: s.contracts.id, contractNumber: s.contracts.contractNumber, ratePerHour: s.contracts.ratePerHour, status: s.contracts.status,
+      clientName: s.clients.companyName, unitCode: s.fleet.unitCode,
+    }).from(s.contracts)
+      .leftJoin(s.clients, eq(s.clients.id, s.contracts.clientId))
+      .leftJoin(s.fleet, eq(s.fleet.id, s.contracts.unitId))
+      .where(module === 'invoices' ? undefined : eq(s.contracts.status, 'active'))
+      .orderBy(desc(s.contracts.createdAt));
+    return { ...empty, contracts };
+  }
+  return empty;
+}
+
+export async function getBillableHours(contractId: string): Promise<{ hours: number }> {
+  await requireUser();
+  if (!UUID_RE.test(contractId)) return { hours: 0 };
+  const rows = await db.select({ h: s.timesheets.effectiveHours }).from(s.timesheets)
+    .where(and(eq(s.timesheets.contractId, contractId), eq(s.timesheets.status, 'approved'), isNull(s.timesheets.invoiceId)));
+  return { hours: rows.reduce((a, r) => a + Number(r.h ?? 0), 0) };
+}
+
+export async function getRevisionHistory(contractId: string): Promise<{ id: string; revisionNumber: number; createdAt: Date; prevRate: string; newRate: string; reason: string }[]> {
+  await requireUser();
+  if (!UUID_RE.test(contractId)) return [];
+  return db.select({ id: s.contractRevisions.id, revisionNumber: s.contractRevisions.revisionNumber, createdAt: s.contractRevisions.createdAt, prevRate: s.contractRevisions.prevRate, newRate: s.contractRevisions.newRate, reason: s.contractRevisions.reason })
+    .from(s.contractRevisions).where(eq(s.contractRevisions.contractId, contractId)).orderBy(desc(s.contractRevisions.revisionNumber));
+}
+
+export async function getInvoicePayments(invoiceId: string) {
+  await requireUser();
+  if (!UUID_RE.test(invoiceId)) return [];
+  return db.select().from(s.payments).where(eq(s.payments.invoiceId, invoiceId)).orderBy(desc(s.payments.paidAt), desc(s.payments.createdAt));
+}
