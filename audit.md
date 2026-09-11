@@ -35,6 +35,17 @@ Seluruh temuan di bawah sudah diverifikasi dengan menjalankan tool langsung terh
 
 **Kesimpulan satu kalimat:** fondasi bisnis (transaksi, constraint, otorisasi Server Action) sudah solid, tetapi ada **4 temuan merah** yang semuanya bisa ditutup dalam kurang dari satu hari kerja: role check route finansial, lint error, fail-build CI, dan override postcss.
 
+> ### ✅ Pembaruan — 4 Quick Wins Utama telah dieksekusi (11 Sep 2026)
+>
+> Satu commit per item di branch ini (QW#1–QW#4). Tabel di atas dipertahankan apa adanya sebagai **snapshot pra-perbaikan**; status terkini:
+>
+> | Quick Win | Status | Bukti pasca-perbaikan |
+> |---|---|---|
+> | QW#1 · Role check route finansial (A1) | ✅ Selesai | `/api/report` & PDF invoice → `requireUser(['admin','finance','operations'])`; SPH/BAST tetap terbuka (dokumen operasional); tombol Unduh Laporan & ikon PDF invoice disembunyikan bagi role tanpa akses. **Perubahan SQL:** migration `0004` — `staff_read` tidak lagi mencakup `invoices`; policy baru `invoice_read` tanpa operator, agar Supabase Data API selaras dengan layer aplikasi (revisi pra-deploy, migrations belum pernah dijalankan) |
+> | QW#2 · Fix lint (O3+O4) | ✅ Selesai | `npm run lint` → **0 error, 0 warning** — pola *adjust state during render* menggantikan `useEffect`+`setState`; QR PDF ditangani dengan `eslint-disable` terjustifikasi (`Image` react-pdf tidak mendukung `alt`) |
+> | QW#3 · Lazy-init DB (A2) | ✅ Selesai | `env -u DATABASE_URL npm run build` → **sukses** (pembuktian di commit QW#3); pool `max: 5` siap Supavisor; call-site `db`/`pool` tidak berubah |
+> | QW#4 · postcss (K5) | ✅ Selesai | `postcss` direct dependency naik **8.5.8 → 8.5.28** (bukan `overrides` — npm menolak `EOVERRIDE` karena postcss adalah direct dep); `npm audit` sisa **4 moderate dev-only** (rantai `esbuild`/`@esbuild-kit` di drizzle-kit — belum ada rilis perbaikan, tidak masuk bundel produksi, dipantau) |
+
 ---
 
 ## 2. ➕ Yang Perlu DITAMBAHKAN
@@ -101,10 +112,10 @@ Seluruh temuan di bawah sudah diverifikasi dengan menjalankan tool langsung terh
 Mengikuti Fase 0 di `roadmap.md` — empat item pertama menutup semua temuan **merah** di tabel §1, total kurang dari satu hari kerja:
 
 ```
-1. A1  Role check /api/report & /api/documents   ← 15 menit, dampak keamanan terbesar
-2. O3  Fix lint error + O4 (alt-text)             ← lint hijau kembali
-3. A2  Lazy-init DB → build lolos tanpa env       ← blokir CI hilang
-4. K5  Override postcss 8.5.28                    ← HIGH vulnerability tertutup
+1. ✅ SELESAI — A1  Role check /api/report & /api/documents (commit QW#1, termasuk RLS invoices di migration 0004)
+2. ✅ SELESAI — O3  Fix lint error + O4 (alt-text) (commit QW#2 — lint 0 error/0 warning)
+3. ✅ SELESAI — A2  Lazy-init DB → build lolos tanpa env (commit QW#3)
+4. ✅ SELESAI — K5  postcss 8.5.28 (commit QW#4 — HIGH vulnerability tertutup)
 5. A4  CI pipeline (lint+typecheck+build)         ← mencegah regresi
 6. K1  Buang playwright/dotenv (atau pindah devDeps bila A6 jalan)
 7. K3  cache() getWorkspaceData + O2 indeks       ← quick win performa

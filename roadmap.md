@@ -163,7 +163,7 @@ rentalin/
 
 | # | Temuan | Dampak | Prioritas |
 |---|---|---|---|
-| S1 | `/api/report` (CSV berisi seluruh tagihan) dan `/api/documents/[kind]/[id]` (PDF invoice) hanya `requireUser()` tanpa batasan role → **operator** dapat mengunduh data finansial | Kebocoran internal; bertentangan dengan ketatnya RLS (operator read-only *tanpa* akses invoice via Data API) | 🔴 Tinggi |
+| S1 | `/api/report` (CSV berisi seluruh tagihan) dan `/api/documents/[kind]/[id]` (PDF invoice) hanya `requireUser()` tanpa batasan role → **operator** dapat mengunduh data finansial | Kebocoran internal; bertentangan dengan ketatnya RLS (operator read-only *tanpa* akses invoice via Data API) | ✅ **Ditutup** — Quick Win #1 (`audit.md`), termasuk pengetatan RLS `invoices` di migration 0004 |
 | S2 | Tidak ada kebijakan audit: siapa mengubah apa tidak terekam | Sulit investigasi; wajib untuk ERP keuangan | 🟡 Sedang (Fase 2) |
 | S3 | Halaman `/verify/doc` menampilkan nama perusahaan hardcoded "PT Penyewaan Alat Berat", bukan dari `company_settings` | Inkonsistensi identitas dokumen | 🟢 Rendah |
 | S4 | Rate-limit login bergantung sepenuhnya pada bawaan Supabase Auth | Cukup, tetapi perlu dikonfirmasi saat hardening produksi | 🟢 Rendah |
@@ -352,7 +352,7 @@ Estimasi = effort relatif untuk 1–2 engineer. Prioritas mengikuti prinsip: **k
 
 | # | Item | Detail | Prioritas |
 |---|---|---|---|
-| 0.1 | Batasi role pada `/api/report` & `/api/documents` | Hanya `admin, finance, operations` (temuan S1) | 🔴 |
+| 0.1 | Batasi role pada `/api/report` & `/api/documents` | Hanya `admin, finance, operations` (temuan S1) — ✅ **selesai** (Quick Win #1, termasuk RLS `invoices` di migration 0004) | ✅ |
 | 0.2 | Hilangkan fetch ganda | `cache()` pada `getWorkspaceData` (atau pindah fetch ke layout dan teruskan via props/context) | 🔴 |
 | 0.3 | `.env.example` + dokumentasi variabel | Semua env dari §6.4 | 🔴 |
 | 0.4 | CI pipeline | GitHub Actions: `npm run lint`, `typecheck`, `next build`, `next typegen` tiap PR | 🔴 |
