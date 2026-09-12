@@ -9,7 +9,8 @@ import { Badge } from './overview';
 import { saveRecord, bulkCreateFleet, changeStatus, deleteClient, resetDatabase, reviseContract, recordPayment, getFormOptions, getRevisionHistory, getBillableHours, getInvoicePayments } from '@/app/actions';
 import type { FormOptionsData } from '@/app/actions';
 import { money, dateLabel, dateTimeLabel, timeLabel, labels, todayISO, isPastDue, isExpiringSoon } from '@/lib/format';
-import type { ModulePageData, ModuleRow, FleetRow, ClientRow, ContractRow, TimesheetRow, HandoverRow, InvoiceRow, PaymentRow, CompanySettings, ModuleFilters } from '@/lib/data';
+import type { ModulePageData, ModuleRow, FleetRow, ClientRow, ContractRow, TimesheetRow, HandoverRow, InvoiceRow, PaymentRow, CompanySettings, ModuleFilters, TemplateKind, DocumentTemplate } from '@/lib/data';
+import { TemplatesWorkspace, type TemplatesData } from './template-workspace';
 import { calcInvoiceTotals, remainingBalance } from '@/lib/finance';
 
 const config: Record<string, { title: string; description: string; add: string; singular: string }> = {
@@ -102,6 +103,8 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
   const [revising, setRevising] = useState<EditableRecord | null>(null);
   const [formErrors, setFormErrors] = useState<Record<string, string> | null>(null);
   const [paying, setPaying] = useState<InvoiceRow | null>(null);
+  // Tab Pengaturan: Perusahaan | Template PDF (ringkas tampilan yang penuh).
+  const [settingsTab, setSettingsTab] = useState<'perusahaan' | 'template'>('perusahaan');
   // Select async (O-A): opsi referensi modal + riwayat revisi/pembayaran
   // diambil tepat saat dibutuhkan, bukan dikirim utuh di payload halaman.
   const [formOptions, setFormOptions] = useState<FormOptionsData | null>(initialOptions);
@@ -364,6 +367,18 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
       {module === 'timesheets' && <div className="info-callout"><Info size={19} /><p><b>{data.statusCounts.pending || 0} catatan menunggu persetujuan.</b> Hanya jam kerja yang disetujui yang dapat ditagihkan kepada klien.</p></div>}
 
       {module === 'settings' ? (
+        <div>
+          <div className="table-tabs" style={{ marginBottom: 20 }}>
+            <button className={settingsTab === 'perusahaan' ? 'active' : ''} onClick={() => setSettingsTab('perusahaan')}>Perusahaan</button>
+            <button className={settingsTab === 'template' ? 'active' : ''} onClick={() => setSettingsTab('template')}>Template PDF<span>{data.templates ? Object.values(data.templates).filter(t => t.published).length : 0}/4 tayang</span></button>
+          </div>
+          {settingsTab === 'template' ? (
+            data.templates ? (
+              <TemplatesWorkspace data={data.templates as TemplatesData} canWrite={canWrite} />
+            ) : (
+              <div className="info-callout"><Info size={17} /><p>Data template tidak tersedia. Muat ulang halaman.</p></div>
+            )
+          ) : (
         <div className="settings-grid">
           <section className="panel settings-panel">
             <div className="panel-header">
@@ -410,6 +425,8 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
               <div className="account-details"><span>Operasi ini<b>tidak dapat dibatalkan</b></span></div>
               <Button variant="destructive" onClick={() => setResetOpen(true)}><Trash2 size={16} />Reset Database</Button>
             </section>
+          )}
+        </div>
           )}
         </div>
       ) : (

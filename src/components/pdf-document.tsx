@@ -196,6 +196,14 @@ export type PdfData = {
   dueDate?: string;
   parties?: PdfParties;
   agreement?: PdfAgreement;
+  // Template dinamis (Pengaturan > Template PDF): teks kustom per dokumen,
+  // variabel {{nama_klien}} dkk sudah diisi di route. Kosong → fallback
+  // hardcoded di bawah tidak berubah. BAST boleh 2+ halaman bila panjang.
+  introText?: string;
+  partiesIntro?: string;
+  clauseText?: string;
+  footerText?: string;
+  pasalText?: Record<string, string>;
 };
 
 export function BusinessDocument({ data }: { data: PdfData }) {
@@ -299,30 +307,48 @@ export function BusinessDocument({ data }: { data: PdfData }) {
             </Text>
             <Text style={styles.pasalNumber}>PASAL 1</Text>
             <Text style={styles.pasalTitle}>OBJEK SEWA</Text>
+            {data.pasalText?.pasal_1 ? (
+              <Text style={styles.pasalBody}>{data.pasalText.pasal_1}</Text>
+            ) : (
+            <>
             <Text style={styles.pasalBody}>PIHAK PERTAMA setuju untuk menyewakan kepada PIHAK KEDUA, dan PIHAK KEDUA setuju untuk menyewa dari PIHAK PERTAMA, 1 (satu) unit alat berat dengan spesifikasi:</Text>
             <View style={styles.specRow}><Text style={styles.specKey}>- Merk / Tipe</Text><Text style={styles.specVal}>: {ag.unit.brand}</Text></View>
             <View style={styles.specRow}><Text style={styles.specKey}>- Kategori</Text><Text style={styles.specVal}>: {ag.unit.category}</Text></View>
             <View style={styles.specRow}><Text style={styles.specKey}>- Tahun Pembuatan</Text><Text style={styles.specVal}>: {ag.unit.year}</Text></View>
             <View style={styles.specRow}><Text style={styles.specKey}>- Kode Unit (No. Identifikasi)</Text><Text style={styles.specVal}>: {ag.unit.code}</Text></View>
             <View style={styles.specRow}><Text style={styles.specKey}>- Kondisi Alat</Text><Text style={styles.specVal}>: Baik dan siap dioperasikan{ag.unit.bastNumber ? `, sebagaimana didokumentasikan dalam BAST No. ${ag.unit.bastNumber}` : ''}.</Text></View>
+            </>
+            )}
             <Text style={styles.pasalNumber}>PASAL 2</Text>
             <Text style={styles.pasalTitle}>JANGKA WAKTU SEWA</Text>
-            <Text style={styles.pasalBody}>Jangka waktu sewa adalah selama {ag.period.days} ({ag.period.daysWords}) hari, terhitung sejak tanggal {ag.period.start} sampai dengan tanggal {ag.period.end}, kecuali diperpanjang atas kesepakatan tertulis PARA PIHAK melalui amandemen kontrak.</Text>
+            <Text style={styles.pasalBody}>{data.pasalText?.pasal_2 || `Jangka waktu sewa adalah selama ${ag.period.days} (${ag.period.daysWords}) hari, terhitung sejak tanggal ${ag.period.start} sampai dengan tanggal ${ag.period.end}, kecuali diperpanjang atas kesepakatan tertulis PARA PIHAK melalui amandemen kontrak.`}</Text>
             <Text style={styles.pasalNumber}>PASAL 3</Text>
             <Text style={styles.pasalTitle}>HARGA SEWA DAN PEMBAYARAN</Text>
+            {data.pasalText?.pasal_3 ? (
+              <Text style={styles.pasalItem}>{data.pasalText.pasal_3}</Text>
+            ) : (
+            <>
             <Text style={styles.pasalItem}>1. Tarif sewa alat berat sebagaimana disebut dalam Pasal 1 adalah sebesar {ag.rate.hourly}/jam ({ag.rate.hourlyWords} per jam), belum termasuk PPN {ag.rate.ppn}% yang dibebankan pada saat penagihan.</Text>
             <Text style={styles.pasalItem}>2. Penagihan dilakukan berdasarkan jam kerja efektif yang tercatat pada timesheet harian dan telah disetujui PIHAK PERTAMA, dengan durasi kerusakan/penundaan yang bukan tanggung jawab PIHAK KEDUA tidak ditagihkan.</Text>
             <Text style={styles.pasalItem}>3. Pembayaran dilakukan oleh PIHAK KEDUA kepada PIHAK PERTAMA melalui transfer ke {ag.bank ? `rekening ${ag.bank.name} a.n. ${ag.bank.accountName} nomor ${ag.bank.accountNumber}` : 'rekening yang ditunjuk secara tertulis oleh PIHAK PERTAMA'}, paling lambat pada tanggal jatuh tempo tercantum pada setiap faktur tagihan.</Text>
+            </>
+            )}
             <Text style={styles.pasalNumber}>PASAL 4</Text>
             <Text style={styles.pasalTitle}>HAK DAN KEWAJIBAN PARA PIHAK</Text>
+            {data.pasalText?.pasal_4 ? (
+              <Text style={styles.pasalItem}>{data.pasalText.pasal_4}</Text>
+            ) : (
+            <>
             <Text style={styles.pasalItem}>1. PIHAK PERTAMA berkewajiban: (a) menyerahkan unit dalam kondisi baik dan layak operasi; (b) melakukan perawatan berkala unit; (c) menyediakan unit pengganti sejenis dalam waktu yang wajar apabila unit mengalami kerusakan di luar penggunaan yang keliru; serta (d) memenuhi standar keselamatan dan kesehatan kerja sesuai ketentuan perundang-undangan.</Text>
             <Text style={styles.pasalItem}>2. PIHAK KEDUA berkewajiban: (a) menggunakan unit sesuai peruntukan dan kapasitasnya; (b) menanggung bahan bakar serta biaya operasional harian sepanjang tidak disepakati termasuk dalam tarif; (c) membayar biaya sewa tepat waktu; (d) segera melaporkan setiap kerusakan unit; serta (e) mengembalikan unit pada akhir masa sewa dalam kondisi baik (keausan normal dicatat dalam Berita Acara Serah Terima/Demobilisasi).</Text>
+            </>
+            )}
             <Text style={styles.pasalNumber}>PASAL 5</Text>
             <Text style={styles.pasalTitle}>KERUSAKAN DAN KEHILANGAN</Text>
-            <Text style={styles.pasalBody}>Kerusakan unit yang disebabkan oleh kelalaian PIHAK KEDUA menjadi tanggung jawab PIHAK KEDUA. Kerusakan akibat keausan normal menjadi tanggung jawab PIHAK PERTAMA. Jam operasi yang tidak berjalan karena kerusakan unit tidak ditagihkan kepada PIHAK KEDUA. Kehilangan unit selama masa sewa menjadi tanggung jawab PIHAK KEDUA.</Text>
+            <Text style={styles.pasalBody}>{data.pasalText?.pasal_5 || 'Kerusakan unit yang disebabkan oleh kelalaian PIHAK KEDUA menjadi tanggung jawab PIHAK KEDUA. Kerusakan akibat keausan normal menjadi tanggung jawab PIHAK PERTAMA. Jam operasi yang tidak berjalan karena kerusakan unit tidak ditagihkan kepada PIHAK KEDUA. Kehilangan unit selama masa sewa menjadi tanggung jawab PIHAK KEDUA.'}</Text>
             <Text style={styles.pasalNumber}>PASAL 6</Text>
             <Text style={styles.pasalTitle}>PENYELESAIAN PERSELISIHAN</Text>
-            <Text style={styles.pasalBody}>Apabila terjadi perselisihan atas pelaksanaan Perjanjian ini, PARA PIHAK akan menyelesaikannya terlebih dahulu secara musyawarah untuk mufakat. Apabila musyawarah tidak mencapai kesepakatan, PARA PIHAK sepakat menyelesaikannya melalui Pengadilan Negeri {ag.city}.</Text>
+            <Text style={styles.pasalBody}>{data.pasalText?.pasal_6 || `Apabila terjadi perselisihan atas pelaksanaan Perjanjian ini, PARA PIHAK akan menyelesaikannya terlebih dahulu secara musyawarah untuk mufakat. Apabila musyawarah tidak mencapai kesepakatan, PARA PIHAK sepakat menyelesaikannya melalui Pengadilan Negeri ${ag.city}.`}</Text>
           </>
         ) : parties ? (
           <>
@@ -344,18 +370,18 @@ export function BusinessDocument({ data }: { data: PdfData }) {
               <View style={styles.partyRow}><Text style={styles.partyKey}>Jabatan</Text><Text style={styles.partyVal}>: {parties.second.title || dotted}</Text></View>
             </View>
             <Text style={styles.partiesIntro}>
-              {parties.type === 'mobilization'
+              {data.partiesIntro || (parties.type === 'mobilization'
                 ? `PIHAK PERTAMA dengan ini menyerahkan kepada PIHAK KEDUA unit alat berat dengan rincian dan kelengkapan sebagaimana tercantum di bawah ini, untuk digunakan dalam pelaksanaan Kontrak Sewa ${parties.contractNumber}:`
-                : `PIHAK KEDUA dengan ini mengembalikan kepada PIHAK PERTAMA unit alat berat sewaan dengan rincian sebagaimana tercantum di bawah ini, sehubungan dengan berakhirnya masa sewa pada Kontrak ${parties.contractNumber}:`}
+                : `PIHAK KEDUA dengan ini mengembalikan kepada PIHAK PERTAMA unit alat berat sewaan dengan rincian sebagaimana tercantum di bawah ini, sehubungan dengan berakhirnya masa sewa pada Kontrak ${parties.contractNumber}:`)}
             </Text>
           </>
         ) : (
           <Text style={styles.intro}>
-            {data.handover
+            {data.introText || (data.handover
               ? 'Dengan ini para pihak menyatakan telah melaksanakan pemeriksaan dan serah terima unit alat berat dengan rincian sebagai berikut:'
               : data.total
                 ? 'Bersama ini kami sampaikan tagihan sewa alat berat sesuai dengan kontrak dan rincian pekerjaan berikut:'
-                : 'Dengan hormat, kami menyampaikan penawaran harga sewa alat berat dengan rincian dan ketentuan sebagai berikut:'}
+                : 'Dengan hormat, kami menyampaikan penawaran harga sewa alat berat dengan rincian dan ketentuan sebagai berikut:')}
           </Text>
         )}
         {!ag && (
@@ -459,12 +485,12 @@ export function BusinessDocument({ data }: { data: PdfData }) {
         )}
         {ag && (
           <Text style={styles.clause}>
-            Demikian Surat Perjanjian Sewa Menyewa Alat Berat ini dibuat dalam rangkap 2 (dua) rangkap, masing-masing bermeterai cukup dan mempunyai kekuatan hukum yang sama, ditandatangani oleh PARA PIHAK dan dipergunakan sebagaimana mestinya.
+            {data.clauseText || 'Demikian Surat Perjanjian Sewa Menyewa Alat Berat ini dibuat dalam rangkap 2 (dua) rangkap, masing-masing bermeterai cukup dan mempunyai kekuatan hukum yang sama, ditandatangani oleh PARA PIHAK dan dipergunakan sebagaimana mestinya.'}
           </Text>
         )}
         {parties && (
           <Text style={styles.clause}>
-            Demikian berita acara serah terima ini dibuat dalam rangkap 2 (dua) rangkap, masing-masing bermeterai cukup dan mempunyai kekuatan hukum yang sama serta tidak dapat diganggu gugat, ditandatangani dan dipergunakan sebagaimana mestinya oleh para pihak.
+            {data.clauseText || 'Demikian berita acara serah terima ini dibuat dalam rangkap 2 (dua) rangkap, masing-masing bermeterai cukup dan mempunyai kekuatan hukum yang sama serta tidak dapat diganggu gugat, ditandatangani dan dipergunakan sebagaimana mestinya oleh para pihak.'}
           </Text>
         )}
         {/* Tempat & tanggal penandatanganan (item 13 format perjanjian resmi):
@@ -540,7 +566,7 @@ export function BusinessDocument({ data }: { data: PdfData }) {
           ) : null}
           <View style={styles.footerText}>
             <Text style={{ fontFamily: 'Helvetica-Bold' }}>VERIFIKASI DOKUMEN</Text>
-            <Text>Pindai kode QR untuk memeriksa keabsahan nomor dokumen pada sistem HeavyOps. Dokumen ini diterbitkan secara elektronik; tanda tangan dilengkapi oleh para pihak.</Text>
+            <Text>{data.footerText || 'Pindai kode QR untuk memeriksa keabsahan nomor dokumen pada sistem HeavyOps. Dokumen ini diterbitkan secara elektronik; tanda tangan dilengkapi oleh para pihak.'}</Text>
             {data.verifyUrl && <Text style={styles.verifyUrl}>{data.verifyUrl}</Text>}
           </View>
           <Text style={styles.pageNumber} render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />

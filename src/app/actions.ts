@@ -416,6 +416,92 @@ export async function resetDatabase(confirmation:string): Promise<ActionResult> 
  }catch(e){const r=fail(e);return {success:r.success,message:r.message};}
 }
 
+// ---------------------------------------------------------------------------
+// Template PDF (Pengaturan > Template PDF) — admin-only.
+// Blok konten disimpan sebagai JSON agar aman dirender react-pdf
+// (paragraf/heading/list/bold, bukan HTML mentah). BAST boleh 2+ halaman
+// bila teks kustom panjang: render multi-page otomatis, footer fixed ulang
+// tiap halaman. Publish = arsipkan versi published lama + terbitkan baru
+// dalam satu transaksi.
+// ---------------------------------------------------------------------------
+const TEMPLATE_KINDS = ['sph', 'bast', 'invoice', 'perjanjian'] as const;
+type TemplateKind = (typeof TEMPLATE_KINDS)[number];
+const TEMPLATE_VARS = ['nomor_dokumen','nama_klien','tanggal_dokumen','periode_sewa','tarif_per_jam','jatuh_tempo','total_tagihan','kota','nama_signer','jabatan_signer','nama_pic_klien','daftar_checklist'] as const;
+
+function parseTemplateContent(raw: string): Record<string, unknown> {
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); }
+  catch { throw new FieldError({ content: 'Isi template harus JSON valid.' }); }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new FieldError({ content: 'Isi template harus objek JSON.' });
+  const content = parsed as Record<string, unknown>;
+  for (const [k, v] of Object.entries(content)) {
+    if (typeof v !== 'string') throw new FieldError({ content: `Blok "${k}" harus teks.` });
+    if (v.length > 4000) throw new FieldError({ content: `Blok "${k}" melebihi 4000 karakter.` });
+    const vars = [...v.matchAll(/\{\{\s*([a-z_]+)\s*\}\}/g)].map(m => m[1]);
+    for (const name of vars) {
+      if (!(TEMPLATE_VARS as readonly string[]).includes(name)) throw new FieldError({ content: `Variabel {{${name}}} tidak dikenal.` });
+    }
+  }
+  if (Object.keys(content).length > 12) throw new FieldError({ content: 'Maksimal 12 blok teks per template.' });
+  return content;
+}
+
+export async function saveTemplateDraft(kind: string, title: string, contentJson: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser(['admin']);
+    if (!(TEMPLATE_KINDS as readonly string[]).includes(kind)) throw new FieldError({ kind: 'Jenis dokumen tidak valid.' });
+    const cleanTitle = title.trim().slice(0, 120);
+    if (!cleanTitle) throw new FieldError({ title: 'Judul template wajib diisi.' });
+    const content = parseTemplateContent(contentJson);
+    const vars = [...new Set(Object.values(content).flatMap(v => [...String(v).matchAll(/\{\{\s*([a-z_]+)\s*\}\}/g)].map(m => m[1])))];
+    const [latest] = await db.select({ version: s.documentTemplates.version }).from(s.documentTemplates)
+      .where(eq(s.documentTemplates.kind, kind)).orderBy(desc(s.documentTemplates.version)).limit(1);
+    const version = (latest?.version ?? 0) + 1;
+    await db.insert(s.documentTemplates).values({ kind, version, status: 'draft', title: cleanTitle, content, variables: vars, updatedBy: user.id });
+    await logAudit({ actorId: user.id, actorName: user.fullName, action: 'create', entity: 'document_templates', summary: `Draf template ${kind} v${version}` });
+    revalidatePath('/dashboard/settings', 'page');
+    return { success: true, message: `Draf template ${kind} v${version} tersimpan.` };
+  } catch (e) { return fail(e); }
+}
+
+export async function publishTemplate(templateId: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser(['admin']);
+    if (!/^[0-9a-f-]{36}$/i.test(templateId)) throw new FieldError({ id: 'Template tidak ditemukan.' });
+    await db.transaction(async tx => {
+      const [row] = await tx.select().from(s.documentTemplates).where(eq(s.documentTemplates.id, templateId));
+      if (!row) throw new FieldError({ id: 'Template tidak ditemukan.' });
+      await tx.update(s.documentTemplates).set({ status: 'archived' })
+        .where(and(eq(s.documentTemplates.kind, row.kind), eq(s.documentTemplates.status, 'published')));
+      await tx.update(s.documentTemplates).set({ status: 'published', publishedAt: new Date() })
+        .where(eq(s.documentTemplates.id, templateId));
+    });
+    await logAudit({ actorId: user.id, actorName: user.fullName, action: 'publish', entity: 'document_templates', entityId: templateId, summary: 'Menerbitkan template PDF' });
+    revalidatePath('/dashboard/settings', 'page');
+    return { success: true, message: 'Template diterbitkan.' };
+  } catch (e) { return fail(e); }
+}
+
+export async function rollbackTemplate(kind: string, version: number): Promise<ActionResult> {
+  try {
+    const user = await requireUser(['admin']);
+    if (!(TEMPLATE_KINDS as readonly string[]).includes(kind)) throw new FieldError({ kind: 'Jenis dokumen tidak valid.' });
+    if (!Number.isInteger(version) || version < 1) throw new FieldError({ version: 'Versi tidak valid.' });
+    await db.transaction(async tx => {
+      const [row] = await tx.select().from(s.documentTemplates)
+        .where(and(eq(s.documentTemplates.kind, kind), eq(s.documentTemplates.version, version)));
+      if (!row) throw new FieldError({ version: 'Versi template tidak ditemukan.' });
+      await tx.update(s.documentTemplates).set({ status: 'archived' })
+        .where(and(eq(s.documentTemplates.kind, kind), eq(s.documentTemplates.status, 'published')));
+      await tx.update(s.documentTemplates).set({ status: 'published', publishedAt: new Date() })
+        .where(eq(s.documentTemplates.id, row.id));
+    });
+    await logAudit({ actorId: user.id, actorName: user.fullName, action: 'rollback', entity: 'document_templates', summary: `Rollback template ${kind} ke v${version}` });
+    revalidatePath('/dashboard/settings', 'page');
+    return { success: true, message: `Template ${kind} dikembalikan ke v${version}.` };
+  } catch (e) { return fail(e); }
+}
+
 export async function signIn(form:FormData) {
  if(!isConfigured())return {success:false,message:'Autentikasi Supabase belum dikonfigurasi. Hubungi administrator.'};
  const email=text(form,'email');

@@ -6,7 +6,7 @@ import { and, or, eq, ilike, isNotNull, desc, asc, count, sql, getTableColumns, 
 import type { SQLWrapper } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { requireUser, getCurrentUser, type SessionUser } from '@/lib/auth';
-import { todayISO } from '@/lib/format';
+import { todayISO, dateLabel, money } from '@/lib/format';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { seedPreview } from '@/db/seed';
 
@@ -22,6 +22,8 @@ import { seedPreview } from '@/db/seed';
 // ---------------------------------------------------------------------------
 
 export type CompanySettings = typeof s.companySettings.$inferSelect;
+export type DocumentTemplate = typeof s.documentTemplates.$inferSelect;
+export type TemplateKind = 'sph' | 'bast' | 'invoice' | 'perjanjian';
 export type FleetRow = typeof s.fleet.$inferSelect;
 export type ProfileRow = typeof s.profiles.$inferSelect;
 export type AuditRow = typeof s.auditLog.$inferSelect;
@@ -64,6 +66,73 @@ const asStatusMap = (rows: { status: string | null; n: number }[]) =>
 async function getSettingsRow(): Promise<CompanySettings> {
   const [row] = await db.select().from(s.companySettings).limit(1);
   return row ?? fallbackSettings;
+}
+
+// --- Template PDF (Pengaturan > Template PDF) --------------------------------
+// Template published terbaru per jenis; null bila belum ada (route pakai
+// fallback hardcoded). Baca internal saja — editor tulis admin-only.
+export const TEMPLATE_KINDS: TemplateKind[] = ['sph', 'bast', 'invoice', 'perjanjian'];
+
+export async function getTemplate(kind: TemplateKind): Promise<DocumentTemplate | null> {
+  await requireUser();
+  const [row] = await db.select().from(s.documentTemplates)
+    .where(and(eq(s.documentTemplates.kind, kind), eq(s.documentTemplates.status, 'published')))
+    .orderBy(desc(s.documentTemplates.version)).limit(1);
+  return row ?? null;
+}
+
+export async function getTemplateHistory(kind: TemplateKind): Promise<DocumentTemplate[]> {
+  await requireUser();
+  return db.select().from(s.documentTemplates)
+    .where(eq(s.documentTemplates.kind, kind))
+    .orderBy(desc(s.documentTemplates.version));
+}
+
+// Variabel template → nilai dokumen. Allowlist sinkron dengan
+// TEMPLATE_VARS di actions.ts. {{daftar_checklist}} khusus BAST dan
+// dirender sebagai baris checklist, bukan teks biasa.
+export const TEMPLATE_VAR_LIST = ['nomor_dokumen','nama_klien','tanggal_dokumen','periode_sewa','tarif_per_jam','jatuh_tempo','total_tagihan','kota','nama_signer','jabatan_signer','nama_pic_klien','daftar_checklist'] as const;
+
+export function templateVars(bundle: DocumentBundle, docDate: string, docNumber: string): Record<string, string> {
+  const base = { settings: null as null, contract: null as null, client: null as null, unit: null as null, invoice: null as null, handover: null as null };
+  const b = bundle.ok ? bundle : base;
+  const settings = (b as { settings?: CompanySettings }).settings;
+  const contract = (b as { contract?: { startDate: string; endDate: string; ratePerHour: string } }).contract;
+  const client = (b as { client?: { companyName: string } }).client;
+  const invoice = (b as { invoice?: { issueDate: string; dueDate: string; totalAmount: string } }).invoice;
+  const tz = settings?.timezone;
+  const period = contract ? `${dateLabel(contract.startDate, tz)} s.d. ${dateLabel(contract.endDate, tz)}` : '';
+  return {
+    nomor_dokumen: docNumber,
+    nama_klien: client?.companyName ?? '',
+    tanggal_dokumen: docDate,
+    periode_sewa: period,
+    tarif_per_jam: contract ? money(contract.ratePerHour) : '',
+    jatuh_tempo: invoice ? dateLabel(invoice.dueDate, tz) : '',
+    total_tagihan: invoice ? money(invoice.totalAmount) : '',
+    kota: settings?.city ?? 'Jakarta',
+    nama_signer: settings?.signerName ?? '',
+    jabatan_signer: settings?.signerTitle ?? '',
+    nama_pic_klien: (b as { client?: { picName?: string | null } }).client?.picName ?? '',
+    daftar_checklist: '',
+  };
+}
+
+// Terapkan {{variabel}} pada satu string template.
+export function applyTemplateVars(text: string, vars: Record<string, string>): string {
+  return text.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_, name: string) =>
+    Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : `{{${name}}}`);
+}
+
+// Blok template published: { intro?, intro_mobilisasi?, intro_demobilisasi?,
+// notes?, footer_text?, pasal_1..pasal_6? }. Null bila tak ada / bukan objek.
+export function templateContent(row: DocumentTemplate | null): Record<string, string> | null {
+  if (!row || !row.content || typeof row.content !== 'object' || Array.isArray(row.content)) return null;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(row.content as Record<string, unknown>)) {
+    if (typeof v === 'string' && v) out[k] = v;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 // --- Data shell (ramping) ---------------------------------------------------
@@ -147,6 +216,9 @@ export type ModulePageData = {
   expiringCount?: number;
   categoryOptions?: string[];
   invoiceTotals?: { all: number; collected: number; paidCount: number; unpaidCount: number };
+  // Template PDF (modul settings): published + histori per jenis. Null di
+  // modul lain agar payload tabel tidak membengkak.
+  templates?: Record<TemplateKind, { published: DocumentTemplate | null; history: DocumentTemplate[] }>;
 };
 
 export async function getModulePage(module: string, filters: ModuleFilters): Promise<ModulePageData | null> {
@@ -170,7 +242,21 @@ export async function getModulePage(module: string, filters: ModuleFilters): Pro
   };
 
   if (module === 'settings') {
-    return { ...base, filters: { ...filters, page: 1 }, rows: [], total: 0, page: 1, pageCount: 1, statusCounts: {} };
+    // Editor Template PDF butuh published + histori ke-4 jenis. Hanya di
+    // modul settings agar payload modul tabel tidak membengkak.
+    const kinds: TemplateKind[] = ['sph', 'bast', 'invoice', 'perjanjian'];
+    const templates = Object.fromEntries(await Promise.all(kinds.map(async (kind) => {
+      const [published, history] = await Promise.all([
+        db.select().from(s.documentTemplates)
+          .where(and(eq(s.documentTemplates.kind, kind), eq(s.documentTemplates.status, 'published')))
+          .orderBy(desc(s.documentTemplates.version)).limit(1).then(r => r[0] ?? null),
+        db.select().from(s.documentTemplates)
+          .where(eq(s.documentTemplates.kind, kind))
+          .orderBy(desc(s.documentTemplates.version)).limit(20),
+      ]);
+      return [kind, { published, history }] as const;
+    }))) as Record<TemplateKind, { published: DocumentTemplate | null; history: DocumentTemplate[] }>;
+    return { ...base, filters: { ...filters, page: 1 }, rows: [], total: 0, page: 1, pageCount: 1, statusCounts: {}, templates };
   }
 
   if (module === 'fleet') {

@@ -10,7 +10,7 @@ import { withFallback } from './resilient';
 export async function logAudit(input: {
   actorId?: string | null;
   actorName?: string;
-  action: 'create' | 'update' | 'delete' | 'approve' | 'reject' | 'pay' | 'complete' | 'revise' | 'reset' | 'role' | 'invite' | 'cron' | 'login' | 'logout' | 'upload' | 'ban';
+  action: 'create' | 'update' | 'delete' | 'approve' | 'reject' | 'pay' | 'complete' | 'revise' | 'reset' | 'role' | 'invite' | 'cron' | 'login' | 'logout' | 'upload' | 'ban' | 'publish' | 'rollback';
   entity: string;
   entityId?: string | null;
   summary: string;
