@@ -363,7 +363,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
   const confirmReset = useCallback((phrase: string) => act(() => resetAll(phrase)), [act, resetAll]);
 
   const sortLabel = filters.sort === 1 ? 'A–Z' : filters.sort === -1 ? 'Z–A' : 'Urutkan';
-  const tabAllLabel = module === 'fleet' ? 'unit' : module === 'clients' ? 'klien' : 'data';
+  const tabAllLabel = module === 'clients' ? 'klien' : 'data';
   const searchPlaceholder = module === 'fleet' ? 'kode unit, merek, atau lokasi' : module === 'clients' ? 'nama perusahaan atau penanggung jawab' : 'nomor dokumen atau unit';
   const filteredEmpty = !rows.length;
 
@@ -385,7 +385,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
 
       {module === 'fleet' && (
         <>
-          <ModuleSummary items={['available', 'renting', 'maintenance', 'in_transit'].map(st => ({ key: st, label: <Badge status={st} />, value: data.statusCounts[st] || 0, sub: 'unit', active: optStatus === st, onSelect: () => { setOptStatus(st); navigate({ status: st, page: null }); }, onHover: () => prefetch({ status: st, page: null }) }))} />
+          <ModuleSummary items={['available', 'renting', 'maintenance', 'in_transit'].map(st => ({ key: st, label: <Badge status={st} />, value: data.statusCounts[st] || 0, sub: 'unit', active: optStatus === st, onSelect: () => { const clear = optStatus === st; setOptStatus(clear ? 'all' : st); navigate({ status: clear ? null : st, page: null }); }, onHover: () => prefetch({ status: optStatus === st ? null : st, page: null }) }))} />
           {(data.fleetGroups?.length ?? 0) > 0 && <div className="info-callout"><Info size={19} /><p><b>Komposisi armada: </b>{(data.fleetGroups ?? []).map(([k, n]) => `${k} (${n})`).join(' · ')}</p></div>}
           {(data.expiringCount ?? 0) > 0 && (
             <button className="expiry-banner" onClick={() => navigate({ filter: filters.expiringOnly ? null : 'expiring', page: null })} onMouseEnter={() => prefetch({ filter: filters.expiringOnly ? null : 'expiring', page: null })} onFocus={() => prefetch({ filter: filters.expiringOnly ? null : 'expiring', page: null })}>
@@ -472,10 +472,16 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
         </div>
       ) : (
         <section className="panel module-table-panel">
-          <div className="table-tabs">
-            <button className={optStatus === 'all' ? 'active' : ''} onClick={() => { setOptStatus('all'); navigate({ status: null, page: null }); }} onMouseEnter={() => prefetch({ status: null, page: null })} onFocus={() => prefetch({ status: null, page: null })}>Semua {tabAllLabel}<span>{data.statusCounts.all ?? data.total}</span></button>
-            {statuses.map(st => <button className={optStatus === st ? 'active' : ''} key={st} onClick={() => { setOptStatus(st); navigate({ status: st, page: null }); }} onMouseEnter={() => prefetch({ status: st, page: null })} onFocus={() => prefetch({ status: st, page: null })}>{labels[st]}<span>{data.statusCounts[st] || 0}</span></button>)}
-          </div>
+          {/* G2 (audit 02): fleet tidak lagi merender tab status — kartu
+              ModuleSummary di atas tabel sudah jadi satu-satunya filter status,
+              dan tab sebelumnya duplikat kontrol (K2). Modul lain tidak berubah.
+              Fungsi "kembali ke Semua" pindah ke kartu: klik kartu terpilih = lepas filter. */}
+          {module !== 'fleet' && (
+            <div className="table-tabs">
+              <button className={optStatus === 'all' ? 'active' : ''} onClick={() => { setOptStatus('all'); navigate({ status: null, page: null }); }} onMouseEnter={() => prefetch({ status: null, page: null })} onFocus={() => prefetch({ status: null, page: null })}>Semua {tabAllLabel}<span>{data.statusCounts.all ?? data.total}</span></button>
+              {statuses.map(st => <button className={optStatus === st ? 'active' : ''} key={st} onClick={() => { setOptStatus(st); navigate({ status: st, page: null }); }} onMouseEnter={() => prefetch({ status: st, page: null })} onFocus={() => prefetch({ status: st, page: null })}>{labels[st]}<span>{data.statusCounts[st] || 0}</span></button>)}
+            </div>
+          )}
           <div className="table-toolbar">
             <label className="table-search">
               <Search size={17} />
