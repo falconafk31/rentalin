@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="id">
+    <html lang="id" suppressHydrationWarning>
       <head>
         {/* DM2 (audit 04): body tidak lagi memakai class Tailwind bg-slate-100/
             text-slate-900 — itu sumber kebenaran warna kedua di luar sistem
