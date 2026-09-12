@@ -264,11 +264,11 @@ atau minta saya push + buka PR bila sudah puas — **saya tidak akan merge/push 
 # Laporan Eksekusi Audit `.zcode/audit` — 12 September 2026
 
 > Branch kerja: `feat/ui-audit-exec` (commit lokal saja, **tidak** di-push/di-merge).
-> Semua saran dari 10 file audit dieksekusi kecuali 2 item yang ditandai **perlu keputusan**.
+> Semua saran dari 10 file audit dieksekusi kecuali 1 item yang masih menunggu keputusan (B1-varian-penuh); G2 sudah diputus dan dikerjakan susulan (commit `6fc56a6`).
 > Verifikasi akhir: `npm run lint` 0 error 0 warning · `npx tsc --noEmit` bersih ·
 > `env -u DATABASE_URL npm run build` sukses.
 
-Commit terpisah per topik: `4703121` (01) · `0400796` (02) · `6110ce6` (03) · `8fc274c` (modul) · `26ab4eb` (perbaikan build).
+Commit terpisah per topik: `4703121` (01) · `0400796` (02) · `6110ce6` (03) · `8fc274c` (modul) · `26ab4eb` (perbaikan build) · `6fc56a6` (G2 susulan).
 
 ## Topik 01 — Kehalusan list/tabel
 
@@ -286,7 +286,7 @@ Commit terpisah per topik: `4703121` (01) · `0400796` (02) · `6110ce6` (03) ·
 | Item | File kode | Efek |
 |---|---|---|
 | G1 | `module-workspace.tsx`, `globals.css` | Komponen `ModuleSummary` tunggal dipakai fleet (kartu klik = filter) & invoices (kartu statis 3 angka, warna hijau/oranye dipertahankan). Class & CSS `.invoice-stats` dihapus; varian grid `.module-stats.cols-3` mengikuti semua breakpoint lama. |
-| G2 | — | **PERLU KEPUTUSAN.** Audit menyuruh memilih salah satu: hapus kartu `.module-stats` fleet ATAU hapus tab status fleet (K2: dua kontrol filter identik). Keduanya mengubah UI secara terlihat, jadi tidak ditebak; keduanya tetap ada sampai ada keputusan. Setelah diputus, implementasinya 1–2 jam karena kartu kini sudah lewat `ModuleSummary`. |
+| G2 | `module-workspace.tsx` (commit `6fc56a6`) | **SELESAI (keputusan user: kartu yang dipertahankan).** Blok `.table-tabs` tidak dirender untuk `module==='fleet'` — kartu `ModuleSummary` di atas tabel jadi satu-satunya filter status (alasan: lebih informatif, sudah pola bersama invoices). Modul lain (contracts/timesheets/bast/invoices/clients) tidak berubah. Query `?status=` + `navigate()` tetap utuh (deep link & back/forward berfungsi); penanda aktif kartu memakai `optStatus` yang tersinkron echo server. Fungsi "kembali ke Semua" yang tadinya di tab dipindah ke kartu: klik kartu terpilih = lepas filter. Tidak ada celah layout — `.table-toolbar` menempel rapi ke tepi atas panel tanpa elemen tetap yang tersisa. |
 | G3 | `module-workspace.tsx` | Filter kategori `small-select` dirender bila `data.categoryOptions?.length` — bukan lagi `module === 'fleet'`. Modul baru tinggal isi `categoryOptions` di server. |
 | G4 | `module-workspace.tsx` | Helper `field()`/`selectField()`/`textareaField()` menerima `hint?` → dirender `<small className="cell-sub">` saat field tidak error. Mekanisme konvensi siap; teks hint baru tidak ditambahkan ke form modul (akan mengubah tampilan yang tidak diminta). |
 | G5 | `module-workspace.tsx` | 9 blok form manual dimigrasikan ke helper: select kontrak/unit/klien (buat & revisi), textarea alasan revisi, alamat klien, catatan timesheet & BAST, select jenis BAST, `selectContract`. Perilaku (disabled saat opsi dimuat, onChange, nilai default) identik. |
@@ -318,6 +318,6 @@ Commit terpisah per topik: `4703121` (01) · `0400796` (02) · `6110ce6` (03) ·
 
 ## Ringkasan status
 
-- **Dikerjakan:** P1–P6, G1, G3–G7, R1–R4, C1, B1 (minimal).
-- **Perlu keputusan:** G2 (kartu vs tab status fleet), B1-varian-penuh (`next/image` + signed URL).
+- **Dikerjakan:** P1–P6, G1–G7, R1–R4, C1, B1 (minimal).
+- **Perlu keputusan:** B1-varian-penuh (`next/image` + signed URL Supabase). G2 sudah diputus & dieksekusi di `6fc56a6`.
 - Perilaku & tampilan selain yang disebut audit tidak berubah; verifikasi lint/typecheck/build hijau.
