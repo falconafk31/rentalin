@@ -55,8 +55,9 @@ npm audit                       # tidak boleh ada severity HIGH
 7. **Definition of done:** lint + typecheck + build (tanpa env) + `npm audit` tanpa HIGH semuanya hijau, **lalu** perbarui status item terkait di `audit.md`/`roadmap.md` pada commit yang sama.
 8. **Gaya commit:** satu topik per commit, subjek ringkas Bahasa Indonesia (lihat `git log` untuk contoh).
 
-## 6. Status terakhir (per 11 Sep 2026)
+## 6. Status terakhir (per 12 Sep 2026)
 
 - ✅ Audit penuh selesai (`audit.md`) — 4 Quick Wins Utama **sudah dikerjakan**: role check route finansial (+ RLS invoices di migration 0004), lint bersih, lazy-init DB (build lolos tanpa env), postcss 8.5.28 (HIGH tertutup).
 - ✅ Dokumentasi handoff lengkap: `roadmap.md`, `audit.md`, `supabase/README.md` (+ migrations 0001–0005, seed, template provisioning user).
-- ⏭️ Berikutnya: isu `#2`–`#7` (sisa Fase 0 cepat), lalu `#8`–`#9` — setelah itu Fase 1 mengikuti `supabase/README.md`. (Isu `#10` pagination server-side sudah dikerjakan; saat deploy jalankan juga migrasi `0017_pagination_indexes.sql`.)
+- ✅ **Media layer foto fleet (R2)** — `media_files` (migrasi 0023) + Cloudflare Worker Media API (`media-worker/`, belum deploy) + kompresi WebP di browser + UI foto fleet (cover/galeri + thumbnail). Foto BAST **tidak disentuh** (Supabase Storage 0012). Arsitektur & keputusan: `docs/media-architecture.md` (§52 = acuan tertinggi; catat: Catatan Revisi lama di dokumen itu keliru — foto BAST memang sudah ada sejak A13). Tanpa `MEDIA_API_URL` fitur ini nonaktif; aplikasi tetap normal.
+- ⏭️ Berikutnya: deploy bucket R2 + Worker (operator, `media-worker/README.md`) + isi `MEDIA_API_URL`; isi `#2`–`#7` (sisa Fase 0 cepat), lalu `#8`–`#9` — setelah itu Fase 1 mengikuti `supabase/README.md`. (Isu `#10` pagination server-side sudah dikerjakan; saat deploy jalankan juga migrasi `0017_pagination_indexes.sql` dan `0023_media_files.sql`.)

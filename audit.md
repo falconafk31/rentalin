@@ -73,6 +73,19 @@ Seluruh temuan di bawah sudah diverifikasi dengan menjalankan tool langsung terh
 | A12 | **Cron `overdue`** | Invoice lewat `due_date` otomatis jadi `overdue` (pg_cron / Edge Function harian) + notifikasi. Saat ini harus manual. |
 | A13 | **Lampiran foto BAST** | Supabase Storage bucket privat + upload dari form BAST + tampil di PDF. |
 | A14 | **UI manajemen user** | Admin kelola user & role dari aplikasi (`/dashboard/users`) — mengurangi ketergantungan SQL manual. |
+| A15 | **Media layer R2 — foto fleet** | Arsitektur di `docs/media-architecture.md`: tabel `media_files` (migration 0023) + Cloudflare Worker Media API (`media-worker/`) + bucket R2 privat (presigned PUT langsung dari browser, binary tidak lewat Vercel) + kompresi WebP di browser (≤1600px, ≤2 MB) + UI foto fleet (cover/galeri, thumbnail list) + audit. **Selesai (kode, 12 Sep 2026, branch `arena/01a09672-rentalin`)** — sisa: deploy bucket/Worker (operator), reconciler orphan, dan fase lanjutan migrasi foto BAST (disengaja TIDAK disentuh di branch ini; lihat `docs/media-architecture.md` §52). |
+
+> ### ✅ Pembaruan — A15 media layer fleet dikerjakan (12 Sep 2026)
+>
+> Audit read-only sebelum implementasi menemukan bahwa **Catatan Revisi di
+> `docs/media-architecture.md` keliru**: foto BAST memang sudah ada (migration
+> `0012_bast_photos.sql` + `/api/bast-photos` + `PhotoUploader` + PDF).
+> Keputusan final: media layer dibangun per arsitektur, **integrasi UI hanya
+> fleet**; foto BAST tetap di Supabase Storage tanpa sentuhan (anti-regresi,
+> doc §45). Bonus temuan: `GET /api/bast-photos` tidak ada (hanya POST) →
+> thumbnail BAST lama di form edit mengembalikan 405 — dicatat, **belum**
+> diperbaiki di branch ini (PR terpisah). Detail lengkap:
+> `docs/media-architecture.md` §52.
 
 ---
 

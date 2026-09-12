@@ -6,6 +6,7 @@ import { and, or, eq, ilike, isNotNull, desc, asc, count, sql, getTableColumns, 
 import type { SQLWrapper } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { requireUser, getCurrentUser, type SessionUser } from '@/lib/auth';
+import { isMediaConfigured, getMediaSignedUrl } from '@/lib/media';
 import { todayISO, dateLabel, money } from '@/lib/format';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { seedPreview } from '@/db/seed';
@@ -66,6 +67,43 @@ const orderFor = (sort: number, sortCol: AnyPgColumn | SQL, fallback: (AnyPgColu
 
 const asStatusMap = (rows: { status: string | null; n: number }[]) =>
   Object.fromEntries(rows.map(r => [String(r.status), Number(r.n)]));
+
+// Foto cover fleet untuk baris halaman — signed URL digenerate server-side
+// (private read, doc §21/§46: list memakai optimized image, bukan original,
+// dan kegagalan media TIDAK boleh menggagalkan/memblokir rendering tabel).
+// Kegagalan per item ditelan (tanpa pratinjau); kegagalan total (tabel belum
+// ada di DB lokal yang belum di-push, Worker mati) juga fail-soft.
+async function attachFleetCovers(rows: FleetRow[]): Promise<FleetRow[]> {
+  if (!rows.length || !isMediaConfigured()) return rows;
+  try {
+    const ids = rows.map(r => r.id);
+    const covers = await db.select({ entityId: s.mediaFiles.entityId, mediaId: s.mediaFiles.id })
+      .from(s.mediaFiles)
+      .where(and(
+        eq(s.mediaFiles.entityType, 'fleet'),
+        inArray(s.mediaFiles.entityId, ids),
+        eq(s.mediaFiles.category, 'cover'),
+        eq(s.mediaFiles.status, 'active'),
+      ))
+      .orderBy(desc(s.mediaFiles.createdAt));
+    const coverByUnit = new Map<string, string>();
+    for (const c of covers) if (!coverByUnit.has(c.entityId)) coverByUnit.set(c.entityId, c.mediaId);
+    if (!coverByUnit.size) return rows.map(r => ({ ...r, coverUrl: null }));
+    const urlByMedia = new Map<string, string>();
+    await Promise.all([...coverByUnit.values()].map(async mediaId => {
+      try {
+        const { url } = await getMediaSignedUrl(mediaId);
+        urlByMedia.set(mediaId, url);
+      } catch { /* item tampil tanpa pratinjau */ }
+    }));
+    return rows.map(r => {
+      const mediaId = coverByUnit.get(r.id);
+      return { ...r, coverUrl: mediaId ? (urlByMedia.get(mediaId) ?? null) : null };
+    });
+  } catch {
+    return rows.map(r => ({ ...r, coverUrl: null }));
+  }
+}
 
 async function getSettingsRow(): Promise<CompanySettings> {
   const [row] = await db.select().from(s.companySettings).limit(1);
@@ -223,6 +261,9 @@ export type ModulePageData = {
   // Template PDF (modul settings): published + histori per jenis. Null di
   // modul lain agar payload tabel tidak membengkak.
   templates?: Record<TemplateKind, { published: DocumentTemplate | null; history: DocumentTemplate[] }>;
+  // Media layer (foto fleet) — true hanya bila Supabase + MEDIA_API_URL siap
+  // (mode pratinjau lokal selalu false; UI menyembunyikan seksi foto).
+  media: { enabled: boolean };
 };
 
 export async function getModulePage(module: string, filters: ModuleFilters): Promise<ModulePageData | null> {
@@ -233,7 +274,7 @@ export async function getModulePage(module: string, filters: ModuleFilters): Pro
   const warnUntil = addDaysISO(todayISO(settings.timezone), Number(settings.expiryWarningDays) || 30);
   const like = likeParam(filters.q);
   const hasQ = filters.q.trim().length > 0;
-  const base = { module: module as ModuleSlug, user, settings };
+  const base = { module: module as ModuleSlug, user, settings, media: { enabled: isMediaConfigured() } };
   const requestedPage = Math.max(1, Math.floor(filters.page) || 1);
 
   // Halaman di luar jangkauan (URL lama/tampan) dikembalikan ke halaman
@@ -283,10 +324,13 @@ export async function getModulePage(module: string, filters: ModuleFilters): Pro
       db.selectDistinct({ category: s.fleet.category }).from(s.fleet).orderBy(asc(s.fleet.category)),
     ]);
     const { rows, page, pageCount } = await resolvePage(rowsQuery, Number(totalRes[0]?.n ?? 0), rowsRes);
+    // Thumbnail cover per baris halaman (fail-soft; doc §46 — loading media
+    // independen, tidak memblokir rendering modul).
+    const rowsWithCover = await attachFleetCovers(rows);
     return {
       ...base,
       filters: { ...filters, page },
-      rows,
+      rows: rowsWithCover,
       total: Number(totalRes[0]?.n ?? 0),
       page,
       pageCount,

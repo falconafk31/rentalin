@@ -1,10 +1,11 @@
 'use server';
 import { db } from '@/db';
 import * as s from '@/db/schema';
-import { and, eq, inArray, isNull, or, sql, desc } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or, sql, desc, ne } from 'drizzle-orm';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { requireUser, createAuthClient, isConfigured, isPreview } from '@/lib/auth';
 import { logAudit, getProfileNameBestEffort } from '@/lib/audit';
+import { isMediaConfigured, MediaApiError, requestMediaUploadUrl, completeMediaUpload, deleteMediaObject, getMediaSignedUrl, type MediaUploadTicket } from '@/lib/media';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { todayISO, money, resolveTz, type AppTimezone } from '@/lib/format';
@@ -594,4 +595,182 @@ export async function getInvoicePayments(invoiceId: string) {
   await requireUser();
   if (!UUID_RE.test(invoiceId)) return [];
   return db.select().from(s.payments).where(eq(s.payments.invoiceId, invoiceId)).orderBy(desc(s.payments.paidAt), desc(s.payments.createdAt));
+}
+
+// ---------------------------------------------------------------------------
+// Media layer — foto FLEET (docs/media-architecture.md).
+// Binary: browser → (presigned PUT) → Cloudflare R2 langsung. Server Action
+// hanya orkestrasi metadata `media_files` + koordinasi Media API Worker.
+// Foto BAST sengaja TIDAK disentuh: masih dilayani Supabase Storage
+// `bast-photos` (migration 0012) — tanpa regresi fitur BAST (audit §52).
+// ---------------------------------------------------------------------------
+const MEDIA_UPLOAD_ROLES = ['admin', 'operations', 'operator'];
+const MEDIA_DELETE_ROLES = ['admin', 'operations'];
+const MEDIA_CATEGORIES = ['cover', 'gallery'] as const;
+const MEDIA_MIME_EXT: Record<string, string> = { 'image/webp': '.webp', 'image/png': '.png', 'image/jpeg': '.jpg' };
+
+export type FleetMediaItem = { id: string; url: string | null; originalName: string | null };
+export type FleetMediaData = { cover: FleetMediaItem | null; gallery: FleetMediaItem[] };
+export type MediaUploadResult = { success: boolean; message: string; data?: MediaUploadTicket };
+
+export async function getFleetMedia(fleetId: string): Promise<FleetMediaData> {
+  await requireUser();
+  if (!UUID_RE.test(fleetId)) return { cover: null, gallery: [] };
+  const rows = await db.select().from(s.mediaFiles)
+    .where(and(eq(s.mediaFiles.entityType, 'fleet'), eq(s.mediaFiles.entityId, fleetId), eq(s.mediaFiles.status, 'active')))
+    .orderBy(desc(s.mediaFiles.createdAt));
+  if (!rows.length) return { cover: null, gallery: [] };
+  const cover = rows.find(r => r.category === 'cover') ?? null;
+  const galleryRows = rows.filter(r => r.category === 'gallery').reverse(); // termuda di depan
+  // Signed URL ber-TTL pendek per item (private read, doc §21/§36). Kegagalan
+  // satu item TIDAK menggagalkan seluruh form — item itu tampil tanpa pratinjau.
+  const signed = await Promise.all([...(cover ? [cover] : []), ...galleryRows].map(async row => {
+    if (!isMediaConfigured()) return null;
+    try { return (await getMediaSignedUrl(row.id)).url; } catch { return null; }
+  }));
+  let i = 0;
+  const urlOf = () => signed[i++];
+  return {
+    cover: cover ? { id: cover.id, url: urlOf(), originalName: cover.originalName } : null,
+    gallery: galleryRows.map(r => ({ id: r.id, url: urlOf(), originalName: r.originalName })),
+  };
+}
+
+export async function requestFleetPhotoUpload(
+  entityId: string,
+  category: string,
+  mimeType: string,
+  size: number,
+  width: number,
+  height: number,
+  originalName: string,
+): Promise<MediaUploadResult> {
+  let mediaId: string | null = null;
+  try {
+    const user = await requireUser(MEDIA_UPLOAD_ROLES);
+    if (!isMediaConfigured()) return { success: false, message: 'Fitur foto belum tersedia (layanan media belum dikonfigurasi).' };
+    if (!UUID_RE.test(entityId)) return { success: false, message: 'Unit tidak ditemukan.' };
+    if (!MEDIA_CATEGORIES.includes(category as (typeof MEDIA_CATEGORIES)[number])) return { success: false, message: 'Kategori foto tidak valid.' };
+    const ext = MEDIA_MIME_EXT[mimeType];
+    if (!ext) return { success: false, message: 'Jenis berkas tidak didukung (hanya JPEG, PNG, atau WebP).' };
+    if (!Number.isInteger(size) || size < 1 || size > 2 * 1024 * 1024) return { success: false, message: 'Ukuran foto melebihi batas (maks 2 MB hasil kompresi).' };
+    const [unit] = await db.select({ id: s.fleet.id, unitCode: s.fleet.unitCode }).from(s.fleet).where(eq(s.fleet.id, entityId));
+    if (!unit) return { success: false, message: 'Unit tidak ditemukan.' };
+    // Baris metadata dibuat duluan (status pending) — doc §18; object key
+    // memakai media ID acak, filename asli hanya metadata (doc §28).
+    mediaId = crypto.randomUUID();
+    await db.insert(s.mediaFiles).values({
+      id: mediaId,
+      entityType: 'fleet',
+      entityId,
+      category,
+      objectKey: `fleet/${entityId}/${category}/${mediaId}${ext}`,
+      mimeType,
+      sizeBytes: size,
+      width: Number.isFinite(width) && width > 0 ? Math.floor(width) : null,
+      height: Number.isFinite(height) && height > 0 ? Math.floor(height) : null,
+      originalName: originalName.slice(0, 255) || null,
+      status: 'pending',
+      createdBy: user.id,
+    });
+    const ticket = await requestMediaUploadUrl({
+      mediaId,
+      entityType: 'fleet',
+      entityId,
+      category,
+      mimeType,
+      size,
+      objectKey: `fleet/${entityId}/${category}/${mediaId}${ext}`,
+    });
+    return { success: true, message: '', data: ticket };
+  } catch (e) {
+    // Orphan (doc §18): Worker menolak → baris pending ditandai failed.
+    if (mediaId) {
+      try {
+        await db.update(s.mediaFiles).set({ status: 'failed', updatedAt: new Date() })
+          .where(and(eq(s.mediaFiles.id, mediaId), eq(s.mediaFiles.status, 'pending')));
+      } catch { console.error('[media] gagal menandai baris pending sebagai failed', e); }
+    }
+    if (e instanceof MediaApiError) return { success: false, message: e.message };
+    return { success: false, message: e instanceof Error ? e.message : 'Tidak dapat memulai unggahan. Coba lagi.' };
+  }
+}
+
+export async function completeFleetPhotoUpload(mediaId: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser(MEDIA_UPLOAD_ROLES);
+    if (!isMediaConfigured()) return { success: false, message: 'Fitur foto belum tersedia (layanan media belum dikonfigurasi).' };
+    if (!UUID_RE.test(mediaId)) return { success: false, message: 'Media tidak ditemukan.' };
+    // Worker memverifikasi: object exists, size cocok, content-type, magic bytes
+    // (doc §17) — metadata baru diaktifkan setelah verifikasi lulus.
+    await completeMediaUpload(mediaId);
+    let retiredId: string | null = null;
+    let unitCode = '';
+    let category = '';
+    await db.transaction(async tx => {
+      const [row] = await tx.select().from(s.mediaFiles).where(eq(s.mediaFiles.id, mediaId)).for('update');
+      if (!row) throw new MediaApiError('MEDIA_NOT_FOUND', 'Media tidak ditemukan.');
+      if (row.status !== 'pending') throw new MediaApiError('MEDIA_NOT_PENDING', 'Media ini sudah diproses. Muat ulang halaman.');
+      await tx.update(s.mediaFiles).set({ status: 'active', updatedAt: new Date() }).where(eq(s.mediaFiles.id, mediaId));
+      category = row.category;
+      const [unit] = await tx.select({ unitCode: s.fleet.unitCode }).from(s.fleet).where(eq(s.fleet.id, row.entityId));
+      unitCode = unit?.unitCode ?? row.entityId;
+      // Ganti cover (doc §20): baru active DULU; cover lama di-retire kemudian.
+      if (row.category === 'cover') {
+        const [old] = await tx.select().from(s.mediaFiles)
+          .where(and(
+            eq(s.mediaFiles.entityType, 'fleet'),
+            eq(s.mediaFiles.entityId, row.entityId),
+            eq(s.mediaFiles.category, 'cover'),
+            eq(s.mediaFiles.status, 'active'),
+            ne(s.mediaFiles.id, mediaId),
+          ))
+          .orderBy(desc(s.mediaFiles.createdAt)).limit(1);
+        if (old) {
+          retiredId = old.id;
+          await tx.update(s.mediaFiles).set({ status: 'deleted', updatedAt: new Date() }).where(eq(s.mediaFiles.id, old.id));
+        }
+      }
+    });
+    // Cleanup object cover lama (best-effort; bila gagal, barisnya sudah
+    // 'deleted' dan menjadi input reconciler — doc §18/§19).
+    if (retiredId) {
+      try { await deleteMediaObject(retiredId); }
+      catch (e) { console.error('[media] cleanup object cover lama gagal (menunggu reconciler)', e); }
+    }
+    await logAudit({ actorId: user.id, actorName: user.fullName, action: 'upload', entity: 'media', entityId: mediaId, summary: `Mengunggah foto ${category} unit ${unitCode}` });
+    revalidatePath('/dashboard', 'layout');
+    return { success: true, message: 'Foto berhasil disimpan.' };
+  } catch (e) {
+    if (e instanceof MediaApiError) {
+      if (e.code !== 'MEDIA_NOT_PENDING') {
+        try {
+          await db.update(s.mediaFiles).set({ status: 'failed', updatedAt: new Date() })
+            .where(and(eq(s.mediaFiles.id, mediaId), eq(s.mediaFiles.status, 'pending')));
+        } catch { /* status dipertahankan; reconciler yang membersihkan */ }
+      }
+      return { success: false, message: e.message };
+    }
+    return fail(e);
+  }
+}
+
+export async function deleteFleetPhoto(mediaId: string): Promise<ActionResult> {
+  try {
+    const user = await requireUser(MEDIA_DELETE_ROLES);
+    if (!isMediaConfigured()) return { success: false, message: 'Fitur foto belum tersedia (layanan media belum dikonfigurasi).' };
+    if (!UUID_RE.test(mediaId)) return { success: false, message: 'Foto tidak ditemukan.' };
+    const [row] = await db.select().from(s.mediaFiles).where(eq(s.mediaFiles.id, mediaId));
+    if (!row || row.entityType !== 'fleet' || row.status === 'deleted') return { success: false, message: 'Foto tidak ditemukan.' };
+    // Worker memverifikasi otorisasi + kepemilikan lalu menghapus object (doc §19).
+    await deleteMediaObject(mediaId);
+    await db.update(s.mediaFiles).set({ status: 'deleted', updatedAt: new Date() }).where(and(eq(s.mediaFiles.id, mediaId), ne(s.mediaFiles.status, 'deleted')));
+    const [unit] = await db.select({ unitCode: s.fleet.unitCode }).from(s.fleet).where(eq(s.fleet.id, row.entityId));
+    await logAudit({ actorId: user.id, actorName: user.fullName, action: 'delete', entity: 'media', entityId: mediaId, summary: `Menghapus foto ${row.category} unit ${unit?.unitCode ?? row.entityId}` });
+    revalidatePath('/dashboard', 'layout');
+    return { success: true, message: 'Foto berhasil dihapus.' };
+  } catch (e) {
+    if (e instanceof MediaApiError) return { success: false, message: e.message };
+    return fail(e);
+  }
 }
