@@ -87,7 +87,7 @@ PPN **tidak lagi hardcode**. Sekarang jadi konfigurasi perusahaan:
 
 | # | Status | Implementasi |
 |---|---|---|
-| O-A | ⏳ **DITUNDA (sengaja)** | Paginasi server-side sejati butuh rework backend 1–2 hari (query per modul + slim data shell + selects async) — berisiko regresi lintas modul. Lag ketikan **sudah sembuh** via memo/defer (gelombang 1), jadi O-A tidak lagi Mendesak. Desain follow-up: `getModulePage(module,{q,status,page,sort})` SQL `WHERE/LIMIT/OFFSET` + `getShellData()` ramping untuk layout. |
+| O-A | ✅ **SELESAI** (eksekusi desain follow-up yang tadinya ditunda) | Tepat sesuai rancangan: **(1)** `getShellData()` ramping untuk layout — user + settings + 4 count SQL (pending/unpaid/overdue/expiring), shell tak lagi menerima 7 tabel; **(2)** `getModulePage(module,{q,status,category,expiringOnly,page,sort})` — query per modul dengan `WHERE/ORDER BY/LIMIT/OFFSET`, JOIN label (klien/unit/kontrak) langsung di baris, subquery agregat (kontrak per klien, dibayar per invoice), CASE `overdue` dievaluasi di SQL, tab status dari `GROUP BY` (hitungan dataset = kunci `all`); **(3)** selects async — opsi modal via server action `getFormOptions` (+`getBillableHours`/`getRevisionHistory`/`getInvoicePayments` saat dibutuhkan), pencarian global pindah ke `/api/search` (ILIKE, debounce 250 ms); **(4)** dasbor via `getDashboardData()` (SUM/GROUP BY bulan + daftar terbaru LIMIT 5), PDF via `getDocumentBundle()` (query titik), CSV via `getReportData()`; **(5)** filter modul kini state URL (`?q/?status/?category/?sort/?page/?filter`) dengan input debounced 300 ms + transisi (tidak ada lag ketikan — state input tetap lokal), pager berjendela untuk ratusan halaman, optimistic UI dipertahankan; **(6)** `getWorkspaceData()` dihapus, `requireUser` di-`cache()` (verifikasi auth 1× per request), indeks pendukung `0017_pagination_indexes.sql` (aditif). |
 | O-B | ✅ | Optimistic UI via `useOptimistic` untuk approve/reject timesheet, selesai kontrak, pelunasan; `act()` selalu `router.refresh()` agar optimis tersinkron ulang. |
 | O-C | ✅ | Validasi per-field tanpa dep baru: `FieldError` di actions (pesan per kolom + mapping 23505 → kolom), UI menampilkan `.field-error` di bawah isian (modal + settings + pembayaran). |
 | O-D | ✅ | `daysUntil`/`isPastDue`/`isExpiringSoon` di `format.ts` (aritmetika kalender, TZ-aman); semua badge overdue/expiring memakai ini. |
@@ -105,6 +105,77 @@ PPN **tidak lagi hardcode**. Sekarang jadi konfigurasi perusahaan:
 | A-6 | ✅ | **Lupa/reset sandi**: link di login + `/forgot-password` (kirim tautan) + `/auth/callback` (tukar code) + `/reset-password` (sandi baru, klien browser). Trigger `handle_new_user` (0013, anti-eskalasi role) untuk undangan. |
 | A-7 | ✅ | **Cron overdue**: `GET /api/cron/overdue` (bearer `CRON_SECRET`, tandai unpaid/partial lewat tempo + audit) + `vercel.json` (tiap 01:00 WIB) + notifikasi overdue di lonceng header. Alternatif pg_cron: `SELECT cron.schedule('overdue','0 18 * * *',$$SELECT net.http_get(...)$$)` — butuh ekstensi pg_cron+pg_net (opsional, tidak dibundel). |
 
+> **Lampiran gelombang — format PDF BAST resmi**: PDF BAST kini mengikuti pola berita
+> acara serah terima umum (rujukan: contoh dokumen BAST alat berat rental + artikel
+> "Contoh Surat Perjanjian Sewa Alat Berat" Mekari Sign) — pembuka
+> formal "Pada hari ini, [hari-long-date], …", blok identitas **1. PIHAK PERTAMA**
+> (penyedia; wakil = penandatangan di Pengaturan) & **2. PIHAK KEDUA** (penyewa;
+> wakil = PIC klien), pernyataan serah/kembali sesuai jenis (mobilisasi/demobilisasi),
+> klausul penerimaan kondisi setelah checklist 12 titik, klausul penutup **rangkap 2
+> bermeterai cukup**, baris **"Kota, tanggal"** di atas tanda tangan, dan **3 blok
+> tanda tangan: Yang menyerahkan · Yang menerima · Mengetahui** (kosong untuk pihak
+> ketiga bila perlu). Kolom isian yang belum ada di data ditampilkan titik-titik
+> (diisi manual). Tetap 1 halaman A4 + QR verifikasi; invoice/SPH tak berubah
+> (kecuali baris kota/tanggal di atas ttd).
+>
+> **Lampiran gelombang — Surat Perjanjian Sewa otomatis (PDF)**: dokumen
+> **Surat Perjanjian Sewa Menyewa Alat Berat** kini terbit otomatis dari data
+> kontrak — tombol **Perjanjian** di baris tabel Kontrak (`/api/documents/
+> perjanjian/[id]`, nomor `PJS/...` dari nomor kontrak). Struktur mengikuti
+> template "Contoh Surat Perjanjian Sewa Alat Berat" (Mekari Sign): pembuka
+> formal, identitas PIHAK PERTAMA/KEDUA ("Nama Perusahaan / Yang diwakili
+> oleh / Jabatan"), **PASAL 1 OBJEK SEWA** (merk/tipe, kategori, tahun, kode
+> unit, kondisi + rujukan nomor BAST mobilisasi bila ada), **PASAL 2 JANGKA
+> WAKTU** (durasi hari + terbilang), **PASAL 3 HARGA SEWA DAN PEMBAYARAN**
+> (tarif/jam + terbilang, PPN, penagihan berbasis timesheet disetujui,
+> breakdown tidak ditagih), **PASAL 4 HAK DAN KEWAJIBAN**, **PASAL 5
+> KERUSAKAN DAN KEHILANGAN**, **PASAL 6 PENYELESAIAN PERSELISIHAN** (Pengadilan
+> Negeri kota perusahaan), penutup rangkap 2 bermeterai cukup, baris
+> "Kota, tanggal", dan tanda tangan PIHAK PERTAMA/KEDUA. Helper `terbilang.ts`
+> (angka → kata, terverifikasi) + halaman verifikasi mengenali `?kind=
+> perjanjian`. Dokumen ±2 halaman A4 dengan QR verifikasi tiap halaman.
+> Yang sengaja tidak diotomasi dari artikel: meterai fisik/e-meterai dan
+> SIO operator (bisa jadi field berikutnya bila dibutuhkan).
+>
+> **Lampiran gelombang — data rekening & identitas para pihak**: melengkapi
+> komponen artikel yang belum terotomasi. **Pengaturan** bertambah 5 field:
+> NPWP Perusahaan, No. KTP Penandatangan, Nama Bank, Nama Pemilik Rekening,
+> Nomor Rekening; form **Klien** bertambah No. KTP Penanggung Jawab —
+> migration `0019_payment_identity.sql` (aditif, default kosong, idempoten).
+> Di Surat Perjanjian: blok PIHAK PERTAMA/KEDUA kini memuat baris **NPWP**
+> dan **No. KTP** (titik-titik bila kosong; NPWP P2 dari NPWP klien), dan
+> **PASAL 3 butir 3** menyebut rekening tujuan spesifik — "transfer ke
+> rekening {bank} a.n. {pemilik} nomor {no}" — bila ketiga field rekening
+> terisi lengkap, selain itu fallback ke frasa "rekening yang ditunjuk
+> secara tertulis". **Invoice PDF** kini mencantumkan info transfer
+> ("Pembayaran dapat ditransfer ke rekening …") di catatan bila data bank
+> lengkap. Terverifikasi render: field terisi + fallback dotted/generik;
+> BAST & SPH tetap tanpa baris NPWP/KTP/rekening.
+>
+> **Lampiran gelombang — kecepatan navigasi antar-menu (tetap SSR)**:
+> Pengukuran server lokal: render tiap halaman modul hanya **14–27 ms**
+> (sudah termasuk query DB) — jeda "±1 detik" saat membuka menu berasal
+> dari jaringan (RTT browser↔server/proxy), bukan proses render. Perbaikan
+> yang diterapkan tetap dalam arsitektur SSR/RSC: (1) `experimental.
+> staleTimes` (dynamic 30 dtk) — menu yang pernah dibuka dirender instan
+> dari Router Cache client tanpa round-trip; tiap mutasi memanggil
+> `revalidatePath('/dashboard','layout')` yang menghapus cache itu, jadi
+> data pasca simpan/approve/bayar selalu segar; (2) `getModulePage`
+> menjalankan auth + settings + seed **paralel** (sebelumnya 3 await
+> beruntun); (3) `seedPreview` dibungkus React `cache()` — sekali per
+> request, bukan dua transaksi (layout + page). **PDF tetap server-side**
+> (react-pdf + QR + data DB) — endpoint terpisah, bukan bagian alur
+> navigasi menu.
+>
+> **Lampiran gelombang — lokalisasi dokumen (kota & zona waktu)**: `company_settings`
+> bertambah kolom `city` (default `Jakarta`) dan `timezone` (`WIB`/`WITA`/`WIT`,
+> default `WIB`) — migration `0018_company_locale.sql` (aditif + CHECK). Diubah
+> admin di **Pengaturan** tanpa deploy ulang. Seluruh "hari ini" (badge jatuh tempo,
+> validasi form, cron overdue, status overdue invoice di SQL) dan label waktu UI/PDF
+> kini mengikuti zona terpilih — perusahaan di Indonesia tengah/timur memakai
+> kalender WITA/WIT, bukan selalu WIB. Formatter Intl tetap ber-cache per zona
+> (optimasi F3 tidak hilang).
+
 ### 3c. Hapus/sederhanakan — hasil
 
 | # | Status | Implementasi |
@@ -116,7 +187,7 @@ PPN **tidak lagi hardcode**. Sekarang jadi konfigurasi perusahaan:
 
 ### Deploy checklist (wajib sebelum production)
 
-1. Jalankan migrasi `0009`–`0013` ke Supabase (CLI / dashboard).
+1. Jalankan migrasi `0009`–`0019` ke Supabase (CLI / dashboard).
 2. Isi env: `CRON_SECRET` (acak ≥32 char), `SUPABASE_SERVICE_ROLE_KEY` (utk undang user),
    `NEXT_PUBLIC_APP_URL` (utk tautan email).
 3. Supabase Auth: pastikan public signup **MATI**; aktifkan email (reset/undangan).
@@ -130,7 +201,7 @@ PPN **tidak lagi hardcode**. Sekarang jadi konfigurasi perusahaan:
 
 | # | Item | Kenapa | Effort |
 |---|---|---|---|
-| O-A | **Paginasi + filter server-side per modul** (ganti `SELECT *` 7 tabel) | Satu-satunya obat permanen untuk L7; saat ini seluruh DB dikirim ke browser tiap navigasi | 1–2 hari (lihat O1 di `audit.md`) |
+| O-A | ~~**Paginasi + filter server-side per modul** (ganti `SELECT *` 7 tabel)~~ ✅ **dikerjakan** — lihat §3a | Satu-satunya obat permanen untuk L7; saat ini seluruh DB dikirim ke browser tiap navigasi | 1–2 hari (lihat O1 di `audit.md`) |
 | O-B | **Optimistic UI + sempitkan `router.refresh()`** | Sesudah simpan/approve, seluruh halaman refetch → kedip & jank sesaat | 0.5 hari |
 | O-C | **Validasi inline per-field** (ganti toast generik) | Form gagal simpan hanya bilang "periksa isian" — user menebak kolom mana | 0.5–1 hari (lihat O9/Zod) |
 | O-D | **Tanggal TZ-aman** (`new Date('YYYY-MM-DD')` = UTC → badge kadaluarsa bisa geser ±1 hari di WIB) | Akurasi badge "30 hari" & filter overdue | 1–2 jam (lihat O6) |
@@ -154,6 +225,23 @@ PPN **tidak lagi hardcode**. Sekarang jadi konfigurasi perusahaan:
 |---|---|---|
 | D-1 | **`schema.sql` sebagai jalur aktif** → jadikan arsip read-only | Dua sumber kebenaran skema (vs `migrations/`) = risiko drift (lihat K4) |
 | D-2 | **Angka hardcode**: PPN 11% (2 tempat), window 30-hari, nama PT di `/verify/doc` | Harusnya konfigurasi — tiap perubahan butuh deploy (lihat K6) |
+| D-3 | **Kartu "Butuh bantuan?" di sidebar** (atau pindah ke modal help saja) | Memakan ruang vertikal permanen untuk info yang jarang dipakai |
+| D-4 | **Kolom "Tindakan" berlabel teks di mobile** → ikon saja | Tabel sempit di HP; label Ubah/Hapus/Unduh memaksa scroll horizontal |
+
+---
+
+## 4. Cara mereview perubahan ini (tanpa merge/push)
+
+```bash
+git status --short          # lihat file berubah
+git diff --stat             # ringkasan
+git diff src/lib/format.ts  # contoh: bedah per file
+npm run dev                 # uji manual dengan DATABASE_URL lokal
+```
+
+Beri tahu saya item mana dari §3 yang mau dieksekusi (mis. "kerjakan O-A + A-2, hapus D-3"),
+atau minta saya push + buka PR bila sudah puas — **saya tidak akan merge/push tanpa perintah eksplisit.**
+30-hari, nama PT di `/verify/doc` | Harusnya konfigurasi — tiap perubahan butuh deploy (lihat K6) |
 | D-3 | **Kartu "Butuh bantuan?" di sidebar** (atau pindah ke modal help saja) | Memakan ruang vertikal permanen untuk info yang jarang dipakai |
 | D-4 | **Kolom "Tindakan" berlabel teks di mobile** → ikon saja | Tabel sempit di HP; label Ubah/Hapus/Unduh memaksa scroll horizontal |
 

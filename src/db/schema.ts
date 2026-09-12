@@ -5,7 +5,7 @@ export const profiles = pgTable('profiles', {
  id: uuid('id').primaryKey(), fullName: text('full_name').notNull(), role: text('role').notNull(), createdAt: createdAt(),
 });
 export const clients = pgTable('clients', {
- id: uuid('id').defaultRandom().primaryKey(), companyName: text('company_name').notNull(), npwp: text('npwp'), address: text('address'), picName: text('pic_name').notNull(), picPhone: text('pic_phone'), picEmail: text('pic_email'), createdAt: createdAt(),
+ id: uuid('id').defaultRandom().primaryKey(), companyName: text('company_name').notNull(), npwp: text('npwp'), address: text('address'), picName: text('pic_name').notNull(), picKtp: text('pic_ktp'), picPhone: text('pic_phone'), picEmail: text('pic_email'), createdAt: createdAt(),
 });
 export const fleet = pgTable('fleet', {
  id: uuid('id').defaultRandom().primaryKey(), unitCode: text('unit_code').notNull().unique(), category: text('category').notNull(), brandModel: text('brand_model').notNull(), year: integer('year'), status: text('status').default('available').notNull(), currentLocation: text('current_location'), sikoExpiry: date('siko_expiry'), insuranceExpiry: date('insurance_expiry'), hourlyRate: numeric('hourly_rate', { precision: 12, scale: 2 }).notNull(), createdAt: createdAt(),
@@ -27,6 +27,12 @@ export const handovers = pgTable('handovers', {
 });
 export const companySettings = pgTable('company_settings', {
  id: text('id').primaryKey().default('main'), companyName: text('company_name').notNull().default('PT Penyewaan Alat Berat'), address: text('address').notNull().default('Jakarta, Indonesia'), email: text('email').notNull().default('operasional@heavyops.id'), phone: text('phone').notNull().default('+62 21 555 0128'), signerName: text('signer_name').notNull().default(''), signerTitle: text('signer_title').notNull().default(''), ppnRate: numeric('ppn_rate', { precision: 5, scale: 2 }).notNull().default('11'), expiryWarningDays: integer('expiry_warning_days').notNull().default(30),
+ // Lokalisasi dokumen: kota penandatanganan (baris "Kota, tanggal" di PDF)
+ // dan zona waktu kalender (WIB/WITA/WIT) untuk "hari ini" badge & validasi.
+ city: text('city').notNull().default('Jakarta'), timezone: text('timezone').notNull().default('WIB'),
+ // Data pembayaran & identitas dokumen (PASAL 3 perjanjian, info bayar invoice):
+ npwp: text('npwp').notNull().default(''), signerKtp: text('signer_ktp').notNull().default(''),
+ bankName: text('bank_name').notNull().default(''), bankAccountName: text('bank_account_name').notNull().default(''), bankAccountNumber: text('bank_account_number').notNull().default(''),
 });
 export const payments = pgTable('payments', {
  id: uuid('id').defaultRandom().primaryKey(), invoiceId: uuid('invoice_id').references(() => invoices.id, { onDelete: 'restrict' }).notNull(), amount: numeric('amount', { precision: 15, scale: 2 }).notNull(), method: text('method').notNull(), reference: text('reference'), notes: text('notes'), paidAt: date('paid_at').notNull(), notedBy: uuid('noted_by').references(() => profiles.id), createdAt: createdAt(),

@@ -6,7 +6,7 @@ import { Button } from './ui/button';
 import { updateUserRole, inviteUser, updateUserProfile, setUserBanned } from '@/app/actions';
 import { labels, dateTimeLabel } from '@/lib/format';
 import { Badge } from './overview';
-import type { WorkspaceData } from '@/lib/data';
+import type { UsersData, AuditData } from '@/lib/data';
 
 export function AccessDenied() {
   return (
@@ -30,8 +30,9 @@ const entityLabels: Record<string, string> = {
 // Manajemen pengguna & peran (admin). Daftar dari profiles; undang via email
 // bila service-role tersedia, kalau tidak fallback ke template SQL.
 // ---------------------------------------------------------------------------
-export function UsersWorkspace({ data, banned }: { data: WorkspaceData; banned: Record<string, boolean> }) {
+export function UsersWorkspace({ data, banned }: { data: UsersData; banned: Record<string, boolean> }) {
   const router = useRouter();
+  const tz = data.settings.timezone;
   const [pending, startTransition] = useTransition();
   const [toast, setToast] = useState<{ success: boolean; message: string } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -79,7 +80,7 @@ export function UsersWorkspace({ data, banned }: { data: WorkspaceData; banned: 
                       </label>
                     </td>
                     <td><Badge status={banned[p.id] ? 'banned' : 'active'} /></td>
-                    <td>{dateTimeLabel(p.createdAt)}</td>
+                    <td>{dateTimeLabel(p.createdAt, tz)}</td>
                     <td>
                       <div className="row-actions">
                         <button className="icon-button" title={`Ubah nama ${p.fullName}`} aria-label={`Ubah nama ${p.fullName}`} disabled={pending} onClick={() => { setEditingId(p.id); setDraftName(p.fullName); }}><Pencil size={15} />Ubah</button>
@@ -120,7 +121,8 @@ export function UsersWorkspace({ data, banned }: { data: WorkspaceData; banned: 
 // ---------------------------------------------------------------------------
 // Log audit (admin, read-only, 200 terbaru).
 // ---------------------------------------------------------------------------
-export function AuditWorkspace({ data }: { data: WorkspaceData }) {
+export function AuditWorkspace({ data }: { data: AuditData }) {
+  const tz = data.settings.timezone;
   const [query, setQuery] = useState('');
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
@@ -145,7 +147,7 @@ export function AuditWorkspace({ data }: { data: WorkspaceData }) {
             <tbody>
               {filtered.map(l => (
                 <tr key={l.id}>
-                  <td style={{ whiteSpace: 'nowrap' }}>{dateTimeLabel(l.createdAt)}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{dateTimeLabel(l.createdAt, tz)}</td>
                   <td><b>{l.actorName}</b></td>
                   <td>{actionLabels[l.action] || l.action}</td>
                   <td>{entityLabels[l.entity] || l.entity}</td>

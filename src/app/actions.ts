@@ -1,13 +1,13 @@
 'use server';
 import { db } from '@/db';
 import * as s from '@/db/schema';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or, sql, desc } from 'drizzle-orm';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { requireUser, createAuthClient, isConfigured, isPreview } from '@/lib/auth';
 import { logAudit, getProfileNameBestEffort } from '@/lib/audit';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { todayISO, money } from '@/lib/format';
+import { todayISO, money, resolveTz, type AppTimezone } from '@/lib/format';
 import { calcInvoiceTotals, remainingBalance, resolveInvoiceStatus, normalizePaymentAmount } from '@/lib/finance';
 
 export type ActionResult = { success: boolean; message: string; fieldErrors?: Record<string, string> };
@@ -30,7 +30,7 @@ const fieldLabel: Record<string,string> = {
   endDate:'Tanggal selesai', ratePerHour:'Tarif sewa per jam', contractId:'Kontrak', date:'Tanggal', startHm:'HM awal',
   endHm:'HM akhir', breakdownHours:'Durasi kerusakan', type:'Jenis serah terima', dueDate:'Tanggal jatuh tempo',
   address:'Alamat', email:'Surel', phone:'Telepon', signerName:'Nama penandatangan', signerTitle:'Jabatan penandatangan',
-  ppnRate:'Tarif PPN', expiryWarningDays:'Ambang peringatan', reason:'Alasan revisi', amount:'Nominal pembayaran',
+  ppnRate:'Tarif PPN', expiryWarningDays:'Ambang peringatan', city:'Kota penandatanganan', timezone:'Zona waktu', reason:'Alasan revisi', amount:'Nominal pembayaran',
   method:'Metode pembayaran', reference:'Referensi', paidAt:'Tanggal bayar', prefix:'Prefix kode', startNumber:'Nomor awal',
   count:'Jumlah unit', fullName:'Nama lengkap', role:'Peran', invoiceId:'Tagihan', id:'Data',
 };
@@ -45,6 +45,13 @@ async function currentPpnRate(): Promise<number> {
   const [row] = await db.select({ ppnRate: s.companySettings.ppnRate }).from(s.companySettings).limit(1);
   const rate = Number(row?.ppnRate ?? 11);
   return Number.isFinite(rate) && rate >= 0 && rate <= 100 ? rate : 11;
+}
+
+// Zona waktu kalender perusahaan (WIB/WITA/WIT, default WIB) — dipakai untuk
+// seluruh tanggal bisnis: "hari ini" validasi form, tanggal terbit, pelunasan.
+async function companyTz(): Promise<AppTimezone> {
+  const [row] = await db.select({ timezone: s.companySettings.timezone }).from(s.companySettings).limit(1);
+  return resolveTz(row?.timezone);
 }
 
 function fail(error: unknown, uniqueField?: Record<string,string>, module?: string): ActionResult {
@@ -64,6 +71,7 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
  try {
   const roles = module==='invoices'?['admin','finance']:module==='timesheets'?['admin','operations','operator']:module==='settings'?['admin']:operationRoles;
   const user = await requireUser(roles);
+  const tz = await companyTz();
   const id = text(form,'id');
   const actor = { actorId: user.id, actorName: user.fullName };
   if(module==='fleet') {
@@ -79,7 +87,7 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
    await logAudit({ ...actor, action: id ? 'update' : 'create', entity: 'fleet', entityId: id || null, summary: `${id ? 'Mengubah' : 'Menambah'} unit ${values.unitCode} (${values.brandModel})` });
   } else if(module==='clients') {
    const email=text(form,'picEmail');if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new FieldError({picEmail:'Alamat surel tidak valid.'});
-   const values={companyName:required(form,'companyName'),picName:required(form,'picName'),npwp:text(form,'npwp'),address:text(form,'address'),picPhone:text(form,'picPhone'),picEmail:email};
+   const values={companyName:required(form,'companyName'),picName:required(form,'picName'),npwp:text(form,'npwp'),picKtp:text(form,'picKtp'),address:text(form,'address'),picPhone:text(form,'picPhone'),picEmail:email};
    if(id)await db.update(s.clients).set(values).where(eq(s.clients.id,id));else await db.insert(s.clients).values(values);
    await logAudit({ ...actor, action: id ? 'update' : 'create', entity: 'clients', entityId: id || null, summary: `${id ? 'Mengubah' : 'Menambah'} klien ${values.companyName}` });
   } else if(module==='contracts') {
@@ -98,7 +106,7 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
    const [contract]=await db.select().from(s.contracts).where(eq(s.contracts.id,contractId));
    if(!contract||contract.status!=='active')throw new FieldError({contractId:'Kontrak tidak aktif.'});
    const date=validDate(form,'date'),startHm=number(form,'startHm'),endHm=number(form,'endHm'),breakdownHours=number(form,'breakdownHours');
-   if(date>todayISO()||date<contract.startDate||date>contract.endDate)throw new FieldError({date:'Tanggal harus dalam periode kontrak dan tidak boleh di masa depan.'});
+   if(date>todayISO(tz)||date<contract.startDate||date>contract.endDate)throw new FieldError({date:'Tanggal harus dalam periode kontrak dan tidak boleh di masa depan.'});
    if(endHm<startHm||endHm-startHm>24||breakdownHours>endHm-startHm)throw new FieldError({endHm:'Periksa HM akhir dan durasi kerusakan. Maksimal 24 jam.'});
    await db.insert(s.timesheets).values({contractId,unitId:contract.unitId,operatorId:user.id,date,startHm:String(startHm),endHm:String(endHm),breakdownHours:String(breakdownHours),notes:text(form,'notes'),status:'pending'});
    await logAudit({ ...actor, action: 'create', entity: 'timesheets', summary: `Mencatat jam kerja ${date} untuk ${contract.contractNumber}` });
@@ -119,7 +127,7 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
    await logAudit({ ...actor, action: 'create', entity: 'bast', summary: `Membuat BAST ${docNo}${photoUrls.length ? ` (${photoUrls.length} foto)` : ''}` });
   } else if(module==='invoices') {
    const contractId=required(form,'contractId');
-   const dueDate=validDate(form,'dueDate');if(dueDate<todayISO())throw new FieldError({dueDate:'Jatuh tempo tidak boleh sebelum tanggal penerbitan.'});
+   const dueDate=validDate(form,'dueDate');if(dueDate<todayISO(tz))throw new FieldError({dueDate:'Jatuh tempo tidak boleh sebelum tanggal penerbitan.'});
    const ppnRate = await currentPpnRate();
    let invoiceNo = '';
    await db.transaction(async tx=>{
@@ -131,7 +139,7 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
     const totals=calcInvoiceTotals(hours,Number(contract.ratePerHour),ppnRate);
     if(totals.subtotal<=0)throw new Error('Total jam efektif harus lebih dari nol.');
     invoiceNo = documentNumber('INV');
-    const [invoice]=await tx.insert(s.invoices).values({invoiceNumber:invoiceNo,contractId,subtotalAmount:totals.subtotal.toFixed(2),totalAmount:totals.total.toFixed(2),taxAmount:totals.tax.toFixed(2),taxRate:String(ppnRate),status:'unpaid',issueDate:todayISO(),dueDate}).returning();
+    const [invoice]=await tx.insert(s.invoices).values({invoiceNumber:invoiceNo,contractId,subtotalAmount:totals.subtotal.toFixed(2),totalAmount:totals.total.toFixed(2),taxAmount:totals.tax.toFixed(2),taxRate:String(ppnRate),status:'unpaid',issueDate:todayISO(tz),dueDate}).returning();
     for(const log of logs)await tx.update(s.timesheets).set({invoiceId:invoice.id}).where(eq(s.timesheets.id,log.id));
    });
    await logAudit({ ...actor, action: 'create', entity: 'invoices', summary: `Menerbitkan ${invoiceNo} (PPN ${ppnRate}%)` });
@@ -140,9 +148,11 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
    if (ppnRate > 100) throw new FieldError({ ppnRate: 'Tarif PPN maksimal 100%.' });
    const expiryWarningDays = number(form,'expiryWarningDays',1);
    if (!Number.isInteger(expiryWarningDays) || expiryWarningDays > 180) throw new FieldError({ expiryWarningDays: 'Ambang 1–180 hari.' });
-   const values={companyName:required(form,'companyName'),address:required(form,'address'),email:required(form,'email'),phone:required(form,'phone'),signerName:text(form,'signerName'),signerTitle:text(form,'signerTitle'),ppnRate:String(ppnRate),expiryWarningDays};
+   const timezone = resolveTz(text(form,'timezone'));
+   const city = (text(form,'city') || 'Jakarta').slice(0, 100);
+   const values={companyName:required(form,'companyName'),address:required(form,'address'),email:required(form,'email'),phone:required(form,'phone'),signerName:text(form,'signerName'),signerTitle:text(form,'signerTitle'),npwp:text(form,'npwp'),signerKtp:text(form,'signerKtp'),bankName:text(form,'bankName'),bankAccountName:text(form,'bankAccountName'),bankAccountNumber:text(form,'bankAccountNumber'),ppnRate:String(ppnRate),expiryWarningDays,city,timezone};
    await db.insert(s.companySettings).values({id:'main',...values}).onConflictDoUpdate({target:s.companySettings.id,set:values});
-   await logAudit({ ...actor, action: 'update', entity: 'settings', entityId: 'main', summary: `Memperbarui profil perusahaan (PPN ${ppnRate}%)` });
+   await logAudit({ ...actor, action: 'update', entity: 'settings', entityId: 'main', summary: `Memperbarui profil perusahaan (PPN ${ppnRate}%, ${timezone})` });
   } else throw new Error('Modul tidak ditemukan.');
   revalidatePath('/dashboard','layout');return {success:true,message:module==='invoices'?'Tagihan berhasil dibuat dari jam kerja yang disetujui.':'Data berhasil disimpan.'};
  }catch(error){return fail(error, uniqueField, module);}
@@ -186,6 +196,7 @@ export async function bulkCreateFleet(form:FormData): Promise<ActionResult> {
 export async function changeStatus(module:string,id:string,status:string): Promise<ActionResult> {
  try {
   const user = await requireUser(module==='invoices'?['admin','finance']:operationRoles);
+  const tz = await companyTz();
   const actor = { actorId: user.id, actorName: user.fullName };
   if(module==='timesheets'&&['approved','rejected'].includes(status)){
    const updated=await db.update(s.timesheets).set({status}).where(and(eq(s.timesheets.id,id),eq(s.timesheets.status,'pending'),isNull(s.timesheets.invoiceId))).returning();
@@ -199,7 +210,7 @@ export async function changeStatus(module:string,id:string,status:string): Promi
     if(invoice.status==='paid')throw new Error('Tagihan sudah lunas.');
     const paid=await tx.select({amount:s.payments.amount}).from(s.payments).where(eq(s.payments.invoiceId,id));
     const remaining=remainingBalance(invoice.totalAmount,paid.reduce((a,p)=>a+Number(p.amount),0));
-    if(remaining>0)await tx.insert(s.payments).values({invoiceId:id,amount:remaining.toFixed(2),method:'other',reference:'Pelunasan manual',paidAt:todayISO(),notedBy:user.id});
+    if(remaining>0)await tx.insert(s.payments).values({invoiceId:id,amount:remaining.toFixed(2),method:'other',reference:'Pelunasan manual',paidAt:todayISO(tz),notedBy:user.id});
     await tx.update(s.invoices).set({status}).where(eq(s.invoices.id,id));
    });
    await logAudit({ ...actor, action: 'pay', entity: 'invoices', entityId: id, summary: 'Menandai tagihan sebagai lunas' });
@@ -215,12 +226,13 @@ export async function changeStatus(module:string,id:string,status:string): Promi
 export async function recordPayment(form:FormData): Promise<ActionResult> {
  try {
   const user = await requireUser(['admin','finance']);
+  const tz = await companyTz();
   const invoiceId=required(form,'invoiceId');
   const amount=number(form,'amount',0.01);
   const method=required(form,'method');
   if(!['transfer','cash','giro','other'].includes(method))throw new FieldError({method:'Metode pembayaran tidak valid.'});
   const paidAt=validDate(form,'paidAt');
-  if(paidAt>todayISO())throw new FieldError({paidAt:'Tanggal bayar tidak boleh di masa depan.'});
+  if(paidAt>todayISO(tz))throw new FieldError({paidAt:'Tanggal bayar tidak boleh di masa depan.'});
   const reference=text(form,'reference').slice(0,100);
   const notes=text(form,'notes').slice(0,500);
   let invoiceNo = '';let recorded = 0;let wasNormalized = false;
@@ -236,7 +248,7 @@ export async function recordPayment(form:FormData): Promise<ActionResult> {
    if(norm.rejected)throw new FieldError({amount:`Melebihi sisa tagihan (${money(remaining)}).`});
    recorded=norm.recorded;wasNormalized=norm.normalized;
    await tx.insert(s.payments).values({invoiceId,amount:recorded.toFixed(2),method,reference:reference||null,notes:notes||null,paidAt,notedBy:user.id});
-   await tx.update(s.invoices).set({status:resolveInvoiceStatus(invoice.totalAmount,paidSoFar+recorded,invoice.dueDate,todayISO())}).where(eq(s.invoices.id,invoiceId));
+   await tx.update(s.invoices).set({status:resolveInvoiceStatus(invoice.totalAmount,paidSoFar+recorded,invoice.dueDate,todayISO(tz))}).where(eq(s.invoices.id,invoiceId));
   });
   const suffix=wasNormalized?' (disesuaikan ke sisa tagihan)':'';
   await logAudit({ actorId: user.id, actorName: user.fullName, action: 'pay', entity: 'invoices', entityId: invoiceId, summary: `Mencatat pembayaran ${money(recorded)} untuk ${invoiceNo}${suffix}` });
@@ -410,3 +422,69 @@ export async function signIn(form:FormData) {
  redirect('/dashboard');
 }
 export async function signOut(){if(isConfigured()){const auth=await createAuthClient();try{const {data:{user}}=await auth.auth.getUser();if(user){const [profile]=await db.select().from(s.profiles).where(eq(s.profiles.id,user.id));await logAudit({actorId:user.id,actorName:profile?.fullName||user.email||'Pengguna',action:'logout',entity:'profiles',entityId:user.id,summary:`Keluar: ${user.email||'pengguna'}`});}}catch{/* audit logout best-effort */}await auth.auth.signOut();}redirect('/login');}
+
+// ---------------------------------------------------------------------------
+// O-A — select async untuk modal (pengganti pengiriman seluruh tabel ke client).
+// Opsi referensi (kontrak/unit/klien), riwayat revisi, jam dapat ditagih, dan
+// riwayat pembayaran diambil TEPAT saat dibutuhkan — saat modal dibuka atau
+// pilihan berubah — bukan dikirim utuh di payload halaman setiap navigasi.
+// Semua read-only; otorisasi cukup requireUser() tanpa role khusus karena
+// tidak membocorkan data selain yang memang akan ditampilkan di form.
+// ---------------------------------------------------------------------------
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export type FormOptionsData = {
+  contracts: { id: string; contractNumber: string; ratePerHour: string; status: string; clientName: string | null; unitCode: string | null }[];
+  clients: { id: string; companyName: string }[];
+  fleet: { id: string; unitCode: string; brandModel: string; hourlyRate: string; status: string }[];
+};
+
+export async function getFormOptions(module: string, editingUnitId?: string): Promise<FormOptionsData> {
+  await requireUser();
+  const empty: FormOptionsData = { contracts: [], clients: [], fleet: [] };
+  if (module === 'contracts') {
+    const [clients, fleet] = await Promise.all([
+      db.select({ id: s.clients.id, companyName: s.clients.companyName }).from(s.clients).orderBy(s.clients.companyName),
+      db.select({ id: s.fleet.id, unitCode: s.fleet.unitCode, brandModel: s.fleet.brandModel, hourlyRate: s.fleet.hourlyRate, status: s.fleet.status })
+        .from(s.fleet)
+        .where(editingUnitId && UUID_RE.test(editingUnitId) ? or(eq(s.fleet.status, 'available'), eq(s.fleet.id, editingUnitId)) : eq(s.fleet.status, 'available'))
+        .orderBy(s.fleet.unitCode),
+    ]);
+    return { ...empty, clients, fleet };
+  }
+  if (module === 'timesheets' || module === 'bast' || module === 'invoices') {
+    // Form kontrak: timesheet/BAST hanya kontrak aktif; invoice boleh semua
+    // (paritas dengan perilaku lama sebelum select dipindah ke server).
+    const contracts = await db.select({
+      id: s.contracts.id, contractNumber: s.contracts.contractNumber, ratePerHour: s.contracts.ratePerHour, status: s.contracts.status,
+      clientName: s.clients.companyName, unitCode: s.fleet.unitCode,
+    }).from(s.contracts)
+      .leftJoin(s.clients, eq(s.clients.id, s.contracts.clientId))
+      .leftJoin(s.fleet, eq(s.fleet.id, s.contracts.unitId))
+      .where(module === 'invoices' ? undefined : eq(s.contracts.status, 'active'))
+      .orderBy(desc(s.contracts.createdAt));
+    return { ...empty, contracts };
+  }
+  return empty;
+}
+
+export async function getBillableHours(contractId: string): Promise<{ hours: number }> {
+  await requireUser();
+  if (!UUID_RE.test(contractId)) return { hours: 0 };
+  const rows = await db.select({ h: s.timesheets.effectiveHours }).from(s.timesheets)
+    .where(and(eq(s.timesheets.contractId, contractId), eq(s.timesheets.status, 'approved'), isNull(s.timesheets.invoiceId)));
+  return { hours: rows.reduce((a, r) => a + Number(r.h ?? 0), 0) };
+}
+
+export async function getRevisionHistory(contractId: string): Promise<{ id: string; revisionNumber: number; createdAt: Date; prevRate: string; newRate: string; reason: string }[]> {
+  await requireUser();
+  if (!UUID_RE.test(contractId)) return [];
+  return db.select({ id: s.contractRevisions.id, revisionNumber: s.contractRevisions.revisionNumber, createdAt: s.contractRevisions.createdAt, prevRate: s.contractRevisions.prevRate, newRate: s.contractRevisions.newRate, reason: s.contractRevisions.reason })
+    .from(s.contractRevisions).where(eq(s.contractRevisions.contractId, contractId)).orderBy(desc(s.contractRevisions.revisionNumber));
+}
+
+export async function getInvoicePayments(invoiceId: string) {
+  await requireUser();
+  if (!UUID_RE.test(invoiceId)) return [];
+  return db.select().from(s.payments).where(eq(s.payments.invoiceId, invoiceId)).orderBy(desc(s.payments.paidAt), desc(s.payments.createdAt));
+}

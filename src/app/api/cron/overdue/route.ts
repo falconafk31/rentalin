@@ -16,10 +16,12 @@ export async function GET(request: Request) {
   if (!secret || auth !== `Bearer ${secret}`) {
     return Response.json({ message: 'Tidak diizinkan.' }, { status: 401 });
   }
+  // "Hari ini" mengikuti zona waktu perusahaan (WIB/WITA/WIT).
+  const [cfg] = await db.select({ timezone: s.companySettings.timezone }).from(s.companySettings).limit(1);
   const updated = await db
     .update(s.invoices)
     .set({ status: 'overdue' })
-    .where(and(inArray(s.invoices.status, ['unpaid', 'partial']), sql`${s.invoices.dueDate} < ${todayISO()}`))
+    .where(and(inArray(s.invoices.status, ['unpaid', 'partial']), sql`${s.invoices.dueDate} < ${todayISO(cfg?.timezone)}`))
     .returning({ id: s.invoices.id });
   if (updated.length) {
     await logAudit({ action: 'cron', entity: 'invoices', summary: `Cron menandai ${updated.length} invoice sebagai jatuh tempo` });
