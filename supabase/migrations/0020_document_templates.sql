@@ -33,7 +33,8 @@ DROP POLICY IF EXISTS templates_staff_read ON document_templates;
 CREATE POLICY templates_staff_read ON document_templates FOR SELECT TO authenticated
   USING (public.current_app_role() IN ('admin', 'operations', 'operator', 'finance'));
 
-DROP POLICY IF EXISTS templates_admin_write ON document_templates FOR ALL TO authenticated
+DROP POLICY IF EXISTS templates_admin_write ON document_templates;
+CREATE POLICY templates_admin_write ON document_templates FOR ALL TO authenticated
   USING (public.current_app_role() = 'admin')
   WITH CHECK (public.current_app_role() = 'admin');
 
