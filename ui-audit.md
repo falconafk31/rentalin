@@ -258,3 +258,66 @@ npm run dev                 # uji manual dengan DATABASE_URL lokal
 
 Beri tahu saya item mana dari §3 yang mau dieksekusi (mis. "kerjakan O-A + A-2, hapus D-3"),
 atau minta saya push + buka PR bila sudah puas — **saya tidak akan merge/push tanpa perintah eksplisit.**
+
+---
+
+# Laporan Eksekusi Audit `.zcode/audit` — 12 September 2026
+
+> Branch kerja: `feat/ui-audit-exec` (commit lokal saja, **tidak** di-push/di-merge).
+> Semua saran dari 10 file audit dieksekusi kecuali 2 item yang ditandai **perlu keputusan**.
+> Verifikasi akhir: `npm run lint` 0 error 0 warning · `npx tsc --noEmit` bersih ·
+> `env -u DATABASE_URL npm run build` sukses.
+
+Commit terpisah per topik: `4703121` (01) · `0400796` (02) · `6110ce6` (03) · `8fc274c` (modul) · `26ab4eb` (perbaikan build).
+
+## Topik 01 — Kehalusan list/tabel
+
+| Item | File kode | Efek |
+|---|---|---|
+| P1 | `src/components/module-workspace.tsx` | `router.prefetch(url)` saat hover/focus di tab status, kartu fleet, banner kedaluwarsa, tombol sort, dan semua tombol pager — klik berikutnya mulai dari cache RSC. Helper URL `buildUrl` dipakai bersama navigate/prefetch (tidak duplikat logika). |
+| P2 | `src/app/globals.css` | `.table-scroll` kini `transition:opacity .15s ease` — dim loading tidak lagi snap/kedip. |
+| P3 | `src/components/module-workspace.tsx`, `globals.css` | Navigasi tab/filter besar menampilkan skeleton baris shimmer (pola `.loading-rows`, sama seperti `loading-cards`) alih-alih baris lama diredupkan; perubahan kecil (pager/sort/search) tetap dim. Aksi simpan/setujui tidak memicu skeleton. |
+| P4 | `src/lib/pagination.ts` (baru), `src/lib/data.ts`, `module-workspace.tsx` | `MODULE_PAGE_SIZE` 8 → 15; angka 8 yang di-hardcode di nomor baris & footer pagination diganti konstanta. |
+| P5 | `src/app/globals.css` | `tbody tr` dapat `transition:background .15s` — hover baris halus. |
+| P6 | `src/components/module-workspace.tsx` | Tab status, kartu fleet, dan select kategori optimistik: highlight berubah seketika saat klik (`optStatus`/`optCategory`), lalu tersinkron ulang dari echo filter server (pola sama dengan debounce search). |
+
+## Topik 02 — Konsistensi form & list
+
+| Item | File kode | Efek |
+|---|---|---|
+| G1 | `module-workspace.tsx`, `globals.css` | Komponen `ModuleSummary` tunggal dipakai fleet (kartu klik = filter) & invoices (kartu statis 3 angka, warna hijau/oranye dipertahankan). Class & CSS `.invoice-stats` dihapus; varian grid `.module-stats.cols-3` mengikuti semua breakpoint lama. |
+| G2 | — | **PERLU KEPUTUSAN.** Audit menyuruh memilih salah satu: hapus kartu `.module-stats` fleet ATAU hapus tab status fleet (K2: dua kontrol filter identik). Keduanya mengubah UI secara terlihat, jadi tidak ditebak; keduanya tetap ada sampai ada keputusan. Setelah diputus, implementasinya 1–2 jam karena kartu kini sudah lewat `ModuleSummary`. |
+| G3 | `module-workspace.tsx` | Filter kategori `small-select` dirender bila `data.categoryOptions?.length` — bukan lagi `module === 'fleet'`. Modul baru tinggal isi `categoryOptions` di server. |
+| G4 | `module-workspace.tsx` | Helper `field()`/`selectField()`/`textareaField()` menerima `hint?` → dirender `<small className="cell-sub">` saat field tidak error. Mekanisme konvensi siap; teks hint baru tidak ditambahkan ke form modul (akan mengubah tampilan yang tidak diminta). |
+| G5 | `module-workspace.tsx` | 9 blok form manual dimigrasikan ke helper: select kontrak/unit/klien (buat & revisi), textarea alasan revisi, alamat klien, catatan timesheet & BAST, select jenis BAST, `selectContract`. Perilaku (disabled saat opsi dimuat, onChange, nilai default) identik. |
+| G6 | `module-workspace.tsx` | `submitLabel` masuk ke map `config` per modul; rantai ternary panjang di footer dipangkas — hanya 2 kasus dinamis yang tersisa (`revising`, bulk fleet dengan jumlah unit). |
+| G7 | `README.md` | Catatan desain ditambahkan: modul tanpa status (Klien) memang hanya menampilkan tab "Semua" — by design, bukan kelalaian. |
+
+## Topik 03 — Ikon
+
+| Item | File kode | Efek |
+|---|---|---|
+| R1 | `src/components/shell.tsx` | Sidebar "Data Klien" → `Building2` (konsep perusahaan/mitra, konsisten dengan konteks perusahaan di Pengaturan); `UsersRound` kini khusus "Pengguna & Peran". |
+| R2 | `src/components/template-workspace.tsx` | Tombol "Terbitkan" template PDF → `Send` (metafora literal kirim/sahkan; `Rocket` dihapus dari kode). |
+| R3 | `docs/icon-map.md` (baru) | Tabel pemetaan konsep → ikon lucide → file pemakaian, + daftar ikon yang dilarang dipakai ulang (`UsersRound` utk klien, `Rocket`). Modul baru wajib cek tabel ini. |
+| R4 | `docs/icon-map.md` | Aturan "satu-satunya sumber ikon: lucide-react" didokumentasikan di header tabel. Tidak ada emoji/ikon custom lain di `src/` (diverifikasi grep). |
+
+## File modul
+
+| Item | File kode | Efek |
+|---|---|---|
+| C1 (`contracts.md`/`invoices.md`) | `globals.css`, `module-workspace.tsx`, `template-workspace.tsx` | Class `.invoice-preview` → `.summary-box` di seluruh 15 pemakaiannya (CSS + JSX). Netral untuk maintainer baru. |
+| B1 (`bast.md`) | `module-workspace.tsx` | Varian minimal sesuai saran audit: `loading="lazy" decoding="async"` pada pratinjau foto (batas dimensi CSS sudah ada). **Catatan:** varian penuh (`next/image` + `remotePatterns`) tidak dipilih karena pratinjau memakai object-URL lokal (blob:) yang tidak didukung `next/image` tanpa custom loader — perlu keputusan bila ingin pindah ke signed-URL Supabase. |
+| `fleet.md` `clients.md` `timesheets.md` `invoices.md` `settings.md` | — | Tidak ada item baru; seluruh temuannya sudah tercakup G1–G7 / R1–R2 / I1–I3 / K1–K7 yang dieksekusi di atas. `timesheets.md` mengonfirmasi `info-callout` memang pola yang benar untuk kasus "1 angka penting". |
+
+## Perbaikan pasca-eksekusi
+
+| Item | File kode | Efek |
+|---|---|---|
+| Fixup build | `src/lib/pagination.ts` (baru), `data.ts`, `module-workspace.tsx` | Import *nilai* `MODULE_PAGE_SIZE` dari `lib/data.ts` (server-only) ke client component menyeret `pg`/`dns`/`fs` ke bundle browser → build tanpa env gagal. Konstanta dipindah ke `lib/pagination.ts` (netral), `data.ts` re-export. |
+
+## Ringkasan status
+
+- **Dikerjakan:** P1–P6, G1, G3–G7, R1–R4, C1, B1 (minimal).
+- **Perlu keputusan:** G2 (kartu vs tab status fleet), B1-varian-penuh (`next/image` + signed URL).
+- Perilaku & tampilan selain yang disebut audit tidak berubah; verifikasi lint/typecheck/build hijau.
