@@ -1,7 +1,7 @@
 'use client';
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { FileText, Save, Rocket, History, Eye, CircleCheck, TriangleAlert, X } from 'lucide-react';
+import { FileText, Save, Send, History, Eye, CircleCheck, TriangleAlert, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { saveTemplateDraft, publishTemplate, rollbackTemplate } from '@/app/actions';
 import { dateTimeLabel } from '@/lib/format';
@@ -149,7 +149,7 @@ export function TemplatesWorkspace({ data, canWrite }: { data: TemplatesData; ca
             <span style={{ flex: 1 }}>{h.title}<small className="cell-sub">{dateTimeLabel(h.createdAt)}</small></span>
             {canWrite && h.status === 'draft' && (
               <button className="button button-outline button-sm" disabled={pending} onClick={() => run(() => publishTemplate(h.id))}>
-                <Rocket size={14} />Terbitkan
+                <Send size={14} />Terbitkan
               </button>
             )}
             {canWrite && h.status !== 'published' && (

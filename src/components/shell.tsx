@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { LayoutDashboard, UsersRound, FileText, ClipboardList, ClipboardCheck, ReceiptText, Settings2, Search, Bell, ChevronDown, ChevronRight, ChevronsLeft, PanelLeftOpen, CircleHelp, ArrowUpRight, X, LogOut, Home, Menu, ScrollText, LoaderCircle } from 'lucide-react';
+import { LayoutDashboard, FileText, ClipboardList, ClipboardCheck, ReceiptText, Settings2, Search, Bell, ChevronDown, ChevronRight, ChevronsLeft, PanelLeftOpen, CircleHelp, ArrowUpRight, X, LogOut, Home, Menu, ScrollText, LoaderCircle, Building2 } from 'lucide-react';
 import { EquipmentIcon, BrandMark } from './icons';
 import { Modal } from './ui/dialog';
 import { signOut } from '@/app/actions';
@@ -14,7 +14,7 @@ type NavEntry = { path: string; label: string; icon: ElementType; section: strin
 export const navigation: NavEntry[] = [
   { path: '/dashboard', label: 'Dasbor Utama', icon: LayoutDashboard, section: '' },
   { path: '/dashboard/fleet', label: 'Armada Alat Berat', icon: EquipmentIcon, section: 'DATA POKOK' },
-  { path: '/dashboard/clients', label: 'Data Klien', icon: UsersRound, section: 'DATA POKOK' },
+  { path: '/dashboard/clients', label: 'Data Klien', icon: Building2, section: 'DATA POKOK' },
   { path: '/dashboard/contracts', label: '1. Kontrak Sewa', icon: FileText, section: 'SEWA BERJALAN' },
   { path: '/dashboard/bast', label: '2. BAST Serah Terima', icon: ClipboardCheck, section: 'SEWA BERJALAN' },
   { path: '/dashboard/timesheets', label: '3. Timesheet Harian', icon: ClipboardList, section: 'SEWA BERJALAN' },
