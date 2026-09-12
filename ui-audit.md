@@ -361,6 +361,7 @@ Commit: `7fc7d88` — `feat(theme): dark mode per audit/04-dark-mode.md`.
 | Item | File kode | Efek |
 |---|---|---|
 | Fixup build | `src/lib/pagination.ts` (baru), `data.ts`, `module-workspace.tsx` | Import *nilai* `MODULE_PAGE_SIZE` dari `lib/data.ts` (server-only) ke client component menyeret `pg`/`dns`/`fs` ke bundle browser → build tanpa env gagal. Konstanta dipindah ke `lib/pagination.ts` (netral), `data.ts` re-export. |
+| Fix hydration + DM-5 (dark kontras ala Cloudflare) | `src/app/layout.tsx`, `src/app/globals.css` | `<html>` diberi `suppressHydrationWarning` — skrip anti-flash memang mengubah `data-theme` sebelum hydration, jadi warning mismatch React hilang. Blok `[data-theme="dark"]` DM5 memetakan semua hex terang sisa ke token yang ada (tanpa warna baru, mode terang tak berubah): hover baris/kartu → `surface-alt`, kartu/tab terpilih → `orange-light`, `info-callout` → biru status, `expiry-banner`/`effective-hours`/`preview-label` → amber status, approve → hijau status, reject → merah status, ikon metrik per tone → token statusnya, form-footer/summary/verify → `surface-alt`, skeleton → `surface-alt`/`border`. Bonus: merge PR #17 sempat menimpa CSS audit (`.summary-box`, `.module-stats>div`, `.cols-3`, `.loading-rows` hilang dari `globals.css` padahal TSX masih memakainya) — dikembalikan di commit yang sama. Login tetap terang, PDF tak disentuh. |
 
 ## Ringkasan status
 
