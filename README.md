@@ -15,6 +15,8 @@ A working Next.js 16 App Router / TypeScript MVP with Indonesian interfaces, Pos
 - `/login`: Supabase password authentication, session refresh via Next.js proxy, role authorization on every server mutation.
 - `/verify/doc?id=UUID`: minimal public document registration check; no customer or financial details exposed.
 
+> UI convention (audit 02/G7): modules without a status concept (e.g. **Data Klien**) intentionally render a single "Semua" tab instead of status tabs — this is by design, not a missing feature. Do not "fix" it by inventing client statuses.
+
 ## Local preview
 
 The supplied sandbox has a local `DATABASE_URL`. When Supabase is not configured **and the app is not running on Vercel**, a clearly labeled local administrator preview is available. Realistic demo data is seeded only into an empty local-preview database under a transaction/advisory lock. This is deliberately not production authentication. No public landing page is used; `/` redirects to the operational dashboard.

@@ -40,7 +40,11 @@ const fallbackSettings: CompanySettings = { id: 'main', companyName: 'PT Penyewa
 
 export const MODULE_SLUGS = ['fleet', 'clients', 'contracts', 'timesheets', 'bast', 'invoices', 'settings'] as const;
 export type ModuleSlug = (typeof MODULE_SLUGS)[number];
-export const MODULE_PAGE_SIZE = 8;
+// P4 (audit 01): 8 terlalu kecil — makin sering klik pager. 15 baris masih
+// ringan untuk payload RSC per halaman. Konstanta tinggal di lib/pagination.ts
+// (bukan di sini) agar bisa dipakai client component tanpa menyeret pg.
+export { MODULE_PAGE_SIZE } from './pagination';
+import { MODULE_PAGE_SIZE } from './pagination';
 
 export type ModuleFilters = { q: string; status: string; category: string; expiringOnly: boolean; page: number; sort: number };
 

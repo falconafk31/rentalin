@@ -11,6 +11,16 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="id">
       <head>
+        {/* DM2 (audit 04): body tidak lagi memakai class Tailwind bg-slate-100/
+            text-slate-900 — itu sumber kebenaran warna kedua di luar sistem
+            --bg/--text. Sekarang globals.css satu-satunya penentu. */}
+        {/* Anti-flash (audit 04 langkah 3): tentukan tema SEBELUM React mount —
+            localStorage menang, kalau kosong ikut prefers-color-scheme. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var s=localStorage.getItem('heavyops-theme');var d=s==='dark'||(!s&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();`,
+          }}
+        />
         {/* Font dimuat via <link> + preconnect, bukan @import di CSS yang
             memblokir render dan memperlambat first paint. next/font tidak
             dipakai agar build tidak bergantung pada akses jaringan ke Google
@@ -24,7 +34,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           rel="stylesheet"
         />
       </head>
-      <body className="bg-slate-100 text-slate-900 antialiased">{children}</body>
+      <body>{children}</body>
     </html>
   );
 }

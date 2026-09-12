@@ -1,8 +1,8 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { LayoutDashboard, UsersRound, FileText, ClipboardList, ClipboardCheck, ReceiptText, Settings2, Search, Bell, ChevronDown, ChevronRight, ChevronsLeft, PanelLeftOpen, CircleHelp, ArrowUpRight, X, LogOut, Home, Menu, ScrollText, LoaderCircle } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from 'react';
+import { LayoutDashboard, FileText, ClipboardList, ClipboardCheck, ReceiptText, Settings2, Search, Bell, ChevronDown, ChevronRight, ChevronsLeft, PanelLeftOpen, CircleHelp, ArrowUpRight, X, LogOut, Home, Menu, ScrollText, LoaderCircle, Building2, UsersRound, Moon, Sun } from 'lucide-react';
 import { EquipmentIcon, BrandMark } from './icons';
 import { Modal } from './ui/dialog';
 import { signOut } from '@/app/actions';
@@ -14,7 +14,7 @@ type NavEntry = { path: string; label: string; icon: ElementType; section: strin
 export const navigation: NavEntry[] = [
   { path: '/dashboard', label: 'Dasbor Utama', icon: LayoutDashboard, section: '' },
   { path: '/dashboard/fleet', label: 'Armada Alat Berat', icon: EquipmentIcon, section: 'DATA POKOK' },
-  { path: '/dashboard/clients', label: 'Data Klien', icon: UsersRound, section: 'DATA POKOK' },
+  { path: '/dashboard/clients', label: 'Data Klien', icon: Building2, section: 'DATA POKOK' },
   { path: '/dashboard/contracts', label: '1. Kontrak Sewa', icon: FileText, section: 'SEWA BERJALAN' },
   { path: '/dashboard/bast', label: '2. BAST Serah Terima', icon: ClipboardCheck, section: 'SEWA BERJALAN' },
   { path: '/dashboard/timesheets', label: '3. Timesheet Harian', icon: ClipboardList, section: 'SEWA BERJALAN' },
@@ -25,6 +25,16 @@ export const navigation: NavEntry[] = [
 ];
 const navSections = ['DATA POKOK', 'SEWA BERJALAN', 'KEUANGAN', 'LAINNYA'];
 
+// Sumber status tema: atribut data-theme di <html> (dipasang skrip anti-flash
+// di layout.tsx, diubah tombol di menu profil). Dibaca lewat store eksternal
+// supaya React ikut memperbarui ikon tanpa state turunan.
+const THEME_EVENT = 'heavyops-theme-change';
+const subscribeTheme = (onChange: () => void) => {
+  window.addEventListener(THEME_EVENT, onChange);
+  return () => window.removeEventListener(THEME_EVENT, onChange);
+};
+const themeSnapshot = () => document.documentElement.getAttribute('data-theme') === 'dark';
+
 export function Shell({ data, children }: { data: ShellData; children: React.ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -32,6 +42,18 @@ export function Shell({ data, children }: { data: ShellData; children: React.Rea
   const [notifications, setNotifications] = useState(false);
   const [profile, setProfile] = useState(false);
   const [help, setHelp] = useState(false);
+  // Tema (audit 04): nilai awal sudah ditentukan skrip anti-flash di <head>
+  // sebelum hydration. Status tema dibaca dari DOM lewat useSyncExternalStore
+  // (bukan setState di effect) supaya tidak ada cascading render dan snapshot
+  // server/klien tetap konsisten.
+  const dark = useSyncExternalStore(subscribeTheme, themeSnapshot, () => false);
+  const toggleTheme = () => {
+    const next = !dark;
+    if (next) document.documentElement.setAttribute('data-theme', 'dark');
+    else document.documentElement.removeAttribute('data-theme');
+    try { localStorage.setItem('heavyops-theme', next ? 'dark' : 'light'); } catch { /* localStorage dapat diblokir browser */ }
+    window.dispatchEvent(new Event(THEME_EVENT));
+  };
   // Zona waktu kalender perusahaan untuk label tanggal (WIB default).
   const tz = data.settings.timezone;
   // O-A: angka badge/pemberitahuan berasal dari count SQL (data.counts) —
@@ -124,6 +146,7 @@ export function Shell({ data, children }: { data: ShellData; children: React.Rea
                   <b>{data.user.fullName}</b><p>{data.user.email}</p>
                   {data.user.preview && <span className="preview-label">Mode pratinjau · Data demonstrasi</span>}
                   <Link href="/dashboard/settings" onClick={() => setProfile(false)}><Settings2 size={16} />Pengaturan akun</Link>
+                  <button type="button" onClick={toggleTheme} aria-pressed={dark}>{dark ? <Sun size={16} /> : <Moon size={16} />}{dark ? 'Mode terang' : 'Mode gelap'}</button>
                   <form action={signOut}><button><LogOut size={16} />Keluar dari sistem</button></form>
                 </div>
               )}

@@ -278,3 +278,93 @@ npm run dev                 # uji manual dengan DATABASE_URL lokal
 
 Beri tahu saya item mana dari §3 yang mau dieksekusi (mis. "kerjakan O-A + A-2, hapus D-3"),
 atau minta saya push + buka PR bila sudah puas — **saya tidak akan merge/push tanpa perintah eksplisit.**
+
+---
+
+# Laporan Eksekusi Audit `.zcode/audit` — 12 September 2026
+
+> Branch kerja: `feat/ui-audit-exec` (commit lokal saja, **tidak** di-push/di-merge).
+> Semua saran dari 10 file audit dieksekusi kecuali 1 item yang masih menunggu keputusan (B1-varian-penuh); G2 sudah diputus dan dikerjakan susulan (commit `6fc56a6`).
+> Verifikasi akhir: `npm run lint` 0 error 0 warning · `npx tsc --noEmit` bersih ·
+> `env -u DATABASE_URL npm run build` sukses.
+
+Commit terpisah per topik: `4703121` (01) · `0400796` (02) · `6110ce6` (03) · `8fc274c` (modul) · `26ab4eb` (perbaikan build) · `6fc56a6` (G2 susulan) · `7fc7d88` (topik 04 dark mode).
+
+## Topik 01 — Kehalusan list/tabel
+
+| Item | File kode | Efek |
+|---|---|---|
+| P1 | `src/components/module-workspace.tsx` | `router.prefetch(url)` saat hover/focus di tab status, kartu fleet, banner kedaluwarsa, tombol sort, dan semua tombol pager — klik berikutnya mulai dari cache RSC. Helper URL `buildUrl` dipakai bersama navigate/prefetch (tidak duplikat logika). |
+| P2 | `src/app/globals.css` | `.table-scroll` kini `transition:opacity .15s ease` — dim loading tidak lagi snap/kedip. |
+| P3 | `src/components/module-workspace.tsx`, `globals.css` | Navigasi tab/filter besar menampilkan skeleton baris shimmer (pola `.loading-rows`, sama seperti `loading-cards`) alih-alih baris lama diredupkan; perubahan kecil (pager/sort/search) tetap dim. Aksi simpan/setujui tidak memicu skeleton. |
+| P4 | `src/lib/pagination.ts` (baru), `src/lib/data.ts`, `module-workspace.tsx` | `MODULE_PAGE_SIZE` 8 → 15; angka 8 yang di-hardcode di nomor baris & footer pagination diganti konstanta. |
+| P5 | `src/app/globals.css` | `tbody tr` dapat `transition:background .15s` — hover baris halus. |
+| P6 | `src/components/module-workspace.tsx` | Tab status, kartu fleet, dan select kategori optimistik: highlight berubah seketika saat klik (`optStatus`/`optCategory`), lalu tersinkron ulang dari echo filter server (pola sama dengan debounce search). |
+
+## Topik 02 — Konsistensi form & list
+
+| Item | File kode | Efek |
+|---|---|---|
+| G1 | `module-workspace.tsx`, `globals.css` | Komponen `ModuleSummary` tunggal dipakai fleet (kartu klik = filter) & invoices (kartu statis 3 angka, warna hijau/oranye dipertahankan). Class & CSS `.invoice-stats` dihapus; varian grid `.module-stats.cols-3` mengikuti semua breakpoint lama. |
+| G2 | `module-workspace.tsx` (commit `6fc56a6`) | **SELESAI (keputusan user: kartu yang dipertahankan).** Blok `.table-tabs` tidak dirender untuk `module==='fleet'` — kartu `ModuleSummary` di atas tabel jadi satu-satunya filter status (alasan: lebih informatif, sudah pola bersama invoices). Modul lain (contracts/timesheets/bast/invoices/clients) tidak berubah. Query `?status=` + `navigate()` tetap utuh (deep link & back/forward berfungsi); penanda aktif kartu memakai `optStatus` yang tersinkron echo server. Fungsi "kembali ke Semua" yang tadinya di tab dipindah ke kartu: klik kartu terpilih = lepas filter. Tidak ada celah layout — `.table-toolbar` menempel rapi ke tepi atas panel tanpa elemen tetap yang tersisa. |
+| G3 | `module-workspace.tsx` | Filter kategori `small-select` dirender bila `data.categoryOptions?.length` — bukan lagi `module === 'fleet'`. Modul baru tinggal isi `categoryOptions` di server. |
+| G4 | `module-workspace.tsx` | Helper `field()`/`selectField()`/`textareaField()` menerima `hint?` → dirender `<small className="cell-sub">` saat field tidak error. Mekanisme konvensi siap; teks hint baru tidak ditambahkan ke form modul (akan mengubah tampilan yang tidak diminta). |
+| G5 | `module-workspace.tsx` | 9 blok form manual dimigrasikan ke helper: select kontrak/unit/klien (buat & revisi), textarea alasan revisi, alamat klien, catatan timesheet & BAST, select jenis BAST, `selectContract`. Perilaku (disabled saat opsi dimuat, onChange, nilai default) identik. |
+| G6 | `module-workspace.tsx` | `submitLabel` masuk ke map `config` per modul; rantai ternary panjang di footer dipangkas — hanya 2 kasus dinamis yang tersisa (`revising`, bulk fleet dengan jumlah unit). |
+| G7 | `README.md` | Catatan desain ditambahkan: modul tanpa status (Klien) memang hanya menampilkan tab "Semua" — by design, bukan kelalaian. |
+
+## Topik 03 — Ikon
+
+| Item | File kode | Efek |
+|---|---|---|
+| R1 | `src/components/shell.tsx` | Sidebar "Data Klien" → `Building2` (konsep perusahaan/mitra, konsisten dengan konteks perusahaan di Pengaturan); `UsersRound` kini khusus "Pengguna & Peran". |
+| R2 | `src/components/template-workspace.tsx` | Tombol "Terbitkan" template PDF → `Send` (metafora literal kirim/sahkan; `Rocket` dihapus dari kode). |
+| R3 | `docs/icon-map.md` (baru) | Tabel pemetaan konsep → ikon lucide → file pemakaian, + daftar ikon yang dilarang dipakai ulang (`UsersRound` utk klien, `Rocket`). Modul baru wajib cek tabel ini. |
+| R4 | `docs/icon-map.md` | Aturan "satu-satunya sumber ikon: lucide-react" didokumentasikan di header tabel. Tidak ada emoji/ikon custom lain di `src/` (diverifikasi grep). |
+
+## Topik 04 — Dark mode (`.zcode/audit/04-dark-mode.md`)
+
+Commit: `7fc7d88` — `feat(theme): dark mode per audit/04-dark-mode.md`.
+
+| Item | File kode | Efek |
+|---|---|---|
+| Langkah 1 — token baru | `src/app/globals.css` (`:root`) | Ditambah `--surface-alt:#fafbfc` + 15 token status (5 kategori × text/bg/border) dengan nilai TERANG persis tabel audit; nilai gelap menyusul di blok dark. |
+| Langkah 1 — migrasi hex | `src/app/globals.css` | Nilai yang PERSIS ada di tabel audit dipetakan ke `var(--token)`: `#f7f8fa`→`--bg`, `#fff` (latar)→`--surface`, `#fafbfc`/`#f8f9fb`→`--surface-alt`, `#25292e`→`--text`, `#eaebed`→`--border`, `#ef762d`→`--orange`, `#fff0e7`→`--orange-light`, `#348b67`→`--green`, dan 15 nilai status badge → token status. Mode terang identik (nilai token = nilai lama). Dua `color:#fff` di atas aksen (`.brand-mark`, `.button-danger`) sengaja tetap literal putih — bukan `--surface`, karena di dark mode token itu jadi gelap. |
+| Langkah 2 — blok gelap | `src/app/globals.css` (`[data-theme="dark"]`) | Semua token didefinisikan ulang dengan nilai persis tabel audit (`--bg:#14171c`, `--surface:#1b1f26`, `--surface-alt:#21262f`, `--text:#e7e9ec`, `--muted:#8b929c`, `--border:#2b3038`, `--orange:#f2874a`, `--orange-light:#3a2a1c`, `--green:#4caf82`, + 15 status). Tidak ada warna di luar tabel. `color-scheme` ikut di-set per tema (kontrol native browser). |
+| Langkah 3 — toggle | `src/components/shell.tsx` | Tombol "Mode gelap"/"Mode terang" di popover profil (slot yang sudah ada), memakai `Moon`/`Sun`. Status dibaca lewat `useSyncExternalStore` dari atribut `data-theme` (menghindari setState-in-effect yang dilarang eslint proyek); pilihan disimpan di `localStorage['heavyops-theme']`. |
+| Langkah 3 — anti-flash | `src/app/layout.tsx` | Skrip inline di `<head>` (sebelum React mount): baca `localStorage`, fallback ke `prefers-color-scheme`, lalu pasang `data-theme="dark"` — tidak ada kedipan tema terang saat reload. |
+| Langkah 4 — DM1 | `src/app/globals.css` | Modal, popover header, hasil pencarian, dan toast di dark mode: border dinaikkan (campuran token, bukan warna baru) + shadow `#00000055` — kartu tetap terangkat walau shadow hitam tak terlihat di latar gelap. |
+| Langkah 4 — DM2 | `src/app/layout.tsx` | Class Tailwind `bg-slate-100 text-slate-900` dihapus dari `<body>`; `globals.css` (`var(--bg)`/`var(--text)`) jadi satu-satunya sumber warna body. |
+| Langkah 4 — DM3 | `src/app/globals.css` | `::selection` versi gelap `#4a3320` (tint oranye gelap dari tabel). Outline fokus `#ef762d77` → `color-mix(in srgb, var(--orange) 47%, transparent)` sehingga tetap oranye brand di kedua tema (nilai terang identik secara efektif). |
+| Langkah 4 — DM4 | `src/app/globals.css` | `.photo-thumb img` diberi `background:var(--surface)` — thumbnail foto BAST tidak jadi kotak putih menyala. Foto BAST di UI hanya `<img>` (satu-satunya di `src/`); QR/logo UI memakai SVG inline/`BrandMark`, jadi tidak ada kotak putih lain. |
+| Langkah 6 — login & PDF | `src/app/globals.css` | `.login-page` mendedeklarasikan ulang token terang di subtree-nya → halaman login tetap terang permanen walau `data-theme="dark"` aktif. PDF (`pdf-document.tsx`) tidak disentuh sama sekali. |
+| Langkah 5 — QA kontras | — | Dihitung programatik: rasio teks:bg badge gelap **amber 7.19 · hijau 6.55 · merah 6.12 · biru 7.12 · ungu 6.63** (semua ≥ 4.5:1, sesuai klaim audit). Teks utama dark 13.59:1, muted 5.26:1. |
+
+### Perlu keputusan (topik 04)
+
+| # | Isu | Kenapa tidak dikerjakan |
+|---|---|---|
+| DM-5 | **61 selector masih memakai background terang di luar tabel token** (hover `.icon-button`/`.nav-item`, `.info-callout`, `.expiry-banner`, `.summary-box`, `tbody tr:hover`, `.approval`/`.reject`, `.pipeline-cta`, dll) — di mode gelap ini tetap terang sehingga terlihat seperti blok menyala. Selain itu ~148 deklarasi `color:` abu-abu (mis. `#9c9ea4`, `#777e87`) tidak punya token di tabel. | Tabel audit hanya mendefinisikan 23 nilai; 216 hex sisanya tidak punya padanan gelap. Memetakannya ke token yang ada akan mengubah tampilan mode terang (dilarang di instruksi), sedangkan mengarang nilai gelap baru = menebak di luar tabel. **Butuh keputusan Anda** (opsi diajukan di luar laporan ini). |
+| DM-6 | **Warna chart** (`overview-charts.tsx`, donut `overview.tsx`) — audit menyebut "ikut mapping hue yang sama persis" tapi nilainya beda dari token tabel (`#f47727` vs `#ef762d`, `#50a885` vs `#599b7d`, `#c8cece`, `#e9e9e7`, `#959593`). | Mengganti ke token tabel mengubah tampilan chart di mode terang (dilarang); mempertahankan nilai lama membuat chart tidak ikut menyesuaikan gelap. **Butuh keputusan.** |
+| DM-7 | **`/verify/doc`** (halaman verifikasi publik) ikut berubah gelap. | Audit hanya menyebut login tetap terang; halaman publik lain tidak dibahas. Halaman ini memakai palet krem seperti login — perlu konfirmasi apakah ikut diperlakukan "selalu terang" atau boleh gelap. |
+
+## File modul
+
+| Item | File kode | Efek |
+|---|---|---|
+| C1 (`contracts.md`/`invoices.md`) | `globals.css`, `module-workspace.tsx`, `template-workspace.tsx` | Class `.invoice-preview` → `.summary-box` di seluruh 15 pemakaiannya (CSS + JSX). Netral untuk maintainer baru. |
+| B1 (`bast.md`) | `module-workspace.tsx` | Varian minimal sesuai saran audit: `loading="lazy" decoding="async"` pada pratinjau foto (batas dimensi CSS sudah ada). **Catatan:** varian penuh (`next/image` + `remotePatterns`) tidak dipilih karena pratinjau memakai object-URL lokal (blob:) yang tidak didukung `next/image` tanpa custom loader — perlu keputusan bila ingin pindah ke signed-URL Supabase. |
+| `fleet.md` `clients.md` `timesheets.md` `invoices.md` `settings.md` | — | Tidak ada item baru; seluruh temuannya sudah tercakup G1–G7 / R1–R2 / I1–I3 / K1–K7 yang dieksekusi di atas. `timesheets.md` mengonfirmasi `info-callout` memang pola yang benar untuk kasus "1 angka penting". |
+
+## Perbaikan pasca-eksekusi
+
+| Item | File kode | Efek |
+|---|---|---|
+| Fixup build | `src/lib/pagination.ts` (baru), `data.ts`, `module-workspace.tsx` | Import *nilai* `MODULE_PAGE_SIZE` dari `lib/data.ts` (server-only) ke client component menyeret `pg`/`dns`/`fs` ke bundle browser → build tanpa env gagal. Konstanta dipindah ke `lib/pagination.ts` (netral), `data.ts` re-export. |
+
+## Ringkasan status
+
+- **Dikerjakan:** P1–P6, G1–G7, R1–R4, C1, B1 (minimal), topik 04 langkah 1–4 + 6 (dark mode: token, blok gelap, toggle/persistensi/anti-flash, DM1–DM4, login tetap terang).
+- **Perlu keputusan:** B1-varian-penuh (`next/image` + signed URL Supabase); DM-5 (61 selector berlatar terang di luar tabel token + ~148 `color:` tanpa token), DM-6 (nilai warna chart beda dari token tabel), DM-7 (`/verify/doc` ikut gelap atau selalu terang). G2 sudah diputus & dieksekusi di `6fc56a6`.
+- Verifikasi akhir topik 04: `npm run lint` 0 error/0 warning · `npx tsc --noEmit` bersih · `env -u DATABASE_URL npm run build` sukses · kontras badge gelap dihitung (6.12–7.19:1, semua ≥4.5:1).
+- Perilaku & tampilan selain yang disebut audit tidak berubah; verifikasi lint/typecheck/build hijau.
