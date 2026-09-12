@@ -255,7 +255,8 @@ Lanjut ke §7 (change management) — alur ini yang dipakai selamanya setelah go
 | 6 | `0006_bast_checklist.sql` | 9 kolom boolean BAST (`oil`…`documents`, NOT NULL DEFAULT TRUE) | #2 (tabel `handovers`) |
 | 7 | `0007_contract_revisions.sql` | Tabel `contract_revisions` + indeks + RLS (`staff_read` semua role, `operations_write` admin/operations) | #1 (`contracts`, `fleet`, `profiles`) + #3/#4 (fungsi & pola RLS) |
 | 8 | `0008_signer_fields.sql` | Kolom `signer_name` + `signer_title` di `company_settings` untuk blok TTD PDF | #2 (tabel `company_settings`) |
-| 20 | `0020_document_templates.sql` | Tabel `document_templates` (kind/version/status/content/variables) + indeks `(kind,status)` + RLS (SELECT semua role, ALL admin) + seed 4 template published v1 | #3/#4 (fungsi & pola RLS) + `profiles` (updated_by) |
+| 9–21 | `0009`–`0021` | Konfigurasi PPN, ledger pembayaran, audit log, foto BAST, invite trigger, snapshot pajak + guard, indeks paginasi, locale, identitas dokumen, template PDF, uniqueness BAST | Lihat header tiap file |
+| 22 | `0022_handover_uniqueness_idempotent.sql` | Guard idempoten `handovers_contract_type_unique` (pola 0016) — aman di-rerun bila 0021 terputus parsial (error 42P07) | #21 |
 
 ```
 0001 ──► 0002 ──► 0004

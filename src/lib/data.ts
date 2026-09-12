@@ -446,6 +446,8 @@ export type DashboardData = {
   fleetTotal: number;
   fleetByStatus: Record<string, number>;
   revenueByMonth: Record<string, number>;
+  // Pendapatan harian 62 hari terakhir — granularitas chart 7 Hari / 1 Bulan.
+  revenueByDay: Record<string, number>;
   unpaidCount: number;
   overdueCount: number;
   pendingTimesheets: number;
@@ -484,11 +486,14 @@ export const getDashboardData = cache(async (): Promise<DashboardData> => {
   await seedPreview();
   const today = todayISO(settings.timezone);
   const warnUntil = addDaysISO(today, Number(settings.expiryWarningDays) || 30);
-  const [fleetTotalRes, statusRes, revenueRes, unpaidRes, overdueRes, pendingRes, expiringRes, recentFleet, latestTimesheet, latestInvoice, latestHandover, latestContract, pipelineRes] = await Promise.all([
+  const [fleetTotalRes, statusRes, revenueRes, dailyRes, unpaidRes, overdueRes, pendingRes, expiringRes, recentFleet, latestTimesheet, latestInvoice, latestHandover, latestContract, pipelineRes] = await Promise.all([
     db.select({ n: count() }).from(s.fleet),
     db.select({ status: s.fleet.status, n: count() }).from(s.fleet).groupBy(s.fleet.status),
     db.select({ m: sql<string>`to_char(${s.invoices.issueDate}, 'YYYY-MM')`, total: sql<string>`coalesce(sum(${s.invoices.totalAmount}), 0)` })
       .from(s.invoices).groupBy(sql`1`),
+    // Harian 62 hari terakhir untuk chart pendek — agregat SUM/GROUP BY di SQL.
+    db.select({ d: sql<string>`to_char(${s.invoices.issueDate}, 'YYYY-MM-DD')`, total: sql<string>`coalesce(sum(${s.invoices.totalAmount}), 0)` })
+      .from(s.invoices).where(sql`${s.invoices.issueDate} >= ${addDaysISO(today, -61)}`).groupBy(sql`1`),
     db.select({ n: count() }).from(s.invoices).where(sql`${s.invoices.status} <> 'paid'`),
     db.select({ n: count() }).from(s.invoices).where(and(sql`${s.invoices.status} <> 'paid'`, sql`${s.invoices.dueDate} < ${today}`)),
     db.select({ n: count() }).from(s.timesheets).where(eq(s.timesheets.status, 'pending')),
@@ -508,6 +513,7 @@ export const getDashboardData = cache(async (): Promise<DashboardData> => {
     fleetTotal: Number(fleetTotalRes[0]?.n ?? 0),
     fleetByStatus: Object.fromEntries(statusRes.map(r => [r.status, Number(r.n)])),
     revenueByMonth: Object.fromEntries(revenueRes.map(r => [r.m, Number(r.total)])),
+    revenueByDay: Object.fromEntries(dailyRes.map(r => [r.d, Number(r.total)])),
     unpaidCount: Number(unpaidRes[0]?.n ?? 0),
     overdueCount: Number(overdueRes[0]?.n ?? 0),
     pendingTimesheets: Number(pendingRes[0]?.n ?? 0),

@@ -1,7 +1,7 @@
 'use client';
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition, memo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Plus, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, Pencil, Trash2, FileDown, Check, X, TriangleAlert, LoaderCircle, CircleCheck, Building2, Filter, Info, Save, ShieldCheck, Wallet, ImagePlus } from 'lucide-react';
+import { Search, Plus, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, Pencil, Trash2, FileDown, Check, X, TriangleAlert, LoaderCircle, CircleCheck, Building2, Filter, Info, Save, ShieldCheck, Wallet, ImagePlus, ClipboardCheck } from 'lucide-react';
 import { EquipmentIcon } from './icons';
 import { Button } from './ui/button';
 import { Modal } from './ui/dialog';
@@ -743,14 +743,12 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
 
           {module === 'bast' && (
             <>
+              <div className="form-section-header">Informasi BAST</div>
               {editing ? <input type="hidden" name="contractId" value={String(editing.contractId || '')} /> : selectContract}
               {selectField('type', 'Jenis Serah Terima', <><option value="mobilization">Mobilisasi — Penyerahan Unit</option><option value="demobilization">Demobilisasi — Pengembalian Unit</option></>, { defaultValue: String(editing?.type || 'mobilization'), disabled: !!editing })}
               {field('date', 'Tanggal Serah Terima', 'date')}
-              <div className="inspection-checklist span-2">
-                <h4>Daftar Pemeriksaan Unit (12 titik)</h4>
-                <p>Centang komponen yang telah diperiksa dan dinyatakan dalam kondisi baik.</p>
-                {bastItems.map(([name, label, desc]) => <label key={name}><input type="checkbox" name={name} defaultChecked={editing ? !!editing[name] : true} /><span><b>{label}</b><small>{desc}</small></span></label>)}
-              </div>
+              <BastChecklist editing={editing} />
+              <div className="form-section-header">Dokumentasi Kondisi Unit</div>
               <div className="span-2"><PhotoUploader errors={formErrors} existing={editing?.photoUrls as string[] | undefined} /></div>
               {textareaField('notes', 'Catatan Pemeriksaan', { span2: true, placeholder: 'Catat kerusakan, kelengkapan, atau hal yang perlu ditindaklanjuti', defaultValue: editing?.notes ? String(editing.notes) : '' })}
             </>
@@ -874,16 +872,42 @@ function PaymentsModal({ invoice, payments, tz, onClose, onPay }: {
 }
 
 // ---------------------------------------------------------------------------
+// BAST Inspection Checklist — isolated memoized component prevents parent
+// state changes from causing checkbox reconciliation lag (P0 performance fix).
+// ---------------------------------------------------------------------------
+const BastChecklist = memo(function BastChecklist({ editing }: { editing: EditableRecord | null }) {
+  return (
+    <div className="inspection-checklist span-2">
+      <h4><ClipboardCheck size={18} />Daftar Pemeriksaan Unit (12 titik)</h4>
+      <p>Centang komponen yang telah diperiksa dan dinyatakan dalam kondisi baik.</p>
+      {bastItems.map(([name, label, desc]) => (
+        <label key={name} htmlFor={`bast-${name}`}>
+          <input 
+            type="checkbox" 
+            id={`bast-${name}`}
+            name={name} 
+            defaultChecked={editing ? !!editing[name] : true}
+          />
+          <span><b>{label}</b><small>{desc}</small></span>
+        </label>
+      ))}
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
 // Pengunggah foto BAST — berkas langsung ke Storage privat, path-nya
 // disimpan ke hidden input `photoUrls` (JSON) untuk ikut form BAST.
+// Memoized to prevent rerender when unrelated RecordModal state changes.
 // ---------------------------------------------------------------------------
-function PhotoUploader({ errors, existing }: { errors: Record<string, string> | null; existing?: string[] }) {
+const PhotoUploader = memo(function PhotoUploader({ errors, existing }: { errors: Record<string, string> | null; existing?: string[] }) {
   const [photos, setPhotos] = useState<{ path: string; url: string }[]>(() => 
     existing?.length ? existing.map(path => ({ path, url: `/api/bast-photos?path=${encodeURIComponent(path)}` })) : []
   );
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
-  const add = async (files: FileList | null) => {
+  
+  const add = useCallback(async (files: FileList | null) => {
     if (!files?.length) return;
     setError('');
     const list = Array.from(files).slice(0, 6 - photos.length);
@@ -903,17 +927,24 @@ function PhotoUploader({ errors, existing }: { errors: Record<string, string> | 
       }
     } catch (e) { setError((e as Error).message); }
     setUploading(false);
-  };
-  const remove = (path: string) => setPhotos(prev => {
+  }, [photos.length]);
+  
+  const remove = useCallback((path: string) => setPhotos(prev => {
     const target = prev.find(p => p.path === path);
     if (target) URL.revokeObjectURL(target.url);
     return prev.filter(p => p.path !== path);
-  });
+  }), []);
+  
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    add(e.target.files);
+    e.target.value = '';
+  }, [add]);
+  
   return (
     <div className="form-field">
       <span><ImagePlus size={15} style={{ display: 'inline', verticalAlign: -2 }} /> Lampiran Foto (maks 6, @5 MB)</span>
       <input type="hidden" name="photoUrls" value={JSON.stringify(photos.map(p => p.path))} />
-      <input type="file" accept="image/*" multiple disabled={uploading} onChange={e => { add(e.target.files); e.target.value = ''; }} aria-label="Unggah foto BAST" />
+      <input type="file" accept="image/*" multiple disabled={uploading} onChange={handleFileChange} aria-label="Unggah foto BAST" />
       {uploading && <small className="cell-sub">Mengunggah...</small>}
       {(error || errors?.photos) && <small className="field-error">{error || errors?.photos}</small>}
       {photos.length > 0 && (
@@ -930,4 +961,4 @@ function PhotoUploader({ errors, existing }: { errors: Record<string, string> | 
       )}
     </div>
   );
-}
+});
