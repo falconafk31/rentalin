@@ -10,6 +10,7 @@ import { saveRecord, bulkCreateFleet, changeStatus, deleteClient, resetDatabase,
 import type { FormOptionsData } from '@/app/actions';
 import { money, dateLabel, dateTimeLabel, timeLabel, labels, todayISO, isPastDue, isExpiringSoon } from '@/lib/format';
 import type { ModulePageData, ModuleRow, FleetRow, ClientRow, ContractRow, TimesheetRow, HandoverRow, InvoiceRow, PaymentRow, CompanySettings, ModuleFilters, TemplateKind, DocumentTemplate } from '@/lib/data';
+import { MODULE_PAGE_SIZE } from '@/lib/data';
 import { TemplatesWorkspace, type TemplatesData } from './template-workspace';
 import { calcInvoiceTotals, remainingBalance } from '@/lib/finance';
 
@@ -53,7 +54,7 @@ function PdfLink({ kind, id, label = 'Unduh', title = 'Unduh dokumen PDF' }: { k
 // ---------------------------------------------------------------------------
 // O-A (paginasi server-side): tabel TIDAK lagi menerima seluruh koleksi modul —
 // server (getModulePage) sudah mencari (?q), memfilter (?status/?category/
-// ?filter=expiring), mengurutkan (?sort), dan memotong 8 baris per halaman (?page).
+// ?filter=expiring), mengurutkan (?sort), dan memotong MODULE_PAGE_SIZE baris per halaman (?page).
 // State filter hidup di URL: ketikan di-debounce 300 ms (input tetap responsif,
 // daftar menyusul dari server lewat transisi), tab/pager/sort langsung navigasi.
 // Label baris (klien/unit/kontrak) sudah di-JOIN di server sehingga lookup
@@ -92,10 +93,22 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
   const [query, setQuery] = useState(filters.q);
   const [syncedQ, setSyncedQ] = useState(filters.q);
   if (syncedQ !== filters.q) { setSyncedQ(filters.q); setQuery(filters.q); }
+  // P6 (audit 01): tab status & filter kategori optimistik — highlight berganti
+  // seketika saat diklik (statusCounts sudah tersedia), tidak menunggu respons
+  // server; nilai resmi tetap disinkronkan dari filters (echo server).
+  const [optStatus, setOptStatus] = useState(filters.status);
+  const [syncedStatus, setSyncedStatus] = useState(filters.status);
+  if (syncedStatus !== filters.status) { setSyncedStatus(filters.status); setOptStatus(filters.status); }
+  const [optCategory, setOptCategory] = useState(filters.category);
+  const [syncedCategory, setSyncedCategory] = useState(filters.category);
+  if (syncedCategory !== filters.category) { setSyncedCategory(filters.category); setOptCategory(filters.category); }
   const [open, setOpen] = useState(initialOpen);
   const [editing, setEditing] = useState<EditableRecord | null>(null);
   const [toast, setToast] = useState<{ success: boolean; message: string } | null>(null);
   const [pending, startTransition] = useTransition();
+  // P3: penanda apakah transisi berjalan berasal dari perubahan tab/filter besar
+  // (tampilkan skeleton) atau aksi kecil (pager/sort/simpan — cukup dim).
+  const [bigNav, setBigNav] = useState(false);
   const [confirm, setConfirm] = useState<{ title: string; text: string; action: () => Promise<{ success: boolean; message: string }> } | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [bulk, setBulk] = useState(false);
@@ -115,7 +128,10 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
 
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 5500); return () => clearTimeout(t); } }, [toast]);
 
-  const navigate = useCallback((patch: Record<string, string | number | null>, replace = false) => {
+  // P1 (audit 01): URL target navigasi dibangun satu fungsi agar pager/sort/tab
+  // bisa mem-PREFETCH payload RSC saat hover/focus — klik berikutnya mulai dari
+  // cache, bukan nunggu round-trip penuh.
+  const buildUrl = useCallback((patch: Record<string, string | number | null>) => {
     const params = new URLSearchParams();
     if (filters.q) params.set('q', filters.q);
     if (filters.status !== 'all') params.set('status', filters.status);
@@ -128,9 +144,19 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
       else params.set(key, String(value));
     }
     const qs = params.toString();
-    const url = `/dashboard/${module}${qs ? `?${qs}` : ''}`;
+    return `/dashboard/${module}${qs ? `?${qs}` : ''}`;
+  }, [filters.q, filters.status, filters.category, filters.sort, filters.expiringOnly, filters.page, module]);
+
+  const navigate = useCallback((patch: Record<string, string | number | null>, replace = false) => {
+    // P3: navigasi tab/filter besar menampilkan skeleton baris; pager/sort/search tidak.
+    setBigNav('status' in patch || 'category' in patch || 'filter' in patch);
+    const url = buildUrl(patch);
     startTransition(() => { if (replace) router.replace(url, { scroll: false }); else router.push(url, { scroll: false }); });
-  }, [filters.q, filters.status, filters.category, filters.sort, filters.expiringOnly, filters.page, module, router, startTransition]);
+  }, [buildUrl, router, startTransition]);
+
+  const prefetch = useCallback((patch: Record<string, string | number | null>) => {
+    router.prefetch(buildUrl(patch));
+  }, [buildUrl, router]);
 
   // Pencarian tabel: input instan, navigasi ?q= menunggu 300 ms setelah ketikan
   // terakhir (debounce) dan memakai replace agar riwayat tidak menumpuk.
@@ -168,6 +194,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
   const canWrite = module === 'invoices' ? ['admin', 'finance'].includes(data.user.role) : module === 'settings' ? data.user.role === 'admin' : module === 'timesheets' ? ['admin', 'operations', 'operator'].includes(data.user.role) : operational;
 
   const act = useCallback((fn: () => Promise<{ success: boolean; message: string }>) => startTransition(async () => {
+    setBigNav(false); // aksi (setujui/bayar/hapus) bukan navigasi: jangan tampilkan skeleton
     try {
       const result = await fn();
       setToast(result);
@@ -192,7 +219,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
     getInvoicePayments(invoice.id).then(setPayments).catch(() => setPayments([]));
   }, []);
 
-  // Baris tabel: hanya 8 baris halaman aktif — sel JSX dibangun dari data yang
+  // Baris tabel: hanya baris halaman aktif — sel JSX dibangun dari data yang
   // sudah dilengkapi label JOIN di server (tanpa lookup per baris).
   const rows: Row[] = useMemo(() => {
     if (module === 'fleet') {
@@ -284,6 +311,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     setFormErrors(null);
+    setBigNav(false); // simpan bukan navigasi: jangan tampilkan skeleton
     startTransition(async () => {
       try {
         const result = (module === 'contracts' && revising) ? await reviseContract(form) : (module === 'fleet' && bulk && !editing) ? await bulkCreateFleet(form) : await saveRecord(module, form);
@@ -339,14 +367,14 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
         <>
           <div className="module-stats">
             {['available', 'renting', 'maintenance', 'in_transit'].map(st => (
-              <button onClick={() => navigate({ status: st, page: null })} key={st} className={filters.status === st ? 'selected' : ''}>
+              <button onClick={() => { setOptStatus(st); navigate({ status: st, page: null }); }} onMouseEnter={() => prefetch({ status: st, page: null })} onFocus={() => prefetch({ status: st, page: null })} key={st} className={optStatus === st ? 'selected' : ''}>
                 <Badge status={st} /><strong>{data.statusCounts[st] || 0}<small>unit</small></strong>
               </button>
             ))}
           </div>
           {(data.fleetGroups?.length ?? 0) > 0 && <div className="info-callout"><Info size={19} /><p><b>Komposisi armada: </b>{(data.fleetGroups ?? []).map(([k, n]) => `${k} (${n})`).join(' · ')}</p></div>}
           {(data.expiringCount ?? 0) > 0 && (
-            <button className="expiry-banner" onClick={() => navigate({ filter: filters.expiringOnly ? null : 'expiring', page: null })}>
+            <button className="expiry-banner" onClick={() => navigate({ filter: filters.expiringOnly ? null : 'expiring', page: null })} onMouseEnter={() => prefetch({ filter: filters.expiringOnly ? null : 'expiring', page: null })} onFocus={() => prefetch({ filter: filters.expiringOnly ? null : 'expiring', page: null })}>
               <TriangleAlert size={20} />
               <div><b>{data.expiringCount} unit memerlukan pembaruan dokumen</b><span>SIKO atau asuransi berakhir dalam {warnDays} hari. Segera jadwalkan perpanjangan.</span></div>
               <span className="expiry-link">{filters.expiringOnly ? 'Tampilkan semua unit' : 'Periksa dokumen'}<ChevronRight size={16} /></span>
@@ -431,8 +459,8 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
       ) : (
         <section className="panel module-table-panel">
           <div className="table-tabs">
-            <button className={filters.status === 'all' ? 'active' : ''} onClick={() => navigate({ status: null, page: null })}>Semua {tabAllLabel}<span>{data.statusCounts.all ?? data.total}</span></button>
-            {statuses.map(st => <button className={filters.status === st ? 'active' : ''} key={st} onClick={() => navigate({ status: st, page: null })}>{labels[st]}<span>{data.statusCounts[st] || 0}</span></button>)}
+            <button className={optStatus === 'all' ? 'active' : ''} onClick={() => { setOptStatus('all'); navigate({ status: null, page: null }); }} onMouseEnter={() => prefetch({ status: null, page: null })} onFocus={() => prefetch({ status: null, page: null })}>Semua {tabAllLabel}<span>{data.statusCounts.all ?? data.total}</span></button>
+            {statuses.map(st => <button className={optStatus === st ? 'active' : ''} key={st} onClick={() => { setOptStatus(st); navigate({ status: st, page: null }); }} onMouseEnter={() => prefetch({ status: st, page: null })} onFocus={() => prefetch({ status: st, page: null })}>{labels[st]}<span>{data.statusCounts[st] || 0}</span></button>)}
           </div>
           <div className="table-toolbar">
             <label className="table-search">
@@ -444,38 +472,44 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
               {module === 'fleet' && (
                 <label className="small-select">
                   <Filter size={14} />
-                  <select value={filters.category} onChange={e => navigate({ category: e.target.value, page: null })} aria-label="Filter kategori">
+                  <select value={optCategory} onChange={e => { setOptCategory(e.target.value); navigate({ category: e.target.value, page: null }); }} aria-label="Filter kategori">
                     <option value="all">Semua kategori</option>
                     {(data.categoryOptions ?? []).map(cat => <option key={cat}>{cat}</option>)}
                   </select>
                   <ChevronDown size={13} />
                 </label>
               )}
-              <Button variant="outline" size="sm" onClick={() => navigate({ sort: filters.sort === 0 ? '1' : filters.sort === 1 ? '-1' : null, page: null })} title={filters.sort === 0 ? 'Urutkan A–Z' : filters.sort === 1 ? 'Urutkan Z–A' : 'Kembalikan urutan awal'}><ArrowUpDown size={14} />{sortLabel}</Button>
+              <Button variant="outline" size="sm" onClick={() => navigate({ sort: filters.sort === 0 ? '1' : filters.sort === 1 ? '-1' : null, page: null })} onMouseEnter={() => prefetch({ sort: filters.sort === 0 ? '1' : filters.sort === 1 ? '-1' : null, page: null })} onFocus={() => prefetch({ sort: filters.sort === 0 ? '1' : filters.sort === 1 ? '-1' : null, page: null })} title={filters.sort === 0 ? 'Urutkan A–Z' : filters.sort === 1 ? 'Urutkan Z–A' : 'Kembalikan urutan awal'}><ArrowUpDown size={14} />{sortLabel}</Button>
             </div>
           </div>
-          <div className="table-scroll" style={pending ? { opacity: 0.55 } : undefined}>
-            <table>
-              <thead><tr>{headers.map((h, i) => <th key={i} className={i === 0 ? 'col-no' : undefined}>{h}</th>)}</tr></thead>
-              <tbody>{rows.map((r, idx) => <tr key={r.id}><td className="col-no">{(data.page - 1) * 8 + idx + 1}</td>{r.cells.map((cell, i) => <td key={i}>{cell}</td>)}</tr>)}</tbody>
-            </table>
-            {filteredEmpty && (
-              <div className="empty-state">
-                <span><Search size={26} /></span>
-                <h3>{query || filters.status !== 'all' ? 'Data tidak ditemukan' : 'Belum ada data'}</h3>
-                <p>{query || filters.status !== 'all' ? 'Coba ubah kata kunci atau filter pencarian Anda.' : 'Tambahkan data pertama untuk memulai operasional.'}</p>
-                <Button variant="outline" onClick={() => { setQuery(''); navigate({ q: null, status: null, category: null, filter: null }, true); }}>Atur Ulang Filter</Button>
-              </div>
+          <div className="table-scroll" style={pending && !bigNav ? { opacity: 0.55 } : undefined}>
+            {pending && bigNav ? (
+              <div className="loading-rows" role="status" aria-label="Memuat data">{Array.from({ length: 6 }, (_, i) => <div key={i} />)}</div>
+            ) : (
+              <>
+                <table>
+                  <thead><tr>{headers.map((h, i) => <th key={i} className={i === 0 ? 'col-no' : undefined}>{h}</th>)}</tr></thead>
+                  <tbody>{rows.map((r, idx) => <tr key={r.id}><td className="col-no">{(data.page - 1) * MODULE_PAGE_SIZE + idx + 1}</td>{r.cells.map((cell, i) => <td key={i}>{cell}</td>)}</tr>)}</tbody>
+                </table>
+                {filteredEmpty && (
+                  <div className="empty-state">
+                    <span><Search size={26} /></span>
+                    <h3>{query || filters.status !== 'all' ? 'Data tidak ditemukan' : 'Belum ada data'}</h3>
+                    <p>{query || filters.status !== 'all' ? 'Coba ubah kata kunci atau filter pencarian Anda.' : 'Tambahkan data pertama untuk memulai operasional.'}</p>
+                    <Button variant="outline" onClick={() => { setQuery(''); navigate({ q: null, status: null, category: null, filter: null }, true); }}>Atur Ulang Filter</Button>
+                  </div>
+                )}
+              </>
             )}
           </div>
           <div className="table-footer">
-            <span>Menampilkan {data.total ? (data.page - 1) * 8 + 1 : 0}–{Math.min(data.page * 8, data.total)} dari {data.total} data</span>
+            <span>Menampilkan {data.total ? (data.page - 1) * MODULE_PAGE_SIZE + 1 : 0}–{Math.min(data.page * MODULE_PAGE_SIZE, data.total)} dari {data.total} data</span>
             <div className="pagination">
-              <button disabled={data.page === 1} onClick={() => navigate({ page: data.page - 1 })} aria-label="Halaman sebelumnya"><ChevronLeft size={16} /></button>
+              <button disabled={data.page === 1} onClick={() => navigate({ page: data.page - 1 })} onMouseEnter={() => data.page > 1 && prefetch({ page: data.page - 1 })} onFocus={() => data.page > 1 && prefetch({ page: data.page - 1 })} aria-label="Halaman sebelumnya"><ChevronLeft size={16} /></button>
               {pageItems(data.page, data.pageCount).map((item, i) => item === 'gap'
                 ? <span key={`gap-${i}`} style={{ alignSelf: 'center', padding: '0 4px', color: '#94a3b8', fontSize: 13 }}>…</span>
-                : <button key={item} className={data.page === item ? 'active' : ''} onClick={() => navigate({ page: item })}>{item}</button>)}
-              <button disabled={data.page === data.pageCount} onClick={() => navigate({ page: data.page + 1 })} aria-label="Halaman berikutnya"><ChevronRight size={16} /></button>
+                : <button key={item} className={data.page === item ? 'active' : ''} onClick={() => navigate({ page: item })} onMouseEnter={() => item !== data.page && prefetch({ page: item })} onFocus={() => item !== data.page && prefetch({ page: item })}>{item}</button>)}
+              <button disabled={data.page === data.pageCount} onClick={() => navigate({ page: data.page + 1 })} onMouseEnter={() => data.page < data.pageCount && prefetch({ page: data.page + 1 })} onFocus={() => data.page < data.pageCount && prefetch({ page: data.page + 1 })} aria-label="Halaman berikutnya"><ChevronRight size={16} /></button>
             </div>
           </div>
         </section>

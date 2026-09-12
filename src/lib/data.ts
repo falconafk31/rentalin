@@ -40,7 +40,9 @@ const fallbackSettings: CompanySettings = { id: 'main', companyName: 'PT Penyewa
 
 export const MODULE_SLUGS = ['fleet', 'clients', 'contracts', 'timesheets', 'bast', 'invoices', 'settings'] as const;
 export type ModuleSlug = (typeof MODULE_SLUGS)[number];
-export const MODULE_PAGE_SIZE = 8;
+// P4 (audit 01): 8 terlalu kecil untuk dataset puluhan/ratusan baris — makin
+// sering klik pager. 15 baris masih ringan untuk payload RSC per halaman.
+export const MODULE_PAGE_SIZE = 15;
 
 export type ModuleFilters = { q: string; status: string; category: string; expiringOnly: boolean; page: number; sort: number };
 
