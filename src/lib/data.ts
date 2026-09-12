@@ -2,7 +2,7 @@ import 'server-only';
 import { cache } from 'react';
 import { db } from '@/db';
 import * as s from '@/db/schema';
-import { and, or, eq, ilike, isNotNull, desc, asc, count, sql, getTableColumns, type SQL } from 'drizzle-orm';
+import { and, or, eq, ilike, isNotNull, desc, asc, count, sql, getTableColumns, inArray, type SQL } from 'drizzle-orm';
 import type { SQLWrapper } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { requireUser, getCurrentUser, type SessionUser } from '@/lib/auth';
@@ -453,6 +453,26 @@ export type DashboardData = {
     handover?: { date: string };
     contract?: { contractNumber: string; startDate: string };
   };
+  // Pelacak alur sewa per kontrak aktif: 6 tahap (kontrak → SPH → BAST
+  // mobilisasi → timesheet → BAST demobilisasi → invoice lunas). Tanpa
+  // migrasi — seluruhnya dibaca dari status yang sudah ada.
+  pipeline: ContractPipelineRow[];
+};
+
+// Satu baris alur per kontrak aktif: status tiap tahap + aksi lanjutan.
+export type ContractPipelineRow = {
+  contractId: string;
+  contractNumber: string;
+  clientName: string | null;
+  unitCode: string | null;
+  status: string;
+  hasMobilization: boolean;
+  hasDemobilization: boolean;
+  pendingTimesheets: number;
+  billableTimesheets: number;
+  billedTimesheets: number;
+  unpaidInvoices: number;
+  paidInvoices: number;
 };
 
 export const getDashboardData = cache(async (): Promise<DashboardData> => {
@@ -460,7 +480,7 @@ export const getDashboardData = cache(async (): Promise<DashboardData> => {
   await seedPreview();
   const today = todayISO(settings.timezone);
   const warnUntil = addDaysISO(today, Number(settings.expiryWarningDays) || 30);
-  const [fleetTotalRes, statusRes, revenueRes, unpaidRes, overdueRes, pendingRes, expiringRes, recentFleet, latestTimesheet, latestInvoice, latestHandover, latestContract] = await Promise.all([
+  const [fleetTotalRes, statusRes, revenueRes, unpaidRes, overdueRes, pendingRes, expiringRes, recentFleet, latestTimesheet, latestInvoice, latestHandover, latestContract, pipelineRes] = await Promise.all([
     db.select({ n: count() }).from(s.fleet),
     db.select({ status: s.fleet.status, n: count() }).from(s.fleet).groupBy(s.fleet.status),
     db.select({ m: sql<string>`to_char(${s.invoices.issueDate}, 'YYYY-MM')`, total: sql<string>`coalesce(sum(${s.invoices.totalAmount}), 0)` })
@@ -476,6 +496,7 @@ export const getDashboardData = cache(async (): Promise<DashboardData> => {
       .from(s.invoices).orderBy(desc(s.invoices.issueDate), desc(s.invoices.createdAt)).limit(1),
     db.select({ date: s.handovers.date }).from(s.handovers).orderBy(desc(s.handovers.date), desc(s.handovers.createdAt)).limit(1),
     db.select({ contractNumber: s.contracts.contractNumber, startDate: s.contracts.startDate }).from(s.contracts).orderBy(desc(s.contracts.createdAt)).limit(1),
+    getContractPipeline(),
   ]);
   return {
     user,
@@ -494,8 +515,56 @@ export const getDashboardData = cache(async (): Promise<DashboardData> => {
       handover: latestHandover[0],
       contract: latestContract[0],
     },
+    pipeline: pipelineRes,
   };
 });
+
+// Alur sewa per kontrak aktif (maks 10 terbaru): agregat BAST mobilisasi /
+// demobilisasi, timesheet (pending / approved-belum-ditagih / sudah-ditagih),
+// dan invoice (belum lunas / lunas). Satu query per tabel turunan memakai
+// ANY($1) agar tetap 4 round-trip untuk seluruh kontrak halaman ini.
+export async function getContractPipeline(limit = 10): Promise<ContractPipelineRow[]> {
+  const contracts = await db.select({
+    contractId: s.contracts.id,
+    contractNumber: s.contracts.contractNumber,
+    status: s.contracts.status,
+    clientName: s.clients.companyName,
+    unitCode: s.fleet.unitCode,
+  }).from(s.contracts)
+    .leftJoin(s.clients, eq(s.clients.id, s.contracts.clientId))
+    .leftJoin(s.fleet, eq(s.fleet.id, s.contracts.unitId))
+    .where(eq(s.contracts.status, 'active'))
+    .orderBy(desc(s.contracts.createdAt)).limit(limit);
+  if (!contracts.length) return [];
+  const ids = contracts.map(c => c.contractId);
+  const [bastRows, tsRows, invRows] = await Promise.all([
+    db.select({ contractId: s.handovers.contractId, type: s.handovers.type })
+      .from(s.handovers).where(inArray(s.handovers.contractId, ids)),
+    db.select({ contractId: s.timesheets.contractId, status: s.timesheets.status, invoiceId: s.timesheets.invoiceId })
+      .from(s.timesheets).where(inArray(s.timesheets.contractId, ids)),
+    db.select({ contractId: s.invoices.contractId, status: s.invoices.status })
+      .from(s.invoices).where(inArray(s.invoices.contractId, ids)),
+  ]);
+  return contracts.map(c => {
+    const bast = bastRows.filter(r => r.contractId === c.contractId);
+    const ts = tsRows.filter(r => r.contractId === c.contractId);
+    const inv = invRows.filter(r => r.contractId === c.contractId);
+    return {
+      contractId: c.contractId,
+      contractNumber: c.contractNumber,
+      clientName: c.clientName,
+      unitCode: c.unitCode,
+      status: c.status,
+      hasMobilization: bast.some(r => r.type === 'mobilization'),
+      hasDemobilization: bast.some(r => r.type === 'demobilization'),
+      pendingTimesheets: ts.filter(r => r.status === 'pending').length,
+      billableTimesheets: ts.filter(r => r.status === 'approved' && !r.invoiceId).length,
+      billedTimesheets: ts.filter(r => r.invoiceId).length,
+      unpaidInvoices: inv.filter(r => r.status !== 'paid').length,
+      paidInvoices: inv.filter(r => r.status === 'paid').length,
+    };
+  });
+}
 
 // --- Halaman admin (Pengguna & Peran, Log Audit) — data ramping -------------
 export type UsersData = { user: SessionUser; settings: CompanySettings; profiles: ProfileRow[] };

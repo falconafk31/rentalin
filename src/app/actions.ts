@@ -114,6 +114,9 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
    await logAudit({ ...actor, action: 'create', entity: 'timesheets', summary: `Mencatat jam kerja ${date} untuk ${contract.contractNumber}` });
   } else if(module==='bast') {
    const type=required(form,'type');if(!['mobilization','demobilization'].includes(type))throw new FieldError({type:'Jenis serah terima tidak valid.'});
+   const contractId=text(form,'contractId');if(!contractId)throw new FieldError({contractId:'Kontrak wajib dipilih.'});
+   const [contract]=await db.select().from(s.contracts).where(eq(s.contracts.id,contractId));
+   if(!contract||contract.status!=='active')throw new FieldError({contractId:'Kontrak tidak aktif.'});
    const check=(k:string)=>form.get(k)==='on';
    let photoUrls: string[] = [];
    const rawPhotos = text(form,'photoUrls');
@@ -124,12 +127,24 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
       photoUrls = parsed as string[];
     } catch { throw new FieldError({ photos: 'Lampiran foto tidak valid. Unggah ulang foto.' }); }
    }
-   const docNo=await db.transaction(async tx=>{
-    const no=await nextDocNumber(tx,'BAST',s.handovers.documentNumber,s.handovers,todayISO(tz).slice(0,4));
-    await tx.insert(s.handovers).values({documentNumber:no,contractId:required(form,'contractId'),type,date:validDate(form,'date'),engine:check('engine'),hydraulics:check('hydraulics'),tracks:check('tracks'),oil:check('oil'),fuel:check('fuel'),battery:check('battery'),lights:check('lights'),brakes:check('brakes'),bucket:check('bucket'),cabin:check('cabin'),safety:check('safety'),documents:check('documents'),notes:text(form,'notes'),photoUrls});
-    return no;
-   });
-   await logAudit({ ...actor, action: 'create', entity: 'bast', summary: `Membuat BAST ${docNo}${photoUrls.length ? ` (${photoUrls.length} foto)` : ''}` });
+   const values={date:validDate(form,'date'),engine:check('engine'),hydraulics:check('hydraulics'),tracks:check('tracks'),oil:check('oil'),fuel:check('fuel'),battery:check('battery'),lights:check('lights'),brakes:check('brakes'),bucket:check('bucket'),cabin:check('cabin'),safety:check('safety'),documents:check('documents'),notes:text(form,'notes'),photoUrls};
+   if(id){
+    const [existing]=await db.select({documentNumber:s.handovers.documentNumber}).from(s.handovers).where(eq(s.handovers.id,id));
+    if(!existing)throw new Error('BAST tidak ditemukan.');
+    await db.update(s.handovers).set(values).where(eq(s.handovers.id,id));
+    await logAudit({ ...actor, action: 'update', entity: 'bast', entityId: id, summary: `Mengubah BAST ${existing.documentNumber}${photoUrls.length ? ` (${photoUrls.length} foto)` : ''}` });
+   }else{
+    // Satu jenis satu BAST per kontrak: tolak mobilisasi/demobilisasi ganda.
+    const existing=await db.select({type:s.handovers.type}).from(s.handovers).where(eq(s.handovers.contractId,contractId));
+    if(existing.some(h=>h.type===type))throw new FieldError({type:type==='mobilization'?'BAST mobilisasi kontrak ini sudah ada.':'BAST demobilisasi kontrak ini sudah ada.'});
+    if(type==='demobilization'&&!existing.some(h=>h.type==='mobilization'))throw new FieldError({type:'Buat BAST mobilisasi terlebih dahulu sebelum demobilisasi.'});
+    const docNo=await db.transaction(async tx=>{
+     const no=await nextDocNumber(tx,'BAST',s.handovers.documentNumber,s.handovers,todayISO(tz).slice(0,4));
+     await tx.insert(s.handovers).values({documentNumber:no,contractId,type,...values});
+     return no;
+    });
+    await logAudit({ ...actor, action: 'create', entity: 'bast', summary: `Membuat BAST ${docNo}${photoUrls.length ? ` (${photoUrls.length} foto)` : ''}` });
+   }
   } else if(module==='invoices') {
    const contractId=required(form,'contractId');
    const dueDate=validDate(form,'dueDate');if(dueDate<todayISO(tz))throw new FieldError({dueDate:'Jatuh tempo tidak boleh sebelum tanggal penerbitan.'});
@@ -544,8 +559,8 @@ export async function getFormOptions(module: string, editingUnitId?: string): Pr
     return { ...empty, clients, fleet };
   }
   if (module === 'timesheets' || module === 'bast' || module === 'invoices') {
-    // Form kontrak: timesheet/BAST hanya kontrak aktif; invoice boleh semua
-    // (paritas dengan perilaku lama sebelum select dipindah ke server).
+    // Form kontrak: timesheet/BAST hanya kontrak aktif; invoice boleh semua.
+    // LIMIT 100 kontrak terbaru untuk performa (cukup untuk kebanyakan kasus).
     const contracts = await db.select({
       id: s.contracts.id, contractNumber: s.contracts.contractNumber, ratePerHour: s.contracts.ratePerHour, status: s.contracts.status,
       clientName: s.clients.companyName, unitCode: s.fleet.unitCode,
@@ -553,7 +568,8 @@ export async function getFormOptions(module: string, editingUnitId?: string): Pr
       .leftJoin(s.clients, eq(s.clients.id, s.contracts.clientId))
       .leftJoin(s.fleet, eq(s.fleet.id, s.contracts.unitId))
       .where(module === 'invoices' ? undefined : eq(s.contracts.status, 'active'))
-      .orderBy(desc(s.contracts.createdAt));
+      .orderBy(desc(s.contracts.createdAt))
+      .limit(100);
     return { ...empty, contracts };
   }
   return empty;

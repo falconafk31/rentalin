@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useOptimistic, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, Plus, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, Pencil, Trash2, FileDown, Check, X, TriangleAlert, LoaderCircle, CircleCheck, Building2, Filter, Info, Save, ShieldCheck, Wallet, ImagePlus } from 'lucide-react';
 import { EquipmentIcon } from './icons';
@@ -39,7 +39,6 @@ const bastItems: [string, string, string][] = [['engine', 'Mesin', 'Mesin menyal
 
 type EditableRecord = Record<string, string | number | boolean | string[] | Date | null>;
 type Row = { id: string; status: string; cells: React.ReactNode[]; raw: EditableRecord };
-type StatusUpdate = { kind: 'timesheet' | 'invoice' | 'contract'; id: string; status: string };
 type RevisionRow = Awaited<ReturnType<typeof getRevisionHistory>>[number];
 
 // Ambang peringatan (hari) kini konfigurasi, bukan hardcode 30 — perbandingan
@@ -79,10 +78,10 @@ function pageItems(current: number, count: number): (number | 'gap')[] {
 
 export function ModuleWorkspace({ module, data, filters, initialOpen = false, initialOptions = null }: { module: string; data: ModulePageData; filters: ModuleFilters; initialOpen?: boolean; initialOptions?: FormOptionsData | null }) {
   const router = useRouter();
-  // Optimistic UI (O-B): aksi status langsung tercermin di baris halaman ini,
-  // lalu disinkronkan ulang dari server (act me-refresh baik sukses maupun gagal).
-  const [optRows, applyStatus] = useOptimistic(data.rows, (prev: ModuleRow[], u: StatusUpdate) =>
-    prev.map(r => r.id === u.id ? ({ ...r, status: u.status } as ModuleRow) : r));
+  // Baris tabel selalu dari server (data.rows). Update optimistik status
+  // dihapus (bug: crash sesaat setelah Setujui sebelum refresh) — status
+  // diperbarui via router.refresh() setelah Server Action sukses.
+  const optRows = data.rows;
   const ppnRate = Number(data.settings.ppnRate ?? 11);
   const warnDays = Number(data.settings.expiryWarningDays ?? 30) || 30;
   const tz = data.settings.timezone;
@@ -97,7 +96,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
   const [editing, setEditing] = useState<EditableRecord | null>(null);
   const [toast, setToast] = useState<{ success: boolean; message: string } | null>(null);
   const [pending, startTransition] = useTransition();
-  const [confirm, setConfirm] = useState<{ title: string; text: string; action: () => Promise<{ success: boolean; message: string }>; optimistic?: StatusUpdate } | null>(null);
+  const [confirm, setConfirm] = useState<{ title: string; text: string; action: () => Promise<{ success: boolean; message: string }> } | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [bulk, setBulk] = useState(false);
   const [revising, setRevising] = useState<EditableRecord | null>(null);
@@ -186,7 +185,6 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
     title: next === 'paid' ? 'Konfirmasi Pelunasan' : next === 'completed' ? 'Selesaikan Kontrak' : next === 'approved' ? 'Setujui Catatan Kerja' : 'Tolak Catatan Kerja',
     text: next === 'paid' ? 'Pastikan pembayaran telah diterima sebelum menandai tagihan sebagai lunas.' : next === 'completed' ? 'Kontrak akan diselesaikan dan unit akan kembali tersedia untuk disewakan.' : 'Status catatan akan diperbarui. Pastikan jam kerja dan keterangan telah diperiksa.',
     action: () => changeStatus(module, id, next),
-    optimistic: module === 'timesheets' ? { kind: 'timesheet', id, status: next } : module === 'invoices' ? { kind: 'invoice', id, status: next } : module === 'contracts' ? { kind: 'contract', id, status: next } : undefined,
   }), [module]);
   const openPayments = useCallback((invoice: InvoiceRow) => {
     setPaying(invoice);
@@ -256,7 +254,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
             <div key="contract">{h.contractNumber}<small className="cell-sub">{h.clientName}</small></div>,
             dateLabel(h.date, tz), <Badge key="type" status={h.type} />,
             <span key="condition" className={ok ? 'green' : 'amber-text'}>{ok ? 'Seluruh komponen baik' : 'Perlu perhatian'}</span>,
-            <div className="row-actions" key="doc"><PdfLink kind="bast" id={h.id} /></div>,
+            <div className="row-actions" key="doc"><PdfLink kind="bast" id={h.id} />{canWrite && <button className="icon-button" aria-label="Ubah BAST" title="Ubah BAST" onClick={() => edit(h.raw)}><Pencil size={15} />Ubah</button>}</div>,
           ],
         };
       });
@@ -499,7 +497,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
       <Modal open={!!confirm} onOpenChange={v => { if (!v && !pending) setConfirm(null); }} title={confirm?.title || 'Konfirmasi'} description={confirm?.text}>
         <div className="form-footer">
           <Button variant="outline" onClick={() => setConfirm(null)} disabled={pending}>Batal</Button>
-          <Button disabled={pending} onClick={() => { if (confirm?.optimistic) applyStatus(confirm.optimistic); if (confirm) act(confirm.action); }}>{pending ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}Konfirmasi</Button>
+          <Button disabled={pending} onClick={() => { if (confirm) act(confirm.action); }}>{pending ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}Konfirmasi</Button>
         </div>
       </Modal>
 
@@ -675,16 +673,16 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
 
           {module === 'bast' && (
             <>
-              {selectContract}
-              <label className="form-field"><span>Jenis Serah Terima <i>*</i></span><select name="type"><option value="mobilization">Mobilisasi — Penyerahan Unit</option><option value="demobilization">Demobilisasi — Pengembalian Unit</option></select>{ferr('type')}</label>
+              {editing ? <input type="hidden" name="contractId" value={String(editing.contractId || '')} /> : selectContract}
+              <label className="form-field"><span>Jenis Serah Terima <i>*</i></span><select name="type" defaultValue={String(editing?.type || 'mobilization')} disabled={!!editing}><option value="mobilization">Mobilisasi — Penyerahan Unit</option><option value="demobilization">Demobilisasi — Pengembalian Unit</option></select>{ferr('type')}</label>
               {field('date', 'Tanggal Serah Terima', 'date')}
               <div className="inspection-checklist span-2">
                 <h4>Daftar Pemeriksaan Unit (12 titik)</h4>
                 <p>Centang komponen yang telah diperiksa dan dinyatakan dalam kondisi baik.</p>
-                {bastItems.map(([name, label, desc]) => <label key={name}><input type="checkbox" name={name} defaultChecked /><span><b>{label}</b><small>{desc}</small></span></label>)}
+                {bastItems.map(([name, label, desc]) => <label key={name}><input type="checkbox" name={name} defaultChecked={editing ? !!editing[name] : true} /><span><b>{label}</b><small>{desc}</small></span></label>)}
               </div>
-              <div className="span-2"><PhotoUploader errors={formErrors} /></div>
-              <label className="form-field span-2"><span>Catatan Pemeriksaan</span><textarea name="notes" placeholder="Catat kerusakan, kelengkapan, atau hal yang perlu ditindaklanjuti" /></label>
+              <div className="span-2"><PhotoUploader errors={formErrors} existing={editing?.photoUrls as string[] | undefined} /></div>
+              <label className="form-field span-2"><span>Catatan Pemeriksaan</span><textarea name="notes" defaultValue={editing?.notes ? String(editing.notes) : ''} placeholder="Catat kerusakan, kelengkapan, atau hal yang perlu ditindaklanjuti" /></label>
             </>
           )}
 
@@ -809,10 +807,16 @@ function PaymentsModal({ invoice, payments, tz, onClose, onPay }: {
 // Pengunggah foto BAST — berkas langsung ke Storage privat, path-nya
 // disimpan ke hidden input `photoUrls` (JSON) untuk ikut form BAST.
 // ---------------------------------------------------------------------------
-function PhotoUploader({ errors }: { errors: Record<string, string> | null }) {
+function PhotoUploader({ errors, existing }: { errors: Record<string, string> | null; existing?: string[] }) {
   const [photos, setPhotos] = useState<{ path: string; url: string }[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  
+  useEffect(() => {
+    if (existing?.length) {
+      setPhotos(existing.map(path => ({ path, url: `/api/bast-photos?path=${encodeURIComponent(path)}` })));
+    }
+  }, [existing]);
   const add = async (files: FileList | null) => {
     if (!files?.length) return;
     setError('');
