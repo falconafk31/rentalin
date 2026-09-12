@@ -10,7 +10,7 @@ import { saveRecord, bulkCreateFleet, changeStatus, deleteClient, resetDatabase,
 import type { FormOptionsData } from '@/app/actions';
 import { money, dateLabel, dateTimeLabel, timeLabel, labels, todayISO, isPastDue, isExpiringSoon } from '@/lib/format';
 import type { ModulePageData, ModuleRow, FleetRow, ClientRow, ContractRow, TimesheetRow, HandoverRow, InvoiceRow, PaymentRow, CompanySettings, ModuleFilters, TemplateKind, DocumentTemplate } from '@/lib/data';
-import { MODULE_PAGE_SIZE } from '@/lib/data';
+import { MODULE_PAGE_SIZE } from '@/lib/pagination';
 import { TemplatesWorkspace, type TemplatesData } from './template-workspace';
 import { calcInvoiceTotals, remainingBalance } from '@/lib/finance';
 
