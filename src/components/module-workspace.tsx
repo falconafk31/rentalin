@@ -14,14 +14,16 @@ import { MODULE_PAGE_SIZE } from '@/lib/data';
 import { TemplatesWorkspace, type TemplatesData } from './template-workspace';
 import { calcInvoiceTotals, remainingBalance } from '@/lib/finance';
 
-const config: Record<string, { title: string; description: string; add: string; singular: string }> = {
-  fleet: { title: 'Armada Alat Berat', description: 'Kelola seluruh unit, pantau ketersediaan, dan pastikan kesiapan armada Anda.', add: 'Tambah Unit', singular: 'Unit Alat Berat' },
-  clients: { title: 'Data Klien', description: 'Kelola hubungan bisnis dan informasi perusahaan mitra Anda.', add: 'Tambah Klien', singular: 'Klien' },
-  contracts: { title: 'Kontrak Sewa', description: 'Kelola kesepakatan sewa, penugasan unit, dan periode kontrak.', add: 'Buat Kontrak', singular: 'Kontrak Sewa' },
-  timesheets: { title: 'Timesheet Harian', description: 'Pantau jam kerja alat berat dan kelola persetujuan catatan operator.', add: 'Catat Jam Kerja', singular: 'Catatan Kerja Harian' },
-  bast: { title: 'Berita Acara Serah Terima', description: 'Dokumentasikan kondisi unit saat mobilisasi dan demobilisasi.', add: 'Buat BAST', singular: 'Berita Acara Serah Terima' },
-  invoices: { title: 'Penagihan', description: 'Terbitkan tagihan dari jam kerja yang disetujui dan pantau pembayaran.', add: 'Buat Invoice', singular: 'Tagihan Sewa' },
-  settings: { title: 'Pengaturan', description: 'Kelola profil perusahaan dan informasi yang digunakan pada dokumen.', add: '', singular: '' },
+// G6 (audit 02): label tombol submit hidup di config — modul baru cukup
+// tambah 1 baris, bukan mengedit rantai ternary di form.
+const config: Record<string, { title: string; description: string; add: string; singular: string; submit: string }> = {
+  fleet: { title: 'Armada Alat Berat', description: 'Kelola seluruh unit, pantau ketersediaan, dan pastikan kesiapan armada Anda.', add: 'Tambah Unit', singular: 'Unit Alat Berat', submit: 'Simpan Data' },
+  clients: { title: 'Data Klien', description: 'Kelola hubungan bisnis dan informasi perusahaan mitra Anda.', add: 'Tambah Klien', singular: 'Klien', submit: 'Simpan Data' },
+  contracts: { title: 'Kontrak Sewa', description: 'Kelola kesepakatan sewa, penugasan unit, dan periode kontrak.', add: 'Buat Kontrak', singular: 'Kontrak Sewa', submit: 'Simpan Data' },
+  timesheets: { title: 'Timesheet Harian', description: 'Pantau jam kerja alat berat dan kelola persetujuan catatan operator.', add: 'Catat Jam Kerja', singular: 'Catatan Kerja Harian', submit: 'Ajukan Catatan' },
+  bast: { title: 'Berita Acara Serah Terima', description: 'Dokumentasikan kondisi unit saat mobilisasi dan demobilisasi.', add: 'Buat BAST', singular: 'Berita Acara Serah Terima', submit: 'Simpan Data' },
+  invoices: { title: 'Penagihan', description: 'Terbitkan tagihan dari jam kerja yang disetujui dan pantau pembayaran.', add: 'Buat Invoice', singular: 'Tagihan Sewa', submit: 'Terbitkan Tagihan' },
+  settings: { title: 'Pengaturan', description: 'Kelola profil perusahaan dan informasi yang digunakan pada dokumen.', add: '', singular: '', submit: 'Simpan Perubahan' },
 };
 
 const tableMeta: Record<string, { headers: string[]; statuses: string[] }> = {
@@ -75,6 +77,24 @@ function pageItems(current: number, count: number): (number | 'gap')[] {
   if (end < count - 1) items.push('gap');
   items.push(count);
   return items;
+}
+
+// G1 (audit 02): satu pola ringkasan di atas tabel untuk semua modul — kartu
+// .module-stats; klik = filter status bila modul punya filter (fleet), statis
+// bila murni ringkasan angka (invoices). Modul tanpa ringkasan tak me-render ini.
+function ModuleSummary({ items }: { items: { key: string; label: React.ReactNode; value: React.ReactNode; sub?: string; tone?: string; active?: boolean; onSelect?: () => void; onHover?: () => void }[] }) {
+  if (!items.length) return null;
+  return (
+    <div className={`module-stats${items.length === 3 ? ' cols-3' : ''}`}>
+      {items.map(it => it.onSelect ? (
+        <button onClick={it.onSelect} onMouseEnter={it.onHover} onFocus={it.onHover} key={it.key} className={it.active ? 'selected' : ''}>
+          {it.label}<strong>{it.value}{it.sub && <small>{it.sub}</small>}</strong>
+        </button>
+      ) : (
+        <div key={it.key}><span>{it.label}</span><strong className={it.tone}>{it.value}</strong>{it.sub && <small>{it.sub}</small>}</div>
+      ))}
+    </div>
+  );
 }
 
 export function ModuleWorkspace({ module, data, filters, initialOpen = false, initialOptions = null }: { module: string; data: ModulePageData; filters: ModuleFilters; initialOpen?: boolean; initialOptions?: FormOptionsData | null }) {
@@ -365,13 +385,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
 
       {module === 'fleet' && (
         <>
-          <div className="module-stats">
-            {['available', 'renting', 'maintenance', 'in_transit'].map(st => (
-              <button onClick={() => { setOptStatus(st); navigate({ status: st, page: null }); }} onMouseEnter={() => prefetch({ status: st, page: null })} onFocus={() => prefetch({ status: st, page: null })} key={st} className={optStatus === st ? 'selected' : ''}>
-                <Badge status={st} /><strong>{data.statusCounts[st] || 0}<small>unit</small></strong>
-              </button>
-            ))}
-          </div>
+          <ModuleSummary items={['available', 'renting', 'maintenance', 'in_transit'].map(st => ({ key: st, label: <Badge status={st} />, value: data.statusCounts[st] || 0, sub: 'unit', active: optStatus === st, onSelect: () => { setOptStatus(st); navigate({ status: st, page: null }); }, onHover: () => prefetch({ status: st, page: null }) }))} />
           {(data.fleetGroups?.length ?? 0) > 0 && <div className="info-callout"><Info size={19} /><p><b>Komposisi armada: </b>{(data.fleetGroups ?? []).map(([k, n]) => `${k} (${n})`).join(' · ')}</p></div>}
           {(data.expiringCount ?? 0) > 0 && (
             <button className="expiry-banner" onClick={() => navigate({ filter: filters.expiringOnly ? null : 'expiring', page: null })} onMouseEnter={() => prefetch({ filter: filters.expiringOnly ? null : 'expiring', page: null })} onFocus={() => prefetch({ filter: filters.expiringOnly ? null : 'expiring', page: null })}>
@@ -384,11 +398,11 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
       )}
 
       {module === 'invoices' && data.invoiceTotals && (
-        <div className="invoice-stats">
-          <div><span>Total Nilai Tagihan</span><strong>{money(data.invoiceTotals.all)}</strong><small>Seluruh periode · termasuk PPN</small></div>
-          <div><span>Pembayaran Diterima</span><strong className="green">{money(data.invoiceTotals.collected)}</strong><small>{data.invoiceTotals.paidCount} tagihan lunas</small></div>
-          <div><span>Piutang Belum Lunas</span><strong className="orange-text">{money(data.invoiceTotals.all - data.invoiceTotals.collected)}</strong><small>{data.invoiceTotals.unpaidCount} tagihan menunggu pembayaran</small></div>
-        </div>
+        <ModuleSummary items={[
+          { key: 'all', label: 'Total Nilai Tagihan', value: money(data.invoiceTotals.all), sub: 'Seluruh periode · termasuk PPN' },
+          { key: 'collected', label: 'Pembayaran Diterima', value: money(data.invoiceTotals.collected), tone: 'green', sub: `${data.invoiceTotals.paidCount} tagihan lunas` },
+          { key: 'outstanding', label: 'Piutang Belum Lunas', value: money(data.invoiceTotals.all - data.invoiceTotals.collected), tone: 'orange-text', sub: `${data.invoiceTotals.unpaidCount} tagihan menunggu pembayaran` },
+        ]} />
       )}
 
       {module === 'timesheets' && <div className="info-callout"><Info size={19} /><p><b>{data.statusCounts.pending || 0} catatan menunggu persetujuan.</b> Hanya jam kerja yang disetujui yang dapat ditagihkan kepada klien.</p></div>}
@@ -469,7 +483,9 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
               {query && <button onClick={() => { setQuery(''); navigate({ q: null, page: null }, true); }} aria-label="Hapus pencarian"><X size={14} /></button>}
             </label>
             <div>
-              {module === 'fleet' && (
+              {/* G3 (audit 02): filter kategori generik — tampil bila modul
+                  menyediakan categoryOptions, bukan hardcode per modul. */}
+              {(data.categoryOptions?.length ?? 0) > 0 && (
                 <label className="small-select">
                   <Filter size={14} />
                   <select value={optCategory} onChange={e => { setOptCategory(e.target.value); navigate({ category: e.target.value, page: null }); }} aria-label="Filter kategori">
@@ -580,11 +596,33 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
 
   const title = `${revising ? 'Revisi' : editing ? 'Ubah' : module === 'fleet' && bulk ? 'Tambah Banyak' : module === 'fleet' || module === 'clients' ? 'Tambah' : 'Buat'} ${c.singular}`;
 
-  const field = (name: string, label: string, type = 'text', required = true, extra?: Record<string, string | number>) => (
+  // G4 (audit 02): field() menerima hint opsional — dirender sebagai .cell-sub
+  // bila diisi (pola bantuan field opsional yang sebelumnya hanya ada di Pengaturan).
+  const field = (name: string, label: string, type = 'text', required = true, extra?: Record<string, string | number>, hint?: string) => (
     <label className="form-field" key={name}>
       <span>{label}{required && <i> *</i>}</span>
       <input name={name} type={type} required={required} defaultValue={editing?.[name] != null ? String(editing[name]) : type === 'date' && required ? todayISO(tz) : undefined} {...extra} />
-      {ferr(name)}
+      {ferr(name) ?? (hint ? <small className="cell-sub">{hint}</small> : null)}
+    </label>
+  );
+
+  // G5 (audit 02): helper select/textarea dengan markup form-field yang sama
+  // dengan field() — menggantikan blok label yang disalin-tempel per modul.
+  const selectField = (name: string, label: string, children: React.ReactNode, opts: { required?: boolean; span2?: boolean; disabled?: boolean; defaultValue?: string; placeholder?: string; hint?: string; onChange?: (e: React.ChangeEvent<HTMLSelectElement>) => void } = {}) => (
+    <label className={`form-field${opts.span2 ? ' span-2' : ''}`} key={name}>
+      <span>{label}{opts.required !== false && <i> *</i>}</span>
+      <select name={name} required={opts.required !== false} defaultValue={opts.defaultValue} disabled={opts.disabled} onChange={opts.onChange}>
+        {opts.placeholder && <option value="" disabled>{opts.placeholder}</option>}
+        {children}
+      </select>
+      {ferr(name) ?? (opts.hint ? <small className="cell-sub">{opts.hint}</small> : null)}
+    </label>
+  );
+  const textareaField = (name: string, label: string, opts: { required?: boolean; span2?: boolean; placeholder?: string; defaultValue?: string; rows?: number; minLength?: number; maxLength?: number; hint?: string } = {}) => (
+    <label className={`form-field${opts.span2 ? ' span-2' : ''}`} key={name}>
+      <span>{label}{opts.required !== false && <i> *</i>}</span>
+      <textarea name={name} required={opts.required !== false} placeholder={opts.placeholder} defaultValue={opts.defaultValue} rows={opts.rows} minLength={opts.minLength} maxLength={opts.maxLength} />
+      {ferr(name) ?? (opts.hint ? <small className="cell-sub">{opts.hint}</small> : null)}
     </label>
   );
 
@@ -598,16 +636,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
 
   const contractOptions = useMemo(() => contracts.map(x => <option key={x.id} value={x.id}>{x.contractNumber} — {x.clientName} ({x.unitCode})</option>), [contracts]);
 
-  const selectContract = (
-    <label className="form-field span-2">
-      <span>Kontrak Sewa <i>*</i></span>
-      <select name="contractId" required defaultValue="" onChange={e => pickContract(e.target.value)} disabled={!options}>
-        <option value="" disabled>{options ? 'Pilih kontrak sewa' : 'Memuat data referensi...'}</option>
-        {contractOptions}
-      </select>
-      {ferr('contractId')}
-    </label>
-  );
+  const selectContract = selectField('contractId', 'Kontrak Sewa', contractOptions, { span2: true, disabled: !options, placeholder: options ? 'Pilih kontrak sewa' : 'Memuat data referensi...', onChange: e => pickContract(e.target.value) });
 
   return (
     <Modal open onOpenChange={onOpenChange} title={title} description="Isian bertanda * wajib dilengkapi. Periksa kembali data sebelum menyimpan." wide>
@@ -654,19 +683,19 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
               {field('picKtp', 'No. KTP Penanggung Jawab', 'text', false)}
               {field('picPhone', 'Nomor Telepon', 'tel', false)}
               {field('picEmail', 'Surel Penanggung Jawab', 'email', false)}
-              <label className="form-field span-2"><span>Alamat Perusahaan</span><textarea name="address" defaultValue={String(editing?.address || '')} placeholder="Alamat lengkap perusahaan" />{ferr('address')}</label>
+              {textareaField('address', 'Alamat Perusahaan', { span2: true, placeholder: 'Alamat lengkap perusahaan', defaultValue: String(editing?.address || '') })}
             </>
           )}
 
           {module === 'contracts' && revising ? (
             <>
               <div className="info-callout span-2"><Info size={18} /><p>Merevisi <b>{String(revising.contractNumber || '')}</b> — {String(revising.clientName || '')}. Tarif baru hanya berlaku untuk jam yang belum ditagihkan; jam yang sudah masuk invoice tidak berubah.</p></div>
-              <label className="form-field span-2"><span>Unit Alat Berat <i>*</i></span><select name="unitId" required defaultValue={String(revising.unitId || '')} disabled={!options}>{fleetOptions.filter(f => f.status === 'available' || f.id === String(revising.unitId || '')).map(f => <option key={f.id} value={f.id}>{f.unitCode} — {f.brandModel} ({f.status === 'available' ? 'Tersedia' : 'Terpakai kontrak ini'} · {money(f.hourlyRate)}/jam)</option>)}</select>{ferr('unitId')}</label>
+              {selectField('unitId', 'Unit Alat Berat', fleetOptions.filter(f => f.status === 'available' || f.id === String(revising.unitId || '')).map(f => <option key={f.id} value={f.id}>{f.unitCode} — {f.brandModel} ({f.status === 'available' ? 'Tersedia' : 'Terpakai kontrak ini'} · {money(f.hourlyRate)}/jam)</option>), { span2: true, disabled: !options, defaultValue: String(revising.unitId || '') })}
               <label className="form-field"><span>Tanggal Mulai <i>*</i></span><input name="startDate" type="date" required defaultValue={String(revising.startDate || '').slice(0, 10)} />{ferr('startDate')}</label>
               <label className="form-field"><span>Tanggal Selesai <i>*</i></span><input name="endDate" type="date" required defaultValue={String(revising.endDate || '').slice(0, 10)} />{ferr('endDate')}</label>
               <label className="form-field"><span>Tarif Sewa per Jam (Rp) <i>*</i></span><input name="ratePerHour" type="number" required min={1} step="0.01" defaultValue={String(revising.ratePerHour || '')} />{ferr('ratePerHour')}</label>
               <label className="form-field"><span>Periode &amp; Tarif Saat Ini</span><input disabled value={`${dateLabel(String(revising.startDate || ''))} s.d. ${dateLabel(String(revising.endDate || ''))} · ${money(String(revising.ratePerHour || 0))}`} /></label>
-              <label className="form-field span-2"><span>Alasan Revisi <i>*</i></span><textarea name="reason" required minLength={10} maxLength={500} placeholder="Contoh: Perpanjangan 2 minggu sesuai permintaan klien + penyesuaian tarif lembur" />{ferr('reason')}</label>
+              {textareaField('reason', 'Alasan Revisi', { span2: true, placeholder: 'Contoh: Perpanjangan 2 minggu sesuai permintaan klien + penyesuaian tarif lembur', minLength: 10, maxLength: 500 })}
               {revisionHistory.length > 0 && (
                 <div className="invoice-preview span-2">
                   <h4>Riwayat Amandemen ({revisionHistory.length})</h4>
@@ -679,8 +708,8 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
           ) : module === 'contracts' && (
             <>
               {field('contractNumber', 'Nomor Kontrak', 'text', false, { placeholder: 'Dibuat otomatis apabila dikosongkan' })}
-              <label className="form-field"><span>Klien <i>*</i></span><select required name="clientId" defaultValue="" disabled={!options}><option value="" disabled>{options ? 'Pilih perusahaan klien' : 'Memuat data referensi...'}</option>{clientOptions.map(x => <option key={x.id} value={x.id}>{x.companyName}</option>)}</select>{ferr('clientId')}</label>
-              <label className="form-field span-2"><span>Unit Tersedia <i>*</i></span><select name="unitId" required defaultValue="" disabled={!options}><option value="" disabled>{options ? 'Pilih unit yang tersedia' : 'Memuat data referensi...'}</option>{fleetOptions.map(f => <option key={f.id} value={f.id}>{f.unitCode} — {f.brandModel} ({money(f.hourlyRate)}/jam)</option>)}</select>{ferr('unitId')}</label>
+              {selectField('clientId', 'Klien', clientOptions.map(x => <option key={x.id} value={x.id}>{x.companyName}</option>), { disabled: !options, placeholder: options ? 'Pilih perusahaan klien' : 'Memuat data referensi...' })}
+              {selectField('unitId', 'Unit Tersedia', fleetOptions.map(f => <option key={f.id} value={f.id}>{f.unitCode} — {f.brandModel} ({money(f.hourlyRate)}/jam)</option>), { span2: true, disabled: !options, placeholder: options ? 'Pilih unit yang tersedia' : 'Memuat data referensi...' })}
               {field('startDate', 'Tanggal Mulai', 'date')}
               {field('endDate', 'Tanggal Selesai', 'date')}
               {field('ratePerHour', 'Tarif Sewa per Jam (Rp)', 'number', true, { min: 1, step: '0.01', placeholder: '350000' })}
@@ -701,7 +730,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
                 </label>
               ))}
               <div className="effective-hours"><span>Total Jam Efektif</span><strong>{Math.max(0, meter.end - meter.start - meter.breakdown).toLocaleString('id-ID')} <small>jam</small></strong></div>
-              <label className="form-field span-2"><span>Catatan Pekerjaan</span><textarea name="notes" placeholder="Uraian pekerjaan, kendala, atau informasi tambahan" /></label>
+              {textareaField('notes', 'Catatan Pekerjaan', { span2: true, placeholder: 'Uraian pekerjaan, kendala, atau informasi tambahan' })}
               <div className="info-callout span-2"><Info size={18} /><p>Catatan akan diajukan kepada Manajer Operasional untuk persetujuan.</p></div>
             </>
           )}
@@ -709,7 +738,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
           {module === 'bast' && (
             <>
               {editing ? <input type="hidden" name="contractId" value={String(editing.contractId || '')} /> : selectContract}
-              <label className="form-field"><span>Jenis Serah Terima <i>*</i></span><select name="type" defaultValue={String(editing?.type || 'mobilization')} disabled={!!editing}><option value="mobilization">Mobilisasi — Penyerahan Unit</option><option value="demobilization">Demobilisasi — Pengembalian Unit</option></select>{ferr('type')}</label>
+              {selectField('type', 'Jenis Serah Terima', <><option value="mobilization">Mobilisasi — Penyerahan Unit</option><option value="demobilization">Demobilisasi — Pengembalian Unit</option></>, { defaultValue: String(editing?.type || 'mobilization'), disabled: !!editing })}
               {field('date', 'Tanggal Serah Terima', 'date')}
               <div className="inspection-checklist span-2">
                 <h4>Daftar Pemeriksaan Unit (12 titik)</h4>
@@ -717,7 +746,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
                 {bastItems.map(([name, label, desc]) => <label key={name}><input type="checkbox" name={name} defaultChecked={editing ? !!editing[name] : true} /><span><b>{label}</b><small>{desc}</small></span></label>)}
               </div>
               <div className="span-2"><PhotoUploader errors={formErrors} existing={editing?.photoUrls as string[] | undefined} /></div>
-              <label className="form-field span-2"><span>Catatan Pemeriksaan</span><textarea name="notes" defaultValue={editing?.notes ? String(editing.notes) : ''} placeholder="Catat kerusakan, kelengkapan, atau hal yang perlu ditindaklanjuti" /></label>
+              {textareaField('notes', 'Catatan Pemeriksaan', { span2: true, placeholder: 'Catat kerusakan, kelengkapan, atau hal yang perlu ditindaklanjuti', defaultValue: editing?.notes ? String(editing.notes) : '' })}
             </>
           )}
 
@@ -742,7 +771,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
           <Button type="button" variant="outline" onClick={onCancel} disabled={pending}>Batal</Button>
           <Button type="submit" disabled={pending || !canWrite || (module === 'invoices' && (billable === null || billable <= 0))}>
             {pending ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}{' '}
-            {pending ? 'Menyimpan...' : module === 'timesheets' ? 'Ajukan Catatan' : module === 'invoices' ? 'Terbitkan Tagihan' : module === 'contracts' && revising ? 'Simpan Revisi' : module === 'fleet' && bulk && !editing ? `Tambah ${bCount} Unit` : 'Simpan Data'}
+            {pending ? 'Menyimpan...' : module === 'contracts' && revising ? 'Simpan Revisi' : module === 'fleet' && bulk && !editing ? `Tambah ${bCount} Unit` : c.submit}
           </Button>
         </div>
       </form>
