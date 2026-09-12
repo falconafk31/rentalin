@@ -195,6 +195,26 @@ PPN **tidak lagi hardcode**. Sekarang jadi konfigurasi perusahaan:
 5. Uji manual dengan data: bayar cicilan, upload foto BAST, undang user, reset sandi,
    cron (`curl -H "Authorization: Bearer $CRON_SECRET" .../api/cron/overdue`).
 
+## 5. Gelombang UI 12 Sep 2026 — BAST instan + dasbor kompak (roadmap 2.21–2.22)
+
+> Tanpa migrasi, tanpa perubahan logika bisnis/finansial. Branch:
+> `feat/dashboard-compact-redesign` (tidak di-merge, sesuai permintaan).
+
+| # | Perbaikan | File | Efek |
+|---|---|---|---|
+| U1 | `BastChecklist` + `PhotoUploader` diekstrak dari `RecordModal` menjadi komponen `memo` dengan callback stabil (`useCallback`); checkbox tetap uncontrolled (`defaultChecked`) | `module-workspace.tsx` | Klik checkbox BAST instan — tidak lagi ikut rekonsiliasi pohon modal tiap state induk berubah |
+| U2 | Label checklist full-row 18px + hover + umpan balik checked; header seksi "Informasi BAST" & "Dokumentasi Kondisi Unit"; thumbnail 72px | `module-workspace.tsx`, `globals.css` | Target sentuh lebih besar, hierarki form jelas |
+| U3 | KPI dipadatkan (±95–105px); spacing antar-seksi 16–18px; heading ringkas; chart 280px | `globals.css`, `overview.tsx` | Dasbor terpindai 3–5 detik, scroll vertikal berkurang ±40–50px |
+| U4 | Rentang tren 7H/1B/3B/6B/1Y/Semua; 7H/1B memakai agregat harian nyata 62 hari (`revenueByDay` di `getDashboardData`), sisanya bulanan; `metric-value` 760px disamakan ke 26px | `overview.tsx`, `lib/data.ts`, `globals.css` | Granularitas jujur (tanpa estimasi), responsif koheren |
+
+### Verifikasi
+
+```
+npm run lint  → 0 error, 0 warning
+npx tsc --noEmit → 0 error
+npm run build → sukses
+```
+
 ## 4. Cara mereview perubahan ini (tanpa merge/push)
 
 ### 3a. Optimasi lanjutan (disarankan, belum dikerjakan)

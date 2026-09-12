@@ -22,7 +22,7 @@ export function Badge({ status }: { status: string }) {
 // overdue/expiring, dan daftar terbaru terbatas. Sebelumnya halaman ini menerima
 // seluruh 7 tabel lalu mengagregasinya sendiri di client setiap render.
 export function Overview({ data }: { data: DashboardData }) {
-  const [range, setRange] = useState('6');
+  const [range, setRange] = useState('3m');
   const [monthOffset, setMonthOffset] = useState('0');
   const warnDays = Number(data.settings.expiryWarningDays ?? 30) || 30;
   const tz = data.settings.timezone;
@@ -32,19 +32,62 @@ export function Overview({ data }: { data: DashboardData }) {
   const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   const revenue = useMemo(() => (d: Date) => data.revenueByMonth[monthKey(d)] || 0, [data.revenueByMonth]);
 
+  // Granularitas chart: 7 Hari & 1 Bulan memakai data HARIAN nyata dari
+  // server (`revenueByDay`), sisanya memakai agregat BULANAN (`revenueByMonth`).
+  const chartData = useMemo(() => {
+    const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const dailyPoints = (days: number) => {
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      return Array.from({ length: days }, (_, i) => {
+        const date = new Date(today);
+        date.setDate(date.getDate() - (days - 1 - i));
+        return {
+          name: date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
+          current: (data.revenueByDay[isoDay(date)] || 0) / 1e6,
+          previous: 0,
+        };
+      });
+    };
+    const monthlyPoints = (months: number) => Array.from({ length: months }, (_, i) => {
+      const date = new Date(selected.getFullYear(), selected.getMonth() - months + 1 + i, 1);
+      return {
+        name: date.toLocaleDateString('id-ID', { month: 'short' }),
+        current: revenue(date) / 1e6,
+        previous: revenue(new Date(date.getFullYear(), date.getMonth() - 1, 1)) / 1e6,
+      };
+    });
+
+    if (range === '7d') return dailyPoints(7);
+    if (range === '1m') return dailyPoints(30);
+    if (range === '3m') return monthlyPoints(3);
+    if (range === '6m') return monthlyPoints(6);
+    if (range === '1y') return monthlyPoints(12);
+    // 'all' - all available months
+    const allMonths = Object.keys(data.revenueByMonth).sort();
+    if (allMonths.length === 0) return [];
+    return allMonths.map((key, idx) => {
+      const [year, month] = key.split('-').map(Number);
+      const date = new Date(year, month - 1, 1);
+      const prevKey = allMonths[idx - 1];
+      const prevRevenue = prevKey ? data.revenueByMonth[prevKey] : 0;
+      return {
+        name: date.toLocaleDateString('id-ID', { month: 'short', year: allMonths.length > 12 ? '2-digit' : undefined }),
+        current: data.revenueByMonth[key] / 1e6,
+        previous: prevRevenue / 1e6,
+      };
+    });
+  }, [range, selected, revenue, data.revenueByMonth, data.revenueByDay, now]);
+
   const statusData = useMemo(() => [
     { name: 'Disewa', value: data.fleetByStatus.renting || 0, color: '#f47727', status: 'renting' },
     { name: 'Tersedia', value: data.fleetByStatus.available || 0, color: '#50a885', status: 'available' },
     { name: 'Perawatan', value: data.fleetByStatus.maintenance || 0, color: '#efbf5b', status: 'maintenance' },
     { name: 'Dalam Mobilisasi', value: data.fleetByStatus.in_transit || 0, color: '#7998bc', status: 'in_transit' },
   ], [data.fleetByStatus]);
+  
   const monthRevenue = revenue(selected);
   const previousRevenue = revenue(new Date(selected.getFullYear(), selected.getMonth() - 1, 1));
   const growth = previousRevenue ? ((monthRevenue - previousRevenue) / previousRevenue * 100) : 0;
-  const chartData = useMemo(() => Array.from({ length: Number(range) }, (_, i) => {
-    const date = new Date(selected.getFullYear(), selected.getMonth() - Number(range) + 1 + i, 1);
-    return { name: date.toLocaleDateString('id-ID', { month: 'short' }), current: revenue(date) / 1e6, previous: revenue(new Date(date.getFullYear(), date.getMonth() - 1, 1)) / 1e6 };
-  }), [range, selected, revenue]);
   const latest = data.latest;
 
   return (
@@ -53,7 +96,7 @@ export function Overview({ data }: { data: DashboardData }) {
         <div>
           <div className="eyebrow"><span />PUSAT KENDALI OPERASIONAL</div>
           <h1>Dasbor Utama</h1>
-          <p>Selamat datang kembali, <b>{data.user.fullName.split(' ')[0]}</b>. Berikut ringkasan operasional Anda hari ini.</p>
+          <p>Ringkasan operasional rental hari ini.</p>
         </div>
         <div className="page-heading-actions">{['admin', 'finance', 'operations'].includes(data.user.role) && <Button variant="outline" asChild><a href="/api/report"><Download size={16} />Unduh Laporan</a></Button>}</div>
       </div>
@@ -79,7 +122,17 @@ export function Overview({ data }: { data: DashboardData }) {
         <section className="panel revenue-panel">
           <div className="panel-header">
             <div><h2>Tren Pendapatan</h2><p>Pantau pertumbuhan pendapatan sewa Anda.</p></div>
-            <label className="small-select"><select value={range} onChange={e => setRange(e.target.value)} aria-label="Periode grafik pendapatan"><option value="6">6 bulan terakhir</option><option value="12">12 bulan terakhir</option><option value="3">3 bulan terakhir</option></select><ChevronDown size={13} /></label>
+            <label className="small-select">
+              <select value={range} onChange={e => setRange(e.target.value)} aria-label="Periode grafik pendapatan">
+                <option value="7d">7 Hari</option>
+                <option value="1m">1 Bulan</option>
+                <option value="3m">3 Bulan</option>
+                <option value="6m">6 Bulan</option>
+                <option value="1y">1 Tahun</option>
+                <option value="all">Semua</option>
+              </select>
+              <ChevronDown size={13} />
+            </label>
           </div>
           <div className="revenue-summary">
             <div><strong>{money(totalPeriod(chartData))}</strong><span>Total pendapatan periode ini</span></div>
