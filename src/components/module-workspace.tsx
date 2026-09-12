@@ -247,14 +247,15 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
       return (optRows as HandoverRow[]).map(h => {
         const raw = h as unknown as Record<string, boolean>;
         const ok = bastFields.every(k => raw[k]);
+        const editableRecord = h as unknown as EditableRecord;
         return {
-          id: h.id, status: h.type, raw: h as unknown as EditableRecord,
+          id: h.id, status: h.type, raw: editableRecord,
           cells: [
             <div key="number"><b className="document-number">{h.documentNumber}</b><small className="cell-sub">Dicatat {dateTimeLabel(h.createdAt, tz)}{h.photoUrls.length > 0 && ` · ${h.photoUrls.length} foto`}</small></div>,
             <div key="contract">{h.contractNumber}<small className="cell-sub">{h.clientName}</small></div>,
             dateLabel(h.date, tz), <Badge key="type" status={h.type} />,
             <span key="condition" className={ok ? 'green' : 'amber-text'}>{ok ? 'Seluruh komponen baik' : 'Perlu perhatian'}</span>,
-            <div className="row-actions" key="doc"><PdfLink kind="bast" id={h.id} />{canWrite && <button className="icon-button" aria-label="Ubah BAST" title="Ubah BAST" onClick={() => edit(h.raw)}><Pencil size={15} />Ubah</button>}</div>,
+            <div className="row-actions" key="doc"><PdfLink kind="bast" id={h.id} />{canWrite && <button className="icon-button" aria-label="Ubah BAST" title="Ubah BAST" onClick={() => edit(editableRecord)}><Pencil size={15} />Ubah</button>}</div>,
           ],
         };
       });
