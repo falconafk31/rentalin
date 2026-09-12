@@ -808,15 +808,11 @@ function PaymentsModal({ invoice, payments, tz, onClose, onPay }: {
 // disimpan ke hidden input `photoUrls` (JSON) untuk ikut form BAST.
 // ---------------------------------------------------------------------------
 function PhotoUploader({ errors, existing }: { errors: Record<string, string> | null; existing?: string[] }) {
-  const [photos, setPhotos] = useState<{ path: string; url: string }[]>([]);
+  const [photos, setPhotos] = useState<{ path: string; url: string }[]>(() => 
+    existing?.length ? existing.map(path => ({ path, url: `/api/bast-photos?path=${encodeURIComponent(path)}` })) : []
+  );
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
-  
-  useEffect(() => {
-    if (existing?.length) {
-      setPhotos(existing.map(path => ({ path, url: `/api/bast-photos?path=${encodeURIComponent(path)}` })));
-    }
-  }, [existing]);
   const add = async (files: FileList | null) => {
     if (!files?.length) return;
     setError('');
