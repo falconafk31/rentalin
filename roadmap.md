@@ -345,11 +345,11 @@ Estimasi = effort relatif untuk 1–2 engineer. Prioritas mengikuti prinsip: **k
 | 0.1 | Batasi role pada `/api/report` & `/api/documents` | Hanya `admin, finance, operations` (temuan S1) — ✅ **selesai** (Quick Win #1, termasuk RLS `invoices` di migration 0004) | ✅ |
 | 0.2 | Hilangkan fetch ganda | `cache()` pada `getWorkspaceData` (atau pindah fetch ke layout dan teruskan via props/context) | 🔴 |
 | 0.3 | `.env.example` + dokumentasi variabel | Semua env dari §6.4 | 🔴 |
-| 0.4 | CI pipeline | GitHub Actions: `npm run lint`, `typecheck`, `next build`, `next typegen` tiap PR | 🔴 |
-| 0.5 | Test inti finansial | Unit/integrasi: pembuatan invoice (idempotensi penagihan), validasi timesheet, penugasan kontrak; e2e Playwright: login → alur kontrak | 🔴 |
+| 0.4 | CI pipeline | GitHub Actions: lint + typecheck + uji finansial + build tanpa env + audit prod tiap push/PR (`.github/workflows/ci.yml`) — selesai | ✅ |
+| 0.5 | Test inti finansial | Uji rumus produksi berjalan di CI: `scripts/finance-check.ts` (rumus invoice, status ledger, anti-overpayment) + `scripts/task1b-check.ts` — selesai; e2e Playwright menyusul bila dibutuhkan | ✅ |
 | 0.6 | Indeks FK & status | `contracts.client_id`, `invoices.contract_id`, `handovers.contract_id`, `timesheets.operator_id/invoice_id`, `fleet.status` di **kedua** skema | 🟡 |
 | 0.7 | Satukan sumber skema | `drizzle-kit generate` → folder `drizzle/` migrasi; `schema.sql` jadi bootstrap Supabase; seragakan nullable `operator_id` | 🟡 |
-| 0.8 | Perbaikan kecil | `lang="id"`, verify page pakai `company_settings`, konsistensi formula PPN seed, `drizzle.config.json` baca env | 🟢 |
+| 0.8 | Perbaikan kecil | `lang="id"`, verify page pakai `company_settings`, formula PPN seed kini add-on (konsisten `finance.ts`), `drizzle.config.ts` baca env — selesai | ✅ |
 
 **Kriteria selesai:** CI hijau, test inti lulus, tidak ada fetch ganda, semua rute finansial ber-role, indeks terpasang.
 
@@ -380,7 +380,7 @@ Estimasi = effort relatif untuk 1–2 engineer. Prioritas mengikuti prinsip: **k
 | 2.7 | **Lampiran foto BAST** | Supabase Storage bucket privat, upload dari form BAST, tampil di PDF & halaman detail; RLS storage per role |
 | 2.8 | **Notifikasi** | In-app (sudah ada badge) + email opsional: timesheet menunggu approval, invoice jatuh tempo, SIKO/asuransi 30 hari |
 | 2.9 | **PPN configurable** | `company_settings.ppn_rate` + validasi; dokumen & invoice memakai nilai setting |
-| 2.10 | Penomoran dokumen berurutan | Sequence per prefix per tahun dengan retry aman terhadap 23505 |
+| 2.10 | Penomoran dokumen berurutan | `PREFIX/TAHUN/001` via `pg_advisory_xact_lock` per prefix+tahun (`src/lib/docnum.ts`) — lebih kuat dari retry 23505; KTR/BAST/INV otomatis berurutan, format lama diabaikan — selesai |
 | 2.11 | **Reset database (admin)** | Menu Zona Berbahaya di Pengaturan: hapus data operasional (timesheet, BAST, invoice, kontrak, klien, armada) via Server Action resetDatabase, proteksi frasa HAPUS SEMUA DATA, profil + pengaturan dipertahankan — selesai |
 | 2.12 | **BAST 12 titik pemeriksaan** | Daftar Pemeriksaan Unit: mesin, hidraulik, rantai/roda, oli, bbm, aki, lampu, rem, bucket, kabin, APAR/P3K, SIKO; migrasi 0006_bast_checklist.sql, tampil di form + PDF — selesai |
 | 2.13 | **Menu sidebar grup bernomor** | Opsi B: DATA POKOK (armada, klien), SEWA BERJALAN (1. kontrak, 2. BAST, 3. timesheet), KEUANGAN (4. invoice); search + bantuan ikut nama baru — selesai |

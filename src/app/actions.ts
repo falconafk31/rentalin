@@ -9,6 +9,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { todayISO, money, resolveTz, type AppTimezone } from '@/lib/format';
 import { calcInvoiceTotals, remainingBalance, resolveInvoiceStatus, normalizePaymentAmount } from '@/lib/finance';
+import { nextDocNumber } from '@/lib/docnum';
 
 export type ActionResult = { success: boolean; message: string; fieldErrors?: Record<string, string> };
 const operationRoles = ['admin','operations'];
@@ -38,7 +39,6 @@ const label = (k:string) => fieldLabel[k] || k;
 const required = (f:FormData,k:string) => {const v=text(f,k);if(!v)throw new FieldError({[k]:`${label(k)} wajib diisi.`});return v;};
 const number = (f:FormData,k:string,min=0) => {const n=Number(required(f,k));if(!Number.isFinite(n)||n<min)throw new FieldError({[k]:`${label(k)} tidak valid.`});return n;};
 const validDate = (f:FormData,k:string) => {const v=required(f,k);if(!/^\d{4}-\d{2}-\d{2}$/.test(v)||isNaN(Date.parse(v)))throw new FieldError({[k]:`${label(k)} tidak valid.`});return v;};
-const documentNumber = (prefix:string) => `${prefix}/${new Date().getFullYear()}/${Date.now().toString().slice(-8)}-${crypto.randomUUID().slice(0,4).toUpperCase()}`;
 const appUrl = () => process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
 async function currentPpnRate(): Promise<number> {
@@ -93,10 +93,12 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
   } else if(module==='contracts') {
    const unitId=required(form,'unitId'),startDate=validDate(form,'startDate'),endDate=validDate(form,'endDate');
    if(endDate<startDate)throw new FieldError({endDate:'Tanggal selesai harus setelah tanggal mulai.'});
-   const contractNumber=text(form,'contractNumber')||documentNumber('KTR');
+   let contractNumber=text(form,'contractNumber');
+   const docYear=todayISO(tz).slice(0,4);
    await db.transaction(async tx=>{
     const [unit]=await tx.select().from(s.fleet).where(eq(s.fleet.id,unitId)).for('update');
     if(!unit||unit.status!=='available')throw new FieldError({unitId:'Unit tidak tersedia. Pilih unit lain.'});
+    if(!contractNumber)contractNumber=await nextDocNumber(tx,'KTR',s.contracts.contractNumber,s.contracts,docYear);
     await tx.insert(s.contracts).values({contractNumber,clientId:required(form,'clientId'),unitId,startDate,endDate,ratePerHour:String(number(form,'ratePerHour',1)),status:'active'});
     await tx.update(s.fleet).set({status:'renting'}).where(eq(s.fleet.id,unitId));
    });
@@ -122,8 +124,11 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
       photoUrls = parsed as string[];
     } catch { throw new FieldError({ photos: 'Lampiran foto tidak valid. Unggah ulang foto.' }); }
    }
-   const docNo = documentNumber('BAST');
-   await db.insert(s.handovers).values({documentNumber:docNo,contractId:required(form,'contractId'),type,date:validDate(form,'date'),engine:check('engine'),hydraulics:check('hydraulics'),tracks:check('tracks'),oil:check('oil'),fuel:check('fuel'),battery:check('battery'),lights:check('lights'),brakes:check('brakes'),bucket:check('bucket'),cabin:check('cabin'),safety:check('safety'),documents:check('documents'),notes:text(form,'notes'),photoUrls});
+   const docNo=await db.transaction(async tx=>{
+    const no=await nextDocNumber(tx,'BAST',s.handovers.documentNumber,s.handovers,todayISO(tz).slice(0,4));
+    await tx.insert(s.handovers).values({documentNumber:no,contractId:required(form,'contractId'),type,date:validDate(form,'date'),engine:check('engine'),hydraulics:check('hydraulics'),tracks:check('tracks'),oil:check('oil'),fuel:check('fuel'),battery:check('battery'),lights:check('lights'),brakes:check('brakes'),bucket:check('bucket'),cabin:check('cabin'),safety:check('safety'),documents:check('documents'),notes:text(form,'notes'),photoUrls});
+    return no;
+   });
    await logAudit({ ...actor, action: 'create', entity: 'bast', summary: `Membuat BAST ${docNo}${photoUrls.length ? ` (${photoUrls.length} foto)` : ''}` });
   } else if(module==='invoices') {
    const contractId=required(form,'contractId');
@@ -138,7 +143,7 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
     const hours=logs.reduce((a,l)=>a+Number(l.effectiveHours),0);
     const totals=calcInvoiceTotals(hours,Number(contract.ratePerHour),ppnRate);
     if(totals.subtotal<=0)throw new Error('Total jam efektif harus lebih dari nol.');
-    invoiceNo = documentNumber('INV');
+    invoiceNo = await nextDocNumber(tx,'INV',s.invoices.invoiceNumber,s.invoices,todayISO(tz).slice(0,4));
     const [invoice]=await tx.insert(s.invoices).values({invoiceNumber:invoiceNo,contractId,subtotalAmount:totals.subtotal.toFixed(2),totalAmount:totals.total.toFixed(2),taxAmount:totals.tax.toFixed(2),taxRate:String(ppnRate),status:'unpaid',issueDate:todayISO(tz),dueDate}).returning();
     for(const log of logs)await tx.update(s.timesheets).set({invoiceId:invoice.id}).where(eq(s.timesheets.id,log.id));
    });
