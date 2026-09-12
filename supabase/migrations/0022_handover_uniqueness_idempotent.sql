@@ -11,4 +11,4 @@ DO $$ BEGIN
   ALTER TABLE handovers
     ADD CONSTRAINT handovers_contract_type_unique
     UNIQUE (contract_id, type);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL; END $$;
