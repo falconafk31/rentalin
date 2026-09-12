@@ -54,7 +54,8 @@ supabase/
 │   ├── 0005_performance_indexes.sql     indeks kolom FK & status (roadmap Fase 0.6)
 │   ├── 0006_bast_checklist.sql            9 kolom boolean BAST (migrasi 0006, tabel handovers)
 │   ├── 0007_contract_revisions.sql        tabel contract_revisions + RLS (dependen 0001/0003/0004)
-│   └── 0008_signer_fields.sql             kolom signer_name + signer_title di company_settings (dependen 0002)
+│   ├── 0008_signer_fields.sql             kolom signer_name + signer_title di company_settings (dependen 0002)
+│   └── 0020_document_templates.sql        tabel document_templates + RLS + seed 4 template (dependen 0003/0004)
 │
 ├── seed/
 │   └── bootstrap_settings.sql           baris awal company_settings (kop surat);
@@ -254,6 +255,7 @@ Lanjut ke §7 (change management) — alur ini yang dipakai selamanya setelah go
 | 6 | `0006_bast_checklist.sql` | 9 kolom boolean BAST (`oil`…`documents`, NOT NULL DEFAULT TRUE) | #2 (tabel `handovers`) |
 | 7 | `0007_contract_revisions.sql` | Tabel `contract_revisions` + indeks + RLS (`staff_read` semua role, `operations_write` admin/operations) | #1 (`contracts`, `fleet`, `profiles`) + #3/#4 (fungsi & pola RLS) |
 | 8 | `0008_signer_fields.sql` | Kolom `signer_name` + `signer_title` di `company_settings` untuk blok TTD PDF | #2 (tabel `company_settings`) |
+| 20 | `0020_document_templates.sql` | Tabel `document_templates` (kind/version/status/content/variables) + indeks `(kind,status)` + RLS (SELECT semua role, ALL admin) + seed 4 template published v1 | #3/#4 (fungsi & pola RLS) + `profiles` (updated_by) |
 
 ```
 0001 ──► 0002 ──► 0004
@@ -314,6 +316,7 @@ Kebijakan di `0004_rls_policies.sql` (berlaku untuk akses via Supabase Data API;
 | `handovers` | semua role internal | admin, operations | admin, operations | admin, operations | — |
 | `contract_revisions` | semua role internal | admin, operations | admin, operations | admin, operations | Revisi = amandemen bernomor + alasan; tarif baru hanya untuk jam belum tertagih |
 | `company_settings` | semua role internal | admin | admin | admin | — |
+| `document_templates` | semua role internal | admin | admin | admin | Template PDF dinamis; publish/rollback admin-only via Server Actions |
 
 ---
 

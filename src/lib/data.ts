@@ -2,11 +2,11 @@ import 'server-only';
 import { cache } from 'react';
 import { db } from '@/db';
 import * as s from '@/db/schema';
-import { and, or, eq, ilike, isNotNull, desc, asc, count, sql, getTableColumns, type SQL } from 'drizzle-orm';
+import { and, or, eq, ilike, isNotNull, desc, asc, count, sql, getTableColumns, inArray, type SQL } from 'drizzle-orm';
 import type { SQLWrapper } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { requireUser, getCurrentUser, type SessionUser } from '@/lib/auth';
-import { todayISO } from '@/lib/format';
+import { todayISO, dateLabel, money } from '@/lib/format';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { seedPreview } from '@/db/seed';
 
@@ -22,6 +22,8 @@ import { seedPreview } from '@/db/seed';
 // ---------------------------------------------------------------------------
 
 export type CompanySettings = typeof s.companySettings.$inferSelect;
+export type DocumentTemplate = typeof s.documentTemplates.$inferSelect;
+export type TemplateKind = 'sph' | 'bast' | 'invoice' | 'perjanjian';
 export type FleetRow = typeof s.fleet.$inferSelect;
 export type ProfileRow = typeof s.profiles.$inferSelect;
 export type AuditRow = typeof s.auditLog.$inferSelect;
@@ -64,6 +66,73 @@ const asStatusMap = (rows: { status: string | null; n: number }[]) =>
 async function getSettingsRow(): Promise<CompanySettings> {
   const [row] = await db.select().from(s.companySettings).limit(1);
   return row ?? fallbackSettings;
+}
+
+// --- Template PDF (Pengaturan > Template PDF) --------------------------------
+// Template published terbaru per jenis; null bila belum ada (route pakai
+// fallback hardcoded). Baca internal saja — editor tulis admin-only.
+export const TEMPLATE_KINDS: TemplateKind[] = ['sph', 'bast', 'invoice', 'perjanjian'];
+
+export async function getTemplate(kind: TemplateKind): Promise<DocumentTemplate | null> {
+  await requireUser();
+  const [row] = await db.select().from(s.documentTemplates)
+    .where(and(eq(s.documentTemplates.kind, kind), eq(s.documentTemplates.status, 'published')))
+    .orderBy(desc(s.documentTemplates.version)).limit(1);
+  return row ?? null;
+}
+
+export async function getTemplateHistory(kind: TemplateKind): Promise<DocumentTemplate[]> {
+  await requireUser();
+  return db.select().from(s.documentTemplates)
+    .where(eq(s.documentTemplates.kind, kind))
+    .orderBy(desc(s.documentTemplates.version));
+}
+
+// Variabel template → nilai dokumen. Allowlist sinkron dengan
+// TEMPLATE_VARS di actions.ts. {{daftar_checklist}} khusus BAST dan
+// dirender sebagai baris checklist, bukan teks biasa.
+export const TEMPLATE_VAR_LIST = ['nomor_dokumen','nama_klien','tanggal_dokumen','periode_sewa','tarif_per_jam','jatuh_tempo','total_tagihan','kota','nama_signer','jabatan_signer','nama_pic_klien','daftar_checklist'] as const;
+
+export function templateVars(bundle: DocumentBundle, docDate: string, docNumber: string): Record<string, string> {
+  const base = { settings: null as null, contract: null as null, client: null as null, unit: null as null, invoice: null as null, handover: null as null };
+  const b = bundle.ok ? bundle : base;
+  const settings = (b as { settings?: CompanySettings }).settings;
+  const contract = (b as { contract?: { startDate: string; endDate: string; ratePerHour: string } }).contract;
+  const client = (b as { client?: { companyName: string } }).client;
+  const invoice = (b as { invoice?: { issueDate: string; dueDate: string; totalAmount: string } }).invoice;
+  const tz = settings?.timezone;
+  const period = contract ? `${dateLabel(contract.startDate, tz)} s.d. ${dateLabel(contract.endDate, tz)}` : '';
+  return {
+    nomor_dokumen: docNumber,
+    nama_klien: client?.companyName ?? '',
+    tanggal_dokumen: docDate,
+    periode_sewa: period,
+    tarif_per_jam: contract ? money(contract.ratePerHour) : '',
+    jatuh_tempo: invoice ? dateLabel(invoice.dueDate, tz) : '',
+    total_tagihan: invoice ? money(invoice.totalAmount) : '',
+    kota: settings?.city ?? 'Jakarta',
+    nama_signer: settings?.signerName ?? '',
+    jabatan_signer: settings?.signerTitle ?? '',
+    nama_pic_klien: (b as { client?: { picName?: string | null } }).client?.picName ?? '',
+    daftar_checklist: '',
+  };
+}
+
+// Terapkan {{variabel}} pada satu string template.
+export function applyTemplateVars(text: string, vars: Record<string, string>): string {
+  return text.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_, name: string) =>
+    Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : `{{${name}}}`);
+}
+
+// Blok template published: { intro?, intro_mobilisasi?, intro_demobilisasi?,
+// notes?, footer_text?, pasal_1..pasal_6? }. Null bila tak ada / bukan objek.
+export function templateContent(row: DocumentTemplate | null): Record<string, string> | null {
+  if (!row || !row.content || typeof row.content !== 'object' || Array.isArray(row.content)) return null;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(row.content as Record<string, unknown>)) {
+    if (typeof v === 'string' && v) out[k] = v;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 // --- Data shell (ramping) ---------------------------------------------------
@@ -147,6 +216,9 @@ export type ModulePageData = {
   expiringCount?: number;
   categoryOptions?: string[];
   invoiceTotals?: { all: number; collected: number; paidCount: number; unpaidCount: number };
+  // Template PDF (modul settings): published + histori per jenis. Null di
+  // modul lain agar payload tabel tidak membengkak.
+  templates?: Record<TemplateKind, { published: DocumentTemplate | null; history: DocumentTemplate[] }>;
 };
 
 export async function getModulePage(module: string, filters: ModuleFilters): Promise<ModulePageData | null> {
@@ -170,7 +242,21 @@ export async function getModulePage(module: string, filters: ModuleFilters): Pro
   };
 
   if (module === 'settings') {
-    return { ...base, filters: { ...filters, page: 1 }, rows: [], total: 0, page: 1, pageCount: 1, statusCounts: {} };
+    // Editor Template PDF butuh published + histori ke-4 jenis. Hanya di
+    // modul settings agar payload modul tabel tidak membengkak.
+    const kinds: TemplateKind[] = ['sph', 'bast', 'invoice', 'perjanjian'];
+    const templates = Object.fromEntries(await Promise.all(kinds.map(async (kind) => {
+      const [published, history] = await Promise.all([
+        db.select().from(s.documentTemplates)
+          .where(and(eq(s.documentTemplates.kind, kind), eq(s.documentTemplates.status, 'published')))
+          .orderBy(desc(s.documentTemplates.version)).limit(1).then(r => r[0] ?? null),
+        db.select().from(s.documentTemplates)
+          .where(eq(s.documentTemplates.kind, kind))
+          .orderBy(desc(s.documentTemplates.version)).limit(20),
+      ]);
+      return [kind, { published, history }] as const;
+    }))) as Record<TemplateKind, { published: DocumentTemplate | null; history: DocumentTemplate[] }>;
+    return { ...base, filters: { ...filters, page: 1 }, rows: [], total: 0, page: 1, pageCount: 1, statusCounts: {}, templates };
   }
 
   if (module === 'fleet') {
@@ -367,6 +453,26 @@ export type DashboardData = {
     handover?: { date: string };
     contract?: { contractNumber: string; startDate: string };
   };
+  // Pelacak alur sewa per kontrak aktif: 6 tahap (kontrak → SPH → BAST
+  // mobilisasi → timesheet → BAST demobilisasi → invoice lunas). Tanpa
+  // migrasi — seluruhnya dibaca dari status yang sudah ada.
+  pipeline: ContractPipelineRow[];
+};
+
+// Satu baris alur per kontrak aktif: status tiap tahap + aksi lanjutan.
+export type ContractPipelineRow = {
+  contractId: string;
+  contractNumber: string;
+  clientName: string | null;
+  unitCode: string | null;
+  status: string;
+  hasMobilization: boolean;
+  hasDemobilization: boolean;
+  pendingTimesheets: number;
+  billableTimesheets: number;
+  billedTimesheets: number;
+  unpaidInvoices: number;
+  paidInvoices: number;
 };
 
 export const getDashboardData = cache(async (): Promise<DashboardData> => {
@@ -374,7 +480,7 @@ export const getDashboardData = cache(async (): Promise<DashboardData> => {
   await seedPreview();
   const today = todayISO(settings.timezone);
   const warnUntil = addDaysISO(today, Number(settings.expiryWarningDays) || 30);
-  const [fleetTotalRes, statusRes, revenueRes, unpaidRes, overdueRes, pendingRes, expiringRes, recentFleet, latestTimesheet, latestInvoice, latestHandover, latestContract] = await Promise.all([
+  const [fleetTotalRes, statusRes, revenueRes, unpaidRes, overdueRes, pendingRes, expiringRes, recentFleet, latestTimesheet, latestInvoice, latestHandover, latestContract, pipelineRes] = await Promise.all([
     db.select({ n: count() }).from(s.fleet),
     db.select({ status: s.fleet.status, n: count() }).from(s.fleet).groupBy(s.fleet.status),
     db.select({ m: sql<string>`to_char(${s.invoices.issueDate}, 'YYYY-MM')`, total: sql<string>`coalesce(sum(${s.invoices.totalAmount}), 0)` })
@@ -390,6 +496,7 @@ export const getDashboardData = cache(async (): Promise<DashboardData> => {
       .from(s.invoices).orderBy(desc(s.invoices.issueDate), desc(s.invoices.createdAt)).limit(1),
     db.select({ date: s.handovers.date }).from(s.handovers).orderBy(desc(s.handovers.date), desc(s.handovers.createdAt)).limit(1),
     db.select({ contractNumber: s.contracts.contractNumber, startDate: s.contracts.startDate }).from(s.contracts).orderBy(desc(s.contracts.createdAt)).limit(1),
+    getContractPipeline(),
   ]);
   return {
     user,
@@ -408,8 +515,56 @@ export const getDashboardData = cache(async (): Promise<DashboardData> => {
       handover: latestHandover[0],
       contract: latestContract[0],
     },
+    pipeline: pipelineRes,
   };
 });
+
+// Alur sewa per kontrak aktif (maks 10 terbaru): agregat BAST mobilisasi /
+// demobilisasi, timesheet (pending / approved-belum-ditagih / sudah-ditagih),
+// dan invoice (belum lunas / lunas). Satu query per tabel turunan memakai
+// ANY($1) agar tetap 4 round-trip untuk seluruh kontrak halaman ini.
+export async function getContractPipeline(limit = 10): Promise<ContractPipelineRow[]> {
+  const contracts = await db.select({
+    contractId: s.contracts.id,
+    contractNumber: s.contracts.contractNumber,
+    status: s.contracts.status,
+    clientName: s.clients.companyName,
+    unitCode: s.fleet.unitCode,
+  }).from(s.contracts)
+    .leftJoin(s.clients, eq(s.clients.id, s.contracts.clientId))
+    .leftJoin(s.fleet, eq(s.fleet.id, s.contracts.unitId))
+    .where(eq(s.contracts.status, 'active'))
+    .orderBy(desc(s.contracts.createdAt)).limit(limit);
+  if (!contracts.length) return [];
+  const ids = contracts.map(c => c.contractId);
+  const [bastRows, tsRows, invRows] = await Promise.all([
+    db.select({ contractId: s.handovers.contractId, type: s.handovers.type })
+      .from(s.handovers).where(inArray(s.handovers.contractId, ids)),
+    db.select({ contractId: s.timesheets.contractId, status: s.timesheets.status, invoiceId: s.timesheets.invoiceId })
+      .from(s.timesheets).where(inArray(s.timesheets.contractId, ids)),
+    db.select({ contractId: s.invoices.contractId, status: s.invoices.status })
+      .from(s.invoices).where(inArray(s.invoices.contractId, ids)),
+  ]);
+  return contracts.map(c => {
+    const bast = bastRows.filter(r => r.contractId === c.contractId);
+    const ts = tsRows.filter(r => r.contractId === c.contractId);
+    const inv = invRows.filter(r => r.contractId === c.contractId);
+    return {
+      contractId: c.contractId,
+      contractNumber: c.contractNumber,
+      clientName: c.clientName,
+      unitCode: c.unitCode,
+      status: c.status,
+      hasMobilization: bast.some(r => r.type === 'mobilization'),
+      hasDemobilization: bast.some(r => r.type === 'demobilization'),
+      pendingTimesheets: ts.filter(r => r.status === 'pending').length,
+      billableTimesheets: ts.filter(r => r.status === 'approved' && !r.invoiceId).length,
+      billedTimesheets: ts.filter(r => r.invoiceId).length,
+      unpaidInvoices: inv.filter(r => r.status !== 'paid').length,
+      paidInvoices: inv.filter(r => r.status === 'paid').length,
+    };
+  });
+}
 
 // --- Halaman admin (Pengguna & Peran, Log Audit) — data ramping -------------
 export type UsersData = { user: SessionUser; settings: CompanySettings; profiles: ProfileRow[] };

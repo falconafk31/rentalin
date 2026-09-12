@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { ArrowUpRight, ArrowRight, CalendarDays, ChevronDown, Download, FileText, CircleDollarSign, ReceiptText, MoreHorizontal, CircleCheck, Clock3, TriangleAlert, MapPin, ClipboardCheck, Plus, Activity } from 'lucide-react';
 import { EquipmentIcon } from './icons';
 import { Button } from './ui/button';
-import type { DashboardData } from '@/lib/data';
+import type { DashboardData, ContractPipelineRow } from '@/lib/data';
 import { money, shortMoney, labels, dateLabel } from '@/lib/format';
 
 // Chart dimuat lazy di client saja — mengurangi JS first-load dasbor secara
@@ -99,6 +99,7 @@ export function Overview({ data }: { data: DashboardData }) {
         </section>
       </div>
       {data.expiringCount > 0 && <Link href="/dashboard/fleet?filter=expiring" className="expiry-banner"><span className="expiry-icon"><TriangleAlert size={18} /></span><div><b>Dokumen armada perlu diperhatikan</b><span>{data.expiringCount} unit memiliki SIKO atau asuransi yang akan berakhir dalam {warnDays} hari.</span></div><span className="expiry-link">Periksa dokumen <ArrowRight size={15} /></span></Link>}
+      <ContractPipeline pipeline={data.pipeline} role={data.user.role} />
       <div className="operations-grid">
         <section className="panel fleet-overview">
           <div className="panel-header"><div><h2>Ringkasan Armada</h2><p>Status terkini unit alat berat Anda.</p></div><Link className="text-link" href="/dashboard/fleet">Lihat semua <ArrowRight size={14} /></Link></div>
@@ -134,4 +135,62 @@ function Metric({ title, value, suffix, icon, tone, foot }: { title: string; val
 
 function ActivityItem({ icon, tone, title, text, time, href }: { icon: React.ReactNode; tone: string; title: string; text: string; time: string; href: string }) {
   return <Link href={href} className="activity-item"><span className={`activity-icon ${tone}`}>{icon}</span><div><b>{title}</b><p>{text}</p><small>{time}</small></div></Link>;
+}
+
+// Pelacak alur sewa per kontrak aktif: 6 tahap (kontrak → SPH → BAST
+// mobilisasi → timesheet → BAST demobilisasi → invoice lunas). Tiap tahap
+// tampil sudah/belum + tombol aksi langsung agar pengguna tahu langkah
+// berikutnya tanpa menebak.
+function ContractPipeline({ pipeline, role }: { pipeline: ContractPipelineRow[]; role: string }) {
+  const canBill = ['admin', 'finance'].includes(role);
+  const canOperate = ['admin', 'operations'].includes(role);
+  return (
+    <section className="panel pipeline-panel">
+      <div className="panel-header">
+        <div><h2>Alur Sewa per Kontrak</h2><p>Langkah yang sudah dan belum selesai untuk tiap kontrak aktif.</p></div>
+        <Link className="text-link" href="/dashboard/contracts">Lihat semua <ArrowRight size={14} /></Link>
+      </div>
+      {!pipeline.length && <p className="empty-inline" style={{ padding: '0 21px 18px' }}>Belum ada kontrak aktif. Buat kontrak untuk memulai alur sewa.</p>}
+      <div className="pipeline-list">
+        {pipeline.map(p => {
+          const tsDone = p.pendingTimesheets === 0 && (p.billableTimesheets > 0 || p.billedTimesheets > 0);
+          const invDone = p.unpaidInvoices === 0 && p.paidInvoices > 0;
+          const readyClose = p.hasDemobilization && p.billableTimesheets === 0 && p.pendingTimesheets === 0 && p.unpaidInvoices === 0 && (p.paidInvoices > 0 || p.billedTimesheets === 0);
+          const steps: { label: string; done: boolean; hint: string; href?: string; cta?: string }[] = [
+            { label: '1. Kontrak', done: true, hint: p.contractNumber },
+            { label: '2. SPH', done: true, hint: 'Unduh kapan saja', href: `/dashboard/contracts?q=${encodeURIComponent(p.contractNumber)}`, cta: 'SPH' },
+            p.hasMobilization
+              ? { label: '3. BAST Mobilisasi', done: true, hint: 'Sudah dibuat' }
+              : { label: '3. BAST Mobilisasi', done: false, hint: 'Belum dibuat', href: '/dashboard/bast?new=1', cta: canOperate ? 'Buat BAST' : undefined },
+            tsDone
+              ? { label: '4. Timesheet', done: true, hint: `${p.billedTimesheets} ditagih${p.billableTimesheets ? ` · ${p.billableTimesheets} siap tagih` : ''}` }
+              : { label: '4. Timesheet', done: false, hint: p.pendingTimesheets ? `${p.pendingTimesheets} menunggu persetujuan` : p.billableTimesheets ? `${p.billableTimesheets} siap ditagih` : 'Belum ada catatan', href: '/dashboard/timesheets?new=1', cta: 'Catat' },
+            p.hasDemobilization
+              ? { label: '5. BAST Demobilisasi', done: true, hint: 'Sudah dibuat' }
+              : { label: '5. BAST Demobilisasi', done: false, hint: 'Belum dibuat', href: '/dashboard/bast?new=1', cta: canOperate ? 'Buat BAST' : undefined },
+            invDone
+              ? { label: '6. Invoice Lunas', done: true, hint: `${p.paidInvoices} lunas` }
+              : { label: '6. Invoice Lunas', done: false, hint: p.unpaidInvoices ? `${p.unpaidInvoices} belum lunas` : p.billableTimesheets ? 'Siap diterbitkan' : 'Belum ada tagihan', href: '/dashboard/invoices?new=1', cta: canBill ? 'Buat Invoice' : undefined },
+          ];
+          return (
+            <div key={p.contractId} className="pipeline-card">
+              <div className="pipeline-head">
+                <div><b>{p.contractNumber}</b><small className="cell-sub">{p.clientName || '—'} · {p.unitCode || '—'}</small></div>
+                {readyClose && <Link className="text-link" href={`/dashboard/contracts?q=${encodeURIComponent(p.contractNumber)}`}>Siap diselesaikan <ArrowRight size={13} /></Link>}
+              </div>
+              <ol className="pipeline-steps">
+                {steps.map(s => (
+                  <li key={s.label} className={s.done ? 'done' : 'todo'}>
+                    <span className="pipeline-dot">{s.done ? <CircleCheck size={15} /> : <Clock3 size={15} />}</span>
+                    <div><b>{s.label}</b><small>{s.hint}</small></div>
+                    {s.href && s.cta && <Link className="pipeline-cta" href={s.href}>{s.cta}</Link>}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
 }

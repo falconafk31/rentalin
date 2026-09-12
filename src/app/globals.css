@@ -37,3 +37,22 @@ th.col-no{text-transform:none}
 .login-forgot{display:block;text-align:center;font-size:13px;color:#d58b52;font-weight:550;margin-top:16px}
 /* Aksi baris tabel di HP: ikon saja agar tabel tidak meluap (D-4) */
 @media(max-width:540px){.row-actions .icon-button,.row-actions .approve-button{font-size:0;gap:0;padding:0 8px}.row-actions .reject-button{font-size:0}}
+/* Pelacak alur sewa per kontrak di dashboard: 6 tahap sudah/belum + aksi */
+.pipeline-panel{margin-bottom:21px}
+.pipeline-panel .panel-header{padding-bottom:6px}
+.pipeline-list{display:flex;flex-direction:column;gap:0;padding:6px 21px 8px}
+.pipeline-card{padding:14px 0;border-top:1px solid #f0f1f3}
+.pipeline-card:first-child{border-top:0}
+.pipeline-head{display:flex;align-items:center;justify-content:space-between;gap:10;margin-bottom:10px}
+.pipeline-head b{font-size:14px;font-weight:650}
+.pipeline-steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
+.pipeline-steps li{display:flex;flex-direction:column;gap:6px;background:#fafbfc;border:1px solid #eef0f2;border-radius:8px;padding:10px;position:relative}
+.pipeline-steps li.done{background:#f0f8f3;border-color:#e2f0e8}
+.pipeline-steps li b{font-size:12px;font-weight:650;display:block}
+.pipeline-steps li small{font-size:11px;color:#959aa2;line-height:1.5;display:block;min-height:32px}
+.pipeline-dot{color:#c3c9ce}
+.pipeline-steps li.done .pipeline-dot{color:#4b9a76}
+.pipeline-cta{align-self:flex-start;font-size:11px;font-weight:650;color:#e97128;background:#fff0e6;border:1px solid #f5d8c5;border-radius:5px;padding:4px 8px}
+.pipeline-cta:hover{background:#ffe8d6}
+@media(max-width:1000px){.pipeline-steps{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:540px){.pipeline-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.pipeline-steps li small{min-height:0}}
