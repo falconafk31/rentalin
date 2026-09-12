@@ -32,81 +32,51 @@ export function Overview({ data }: { data: DashboardData }) {
   const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   const revenue = useMemo(() => (d: Date) => data.revenueByMonth[monthKey(d)] || 0, [data.revenueByMonth]);
 
-  // Adaptive chart data based on range selector
+  // Granularitas chart: 7 Hari & 1 Bulan memakai data HARIAN nyata dari
+  // server (`revenueByDay`), sisanya memakai agregat BULANAN (`revenueByMonth`).
   const chartData = useMemo(() => {
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    
-    if (range === '7d') {
-      // 7 days - daily granularity
-      return Array.from({ length: 7 }, (_, i) => {
+    const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const dailyPoints = (days: number) => {
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      return Array.from({ length: days }, (_, i) => {
         const date = new Date(today);
-        date.setDate(date.getDate() - (6 - i));
-        const dayRevenue = revenue(date) / 30; // Rough daily approximation from monthly
-        return { 
+        date.setDate(date.getDate() - (days - 1 - i));
+        return {
           name: date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
-          current: dayRevenue / 1e6,
-          previous: 0
+          current: (data.revenueByDay[isoDay(date)] || 0) / 1e6,
+          previous: 0,
         };
       });
-    } else if (range === '1m') {
-      // 1 month - weekly granularity (4 weeks)
-      return Array.from({ length: 4 }, (_, i) => {
-        const weekStart = new Date(today);
-        weekStart.setDate(weekStart.getDate() - (21 - i * 7));
-        const weekRevenue = revenue(weekStart) / 4; // Rough weekly approximation
-        return {
-          name: `Minggu ${i + 1}`,
-          current: weekRevenue / 1e6,
-          previous: 0
-        };
-      });
-    } else if (range === '3m') {
-      // 3 months - monthly granularity
-      return Array.from({ length: 3 }, (_, i) => {
-        const date = new Date(selected.getFullYear(), selected.getMonth() - 2 + i, 1);
-        return { 
-          name: date.toLocaleDateString('id-ID', { month: 'short' }), 
-          current: revenue(date) / 1e6, 
-          previous: revenue(new Date(date.getFullYear(), date.getMonth() - 1, 1)) / 1e6 
-        };
-      });
-    } else if (range === '6m') {
-      // 6 months - monthly granularity
-      return Array.from({ length: 6 }, (_, i) => {
-        const date = new Date(selected.getFullYear(), selected.getMonth() - 5 + i, 1);
-        return { 
-          name: date.toLocaleDateString('id-ID', { month: 'short' }), 
-          current: revenue(date) / 1e6, 
-          previous: revenue(new Date(date.getFullYear(), date.getMonth() - 1, 1)) / 1e6 
-        };
-      });
-    } else if (range === '1y') {
-      // 12 months - monthly granularity
-      return Array.from({ length: 12 }, (_, i) => {
-        const date = new Date(selected.getFullYear(), selected.getMonth() - 11 + i, 1);
-        return { 
-          name: date.toLocaleDateString('id-ID', { month: 'short' }), 
-          current: revenue(date) / 1e6, 
-          previous: revenue(new Date(date.getFullYear(), date.getMonth() - 1, 1)) / 1e6 
-        };
-      });
-    } else {
-      // 'all' - all available months
-      const allMonths = Object.keys(data.revenueByMonth).sort();
-      if (allMonths.length === 0) return [];
-      return allMonths.map((key, idx) => {
-        const [year, month] = key.split('-').map(Number);
-        const date = new Date(year, month - 1, 1);
-        const prevKey = allMonths[idx - 1];
-        const prevRevenue = prevKey ? data.revenueByMonth[prevKey] : 0;
-        return {
-          name: date.toLocaleDateString('id-ID', { month: 'short', year: allMonths.length > 12 ? '2-digit' : undefined }),
-          current: data.revenueByMonth[key] / 1e6,
-          previous: prevRevenue / 1e6
-        };
-      });
-    }
-  }, [range, selected, revenue, data.revenueByMonth, now]);
+    };
+    const monthlyPoints = (months: number) => Array.from({ length: months }, (_, i) => {
+      const date = new Date(selected.getFullYear(), selected.getMonth() - months + 1 + i, 1);
+      return {
+        name: date.toLocaleDateString('id-ID', { month: 'short' }),
+        current: revenue(date) / 1e6,
+        previous: revenue(new Date(date.getFullYear(), date.getMonth() - 1, 1)) / 1e6,
+      };
+    });
+
+    if (range === '7d') return dailyPoints(7);
+    if (range === '1m') return dailyPoints(30);
+    if (range === '3m') return monthlyPoints(3);
+    if (range === '6m') return monthlyPoints(6);
+    if (range === '1y') return monthlyPoints(12);
+    // 'all' - all available months
+    const allMonths = Object.keys(data.revenueByMonth).sort();
+    if (allMonths.length === 0) return [];
+    return allMonths.map((key, idx) => {
+      const [year, month] = key.split('-').map(Number);
+      const date = new Date(year, month - 1, 1);
+      const prevKey = allMonths[idx - 1];
+      const prevRevenue = prevKey ? data.revenueByMonth[prevKey] : 0;
+      return {
+        name: date.toLocaleDateString('id-ID', { month: 'short', year: allMonths.length > 12 ? '2-digit' : undefined }),
+        current: data.revenueByMonth[key] / 1e6,
+        previous: prevRevenue / 1e6,
+      };
+    });
+  }, [range, selected, revenue, data.revenueByMonth, data.revenueByDay, now]);
 
   const statusData = useMemo(() => [
     { name: 'Disewa', value: data.fleetByStatus.renting || 0, color: '#f47727', status: 'renting' },
