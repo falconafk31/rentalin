@@ -89,7 +89,7 @@ export function TemplatesWorkspace({ data, canWrite }: { data: TemplatesData; ca
       </div>
 
       {entry.published ? (
-        <div className="invoice-preview" style={{ marginBottom: 16 }}>
+        <div className="summary-box" style={{ marginBottom: 16 }}>
           <h4>Tayang: v{entry.published.version} · {entry.published.title}</h4>
           {publishedBlocks.map(([k, v]) => (
             <div key={k} style={{ alignItems: 'flex-start' }}>

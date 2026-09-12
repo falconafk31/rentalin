@@ -697,7 +697,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
               <label className="form-field"><span>Periode &amp; Tarif Saat Ini</span><input disabled value={`${dateLabel(String(revising.startDate || ''))} s.d. ${dateLabel(String(revising.endDate || ''))} · ${money(String(revising.ratePerHour || 0))}`} /></label>
               {textareaField('reason', 'Alasan Revisi', { span2: true, placeholder: 'Contoh: Perpanjangan 2 minggu sesuai permintaan klien + penyesuaian tarif lembur', minLength: 10, maxLength: 500 })}
               {revisionHistory.length > 0 && (
-                <div className="invoice-preview span-2">
+                <div className="summary-box span-2">
                   <h4>Riwayat Amandemen ({revisionHistory.length})</h4>
                   {revisionHistory.map(r => <div key={r.id}><span>Rev {r.revisionNumber} · {dateLabel(r.createdAt, tz)}</span><b>{money(r.prevRate)} → {money(r.newRate)}</b></div>)}
                   <div><span>Alasan terakhir</span><b>{latestReason}</b></div>
@@ -754,7 +754,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
             <>
               {selectContract}
               {field('dueDate', 'Tanggal Jatuh Tempo', 'date', true, { min: todayISO(tz) })}
-              <div className="invoice-preview span-2">
+              <div className="summary-box span-2">
                 <h4>Ringkasan Tagihan</h4>
                 <div><span>Jam kerja disetujui, belum ditagihkan</span><b>{billable === null ? '…' : billable.toLocaleString('id-ID')} jam</b></div>
                 <div><span>Tarif sewa per jam</span><b>{money(selectedContract?.ratePerHour || 0)}</b></div>
@@ -833,16 +833,16 @@ function PaymentsModal({ invoice, payments, tz, onClose, onPay }: {
       }}>
         <input type="hidden" name="invoiceId" value={invoice.id} />
         <div className="form-grid">
-          <div className="invoice-preview span-2">
+          <div className="summary-box span-2">
             <h4>Ringkasan Tagihan</h4>
             <div><span>Total tagihan</span><b>{money(invoice.totalAmount)}</b></div>
             <div><span>Sudah dibayar</span><b>{money(paid)}</b></div>
             <div className="invoice-total"><span>Sisa tagihan</span><b>{money(remaining)}</b></div>
           </div>
           {!payments ? (
-            <div className="invoice-preview span-2"><h4>Riwayat Pembayaran</h4><p className="cell-sub">Memuat riwayat pembayaran...</p></div>
+            <div className="summary-box span-2"><h4>Riwayat Pembayaran</h4><p className="cell-sub">Memuat riwayat pembayaran...</p></div>
           ) : history.length > 0 && (
-            <div className="invoice-preview span-2">
+            <div className="summary-box span-2">
               <h4>Riwayat Pembayaran ({history.length})</h4>
               {history.map(p => <div key={p.id} className="payment-row"><span>{dateLabel(p.paidAt, tz)} · {labels[p.method]}{p.reference ? ` · ${p.reference}` : ''}{p.notes ? <><br />{p.notes}</> : null}</span><b>{money(p.amount)}</b></div>)}
             </div>
@@ -914,8 +914,9 @@ function PhotoUploader({ errors, existing }: { errors: Record<string, string> | 
         <div className="photo-thumbs">
           {photos.map(p => (
             <span className="photo-thumb" key={p.path}>
+              {/* B1 (audit bast.md): loading lazy + decoding async agar pratinjau foto kamera HP tidak memblok render form. */}
               {/* eslint-disable-next-line @next/next/no-img-element -- pratinjau object-URL lokal, bukan aset remote */}
-              <img src={p.url} alt="Lampiran BAST" />
+              <img src={p.url} alt="Lampiran BAST" loading="lazy" decoding="async" />
               <button type="button" onClick={() => remove(p.path)} aria-label="Hapus foto"><X size={13} /></button>
             </span>
           ))}
