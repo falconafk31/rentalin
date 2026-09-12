@@ -116,10 +116,10 @@ Mengikuti Fase 0 di `roadmap.md` — empat item pertama menutup semua temuan **m
 2. ✅ SELESAI — O3  Fix lint error + O4 (alt-text) (commit QW#2 — lint 0 error/0 warning)
 3. ✅ SELESAI — A2  Lazy-init DB → build lolos tanpa env (commit QW#3)
 4. ✅ SELESAI — K5  postcss 8.5.28 (commit QW#4 — HIGH vulnerability tertutup)
-5. A4  CI pipeline (lint+typecheck+build)         ← mencegah regresi
-6. K1  Buang playwright/dotenv (atau pindah devDeps bila A6 jalan)
-7. K3  cache() getWorkspaceData + O2 indeks       ← quick win performa
-8. K2  Hapus route timesheets/new
+5. ✅ SELESAI — A4  CI pipeline (.github/workflows/ci.yml: lint → typecheck → finance-check → task1b-check → build tanpa env → npm audit --omit=dev)
+6. ✅ SELESAI — K1  playwright kini hanya di devDependencies (calon e2e A6); dotenv dihapus dari dependencies
+7. ✅ SELESAI — K3 + O2  fetch ganda dihapus via getShellData/getModulePage (O-A) + indeks 0005/0017, kini juga dimodelkan di schema.ts (paritas drizzle-kit push)
+8. ✅ SELESAI — K2  route /dashboard/timesheets/new dihapus (?new=1 satu-satunya jalur)
 ─── sprint berikutnya ───
 9.  A6 test finansial → O1 query per-modul → A7 audit log → A9 payment ledger
 10. Sisanya sesuai prioritas di atas
@@ -127,7 +127,9 @@ Mengikuti Fase 0 di `roadmap.md` — empat item pertama menutup semua temuan **m
 12. ✅ SELESAI (fitur app) — QR PDF tampil (`src={{uri}} cache={false}` + hapus import `createElement` tak terpakai) + revisi kontrak amandemen bernomor (roadmap 2.16, migrasi 0007 + RLS); validasi: lint 0, tsc 0, build tanpa env sukses, audit prod 0 vuln
 13. ✅ SELESAI (UI/UX) — skala tipografi dinaikkan (body 13→16px; teks kecil 7–13px → +2–3px, ±219 deklarasi `globals.css`) + tombol aksi tabel konsisten ikon + label dengan pemisah (Ubah/Hapus/Revisi/Selesai/Tandai Lunas/Setujui/Tolak/Unduh); tick chart ikut naik; file PDF tidak diubah (roadmap 2.17). Validasi: lint 0, tsc 0, build tanpa env sukses, audit prod 0 vuln
 14. ✅ SELESAI (PDF) — QR vektor SVG dari matriks qrcode, BAST 12 titik + TTD dalam 1 halaman A4, nama penandatangan vendor (`signer_name`/`signer_title`) + nama klien (`pic_name`) untuk SPH/BAST/Invoice; migrasi 0008 (roadmap 2.18). Validasi: lint 0, tsc 0, build tanpa env sukses, audit prod 0 vuln
+15. ✅ SELESAI (12 Sep 2026) — gelombang penuntup temuan audit: **A6-lite** test finansial sudah berjalan di CI (`scripts/finance-check.ts` + `task1b-check.ts`, menguji rumus produksi `finance.ts`); **O10** `/api/health` diperluas (latensi DB, auth configured/reachable, uptime, ts — tetap tanpa data sensitif); **K1** dotenv+playwright keluar dari dependencies; **K2** route redundan dihapus; **B2/roadmap 2.10** penomoran dokumen berurutan `PREFIX/TAHUN/001` (KTR/BAST/INV) via `pg_advisory_xact_lock` per prefix+tahun — aman konkurensi (probe 2 transaksi paralel PASS), format lama diabaikan; **B3** formula PPN seed kini add-on (konsisten `finance.ts`); **0.8** `drizzle.config.ts` membaca env (JSON plaintext dihapus); paritas 17 indeks 0005+0017 dimodelkan di `src/db/schema.ts`. Validasi: lint 0, tsc 0, build sukses, uji finansial & TASK-1B lolos, probe penomoran 4/4 PASS, regresi PDF 200.
 ```
+
 
 ---
 
