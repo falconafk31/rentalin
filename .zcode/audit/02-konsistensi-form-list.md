@@ -1,5 +1,7 @@
 # Topik 2 — Konsistensi Form & List Antar Modul
 
+> ✅ Dieksekusi — lihat "Status eksekusi" di README.md
+
 > Semua modul (fleet/clients/contracts/timesheets/bast/invoices) sudah memakai **satu**
 > komponen `ModuleWorkspace` + `RecordModal` — jadi kerangka dasarnya memang sama. Tapi ada
 > beberapa titik di mana tiap modul menyimpang dari pola yang sama, sehingga terasa "hampir

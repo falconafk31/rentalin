@@ -1,5 +1,7 @@
 # Topik 1 — Kehalusan (Smoothness) List/Tabel Modul
 
+> ✅ Dieksekusi — lihat "Status eksekusi" di README.md
+
 > Fokus: interaksi pager/sort/tab di `/dashboard/[module]` — bukan query DB (sudah efisien,
 > lihat `ui-audit.md` bawaan repo). Sumber: `src/components/module-workspace.tsx`,
 > `src/app/globals.css`.

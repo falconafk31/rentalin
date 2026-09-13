@@ -1,4 +1,5 @@
 # Modul: Armada Alat Berat (`/dashboard/fleet`)
+n> ✅ Dieksekusi — lihat "Status eksekusi" di README.md
 
 Lihat juga temuan lintas-modul: [`../01-performa-list.md`](../01-performa-list.md),
 [`../02-konsistensi-form-list.md`](../02-konsistensi-form-list.md) (K1, K2, K3 spesifik
