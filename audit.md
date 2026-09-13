@@ -117,6 +117,10 @@ Seluruh temuan di bawah sudah diverifikasi dengan menjalankan tool langsung terh
 | O8 | **Status jadi `pgEnum` / union type Drizzle** | skema | `text` + CHECK bekerja, tapi enum memberi type-safety di Drizzle dan pesan error lebih jelas. Lakukan bersama migration berikutnya (bukan sekarang). | 🟡 Maintainability |
 | O9 | **Validasi terpusat (Zod)** | `actions.ts` | Parser FormData manual sudah benar tapi duplikatif; satu schema Zod per modul bisa dipakai server-side dan memberi pesan error per-field untuk client. | 🟡 Maintainability |
 | O10 | **Monitoring & health diperluas** | `api/health/route.ts` | Sekarang hanya `select 1`. Tambah: cek auth Supabase reachable, versi, uptime; plus error reporting terstruktur (Sentry atau APM Vercel). | 🟡 Operasional |
+| O11 | **DM-5 — 61 selector background terang di luar tabel token** | `src/app/globals.css` | Di mode gelap, hover `.icon-button`, `.nav-item`, `.info-callout`, `.expiry-banner`, `.summary-box`, `tbody tr:hover`, `.approval`/`.reject`, `.pipeline-cta`, dll tetap terang. Butuh pemetaan ke token yang ada atau token baru. | ⚠️ Keputusan produk |
+| O12 | **DM-6 — Warna chart tidak ikut dark mode** | `src/charts/overview-charts.tsx` | Nilai chart (`overview.tsx`, donut) beda dari token tabel audit (`#f47727` vs `#ef762d`, `#50a885` vs `#599b7d`). Mengganti ke token ubah tampilan mode terang, tetapmenciptakan inkonsistensi. | ⚠️ Keputusan produk |
+| O13 | **DM-7 — Halaman verifikasi publik gelap** | `src/app/verify/doc/page.tsx` | `/verify/doc` ikut berubah gelap padahal audit hanya menyebut login tetap terang. Perlu konfirmasi apakah ikut "selalu terang" atau boleh gelap. | ⚠️ Keputusan produk |
+| O14 | **B1-varian-penuh — `next/image` + signed URL untuk foto BAST** | `src/components/bast-checklist.tsx`, `supabase/storage.bast-photos` | Varian penuh audit (`next/image` + signed URL Supabase) tidak dipilih karena preview memakai object-URL lokal (blob:) yang tidak didukung `next/image`. Butuh keputusan bila ingin pindah ke signed-URL. | ⚠️ Keputusan produk |
 
 ---
 
