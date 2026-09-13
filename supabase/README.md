@@ -257,6 +257,7 @@ Lanjut ke §7 (change management) — alur ini yang dipakai selamanya setelah go
 | 8 | `0008_signer_fields.sql` | Kolom `signer_name` + `signer_title` di `company_settings` untuk blok TTD PDF | #2 (tabel `company_settings`) |
 | 9–21 | `0009`–`0021` | Konfigurasi PPN, ledger pembayaran, audit log, foto BAST, invite trigger, snapshot pajak + guard, indeks paginasi, locale, identitas dokumen, template PDF, uniqueness BAST | Lihat header tiap file |
 | 22 | `0022_handover_uniqueness_idempotent.sql` | Guard idempoten `handovers_contract_type_unique` (pola 0016) — aman di-rerun bila 0021 terputus parsial (error 42P07) | #21 |
+| 23 | `0023_media_files.sql` | Tabel `media_files` (metadata media layer; binary di Cloudflare R2) + indeks entity/status + RLS (baca semua role internal; tulis admin/operations/operator; hapus admin/operations). Lihat `docs/media-architecture.md` | #1 (profiles, fleet) + #3 (fungsi) + #4 (pola RLS) |
 
 ```
 0001 ──► 0002 ──► 0004
@@ -318,6 +319,7 @@ Kebijakan di `0004_rls_policies.sql` (berlaku untuk akses via Supabase Data API;
 | `contract_revisions` | semua role internal | admin, operations | admin, operations | admin, operations | Revisi = amandemen bernomor + alasan; tarif baru hanya untuk jam belum tertagih |
 | `company_settings` | semua role internal | admin | admin | admin | — |
 | `document_templates` | semua role internal | admin | admin | admin | Template PDF dinamis; publish/rollback admin-only via Server Actions |
+| `media_files` | semua role internal | admin, operations, operator | admin, operations, operator | admin, operations | Metadata foto fleet (binary di R2, bukan DB); Worker Media API membaca via Data API (SELECT-only) — tulis hanya oleh Server Action aplikasi |
 
 ---
 
@@ -330,8 +332,11 @@ Kebijakan di `0004_rls_policies.sql` (berlaku untuk akses via Supabase Data API;
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Server + Client | Kunci publik auth |
 | `NEXT_PUBLIC_APP_URL` | Server (PDF) | Origin kanonik untuk tautan QR `/verify/doc` |
 | `VERCEL` | Otomatis | Menonaktifkan mode pratinjau demo |
+| `MEDIA_API_URL` | Server (lib/media.ts) | URL publik Cloudflare Worker Media API — tanpa ini fitur foto fleet nonaktif (aplikasi tetap normal). Kredensial R2 TIDAK pernah di aplikasi (hanya Worker Secrets) |
 
 > `SUPABASE_SERVICE_ROLE_KEY` **tidak dipakai dan tidak boleh** ditambahkan ke aplikasi ini — semua akses DB sudah lewat `DATABASE_URL` trusted di server.
+>
+> Demikian pula **jangan** menambahkan variabel `NEXT_PUBLIC_*` maupun `R2_*` rahasia ke environment Next.js/Vercel — seluruh kredensial R2 hidup sebagai Worker Secrets (lihat `media-worker/README.md`, doc media §7/§26).
 
 ---
 

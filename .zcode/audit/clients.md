@@ -1,4 +1,5 @@
 # Modul: Data Klien (`/dashboard/clients`)
+n> ✅ Dieksekusi — lihat "Status eksekusi" di README.md
 
 Lihat juga: [`../02-konsistensi-form-list.md`](../02-konsistensi-form-list.md) (K7),
 [`../03-icon-audit-2026-2036.md`](../03-icon-audit-2026-2036.md) (I1, R1).

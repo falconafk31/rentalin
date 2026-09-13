@@ -1,0 +1,34 @@
+{
+  // Rentalin Media API — Cloudflare Worker (docs/media-architecture.md).
+  //
+  // SECRETS (bukan file ini — isi via `wrangler secret put` / Dashboard):
+  //   R2_ACCOUNT_ID          Cloudflare Account ID (membangun endpoint S3-kompatibel R2)
+  //   R2_ACCESS_KEY_ID       R2 S3 API access key
+  //   R2_SECRET_ACCESS_KEY   R2 S3 API secret key
+  // Kredensial R2 TIDAK PERNAH di sini, di repo, atau di browser (doc §7).
+  //
+  // VARS di bawah = konfigurasi non-rahasia per environment:
+  //   - env development : BUCKET_NAME=rentalin-dev-media,    ENVIRONMENT=development
+  //   - production      : BUCKET_NAME=rentalin-production-media, ENVIRONMENT=production
+  //   (staging: rentalin-staging-media) — doc §43.
+  //
+  // Setiap bucket R2 WAJIB private (public = false) + CORS untuk origin aplikasi:
+  //   Allowed Origins: https://{domain-rentalin}   Methods: PUT, GET, HEAD
+  //   Headers: Content-Type                        Max Age: 600
+  // (CORS untuk presigned PUT dari browser; Worker sendiri sudah membatasi
+  //  origin lewat ALLOWED_ORIGINS untuk respons JSON-nya.)
+  "name": "rentalin-media",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "SUPABASE_URL": "https://PROYEK.supabase.co",
+    "SUPABASE_PUBLISHABLE_KEY": "isi-published-key-supabase",
+    "BUCKET_NAME": "rentalin-dev-media",
+    "ENVIRONMENT": "development",
+    "ALLOWED_ORIGINS": "http://localhost:3000,https://APP-RENTALIN.id",
+    "UPLOAD_TTL_SECONDS": "900",
+    "READ_TTL_SECONDS": "300",
+    "MAX_UPLOAD_BYTES": "2097152"
+  }
+}

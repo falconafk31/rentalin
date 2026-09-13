@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, integer, numeric, date, boolean, jsonb, uniqueIndex, index, check } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, timestamp, integer, numeric, date, boolean, jsonb, bigint, uniqueIndex, index, check } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 const createdAt = () => timestamp('created_at', { withTimezone: true }).defaultNow().notNull();
 export const profiles = pgTable('profiles', {
@@ -43,3 +43,10 @@ export const documentTemplates = pgTable('document_templates', {
 export const auditLog = pgTable('audit_log', {
  id: uuid('id').defaultRandom().primaryKey(), actorId: uuid('actor_id'), actorName: text('actor_name').notNull().default('Sistem'), action: text('action').notNull(), entity: text('entity').notNull(), entityId: text('entity_id'), summary: text('summary').notNull(), beforeData: jsonb('before_data').$type<unknown>(), afterData: jsonb('after_data').$type<unknown>(), createdAt: createdAt(),
 });
+// Media layer (docs/media-architecture.md): metadata foto fleet; binary di
+// Cloudflare R2, object_key = `{entity_type}/{entity_id}/{category}/{id}.{ext}`.
+// entity_id tanpa FK (kolom diskriminan lintas entitas); status lifecycle
+// pending→active / failed / deleted (orphan cleanup lewat idx status).
+export const mediaFiles = pgTable('media_files', {
+ id: uuid('id').defaultRandom().primaryKey(), entityType: text('entity_type').notNull(), entityId: uuid('entity_id').notNull(), category: text('category').notNull(), objectKey: text('object_key').notNull().unique(), mimeType: text('mime_type').notNull(), sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(), width: integer('width'), height: integer('height'), originalName: text('original_name'), status: text('status').notNull().default('pending'), createdBy: uuid('created_by').references(() => profiles.id, { onDelete: 'set null' }), createdAt: createdAt(), updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [index('idx_media_files_entity').on(t.entityType, t.entityId, t.category), index('idx_media_files_status').on(t.status, t.createdAt)]);

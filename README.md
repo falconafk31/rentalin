@@ -5,7 +5,7 @@ A working Next.js 16 App Router / TypeScript MVP with Indonesian interfaces, Pos
 ## Implemented
 
 - `/dashboard`: database-driven fleet metrics, invoice revenue trends, status distribution, compliance alerts, recent records, CSV report.
-- `/dashboard/fleet`: searchable/filterable/paginated fleet, create/edit, 30-day SIKO/insurance warnings.
+- `/dashboard/fleet`: searchable/filterable/paginated fleet, create/edit, 30-day SIKO/insurance warnings, unit photos (cover + gallery) on Cloudflare R2 via the Media API Worker — client-side WebP compression, presigned direct-to-R2 upload, list thumbnails (inactive automatically when `MEDIA_API_URL` is unset; see `docs/media-architecture.md`).
 - `/dashboard/clients`: full client CRUD, foreign-key-safe deletion.
 - `/dashboard/contracts`: available-unit assignment in a transaction, active contracts, completion releasing the unit, SPH PDF.
 - `/dashboard/timesheets` and `/dashboard/timesheets/new`: meter validation, daily unique records, effective-hour calculations in PostgreSQL, manager approval/rejection.
@@ -40,6 +40,7 @@ Next.js 16 uses Turbopack by default. Do not apply both `schema.sql` and `drizzl
    - `NEXT_PUBLIC_SUPABASE_URL`: project API URL.
    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or `NEXT_PUBLIC_SUPABASE_ANON_KEY`).
    - `NEXT_PUBLIC_APP_URL`: canonical HTTPS deployment origin, used in PDF QR links.
+   - `MEDIA_API_URL` (optional): public URL of the deployed Media API Worker (`media-worker/`) — enables fleet photos; without it the app runs normally with the feature hidden. R2 credentials never go here (Worker Secrets only).
 3. Create users through Supabase Auth. Provision each matching `profiles` row with the authenticated UUID, full name, and one of `admin`, `operations`, `operator`, `finance`. Roles are **not** read from user-editable auth metadata.
 4. Configure Supabase site URL/redirect settings to the deployment domain; disable public signup for this internal application.
 5. Deploy to Vercel. Missing auth configuration fails closed on Vercel (login does not permit preview access).
@@ -57,9 +58,9 @@ Use a dedicated server database credential, do not expose `DATABASE_URL`, and ke
 - PPN is fixed at **11% per the product brief**. Confirm current tax rules before production use.
 - Revenue cards report issued-invoice value, not cash receipts; payment summaries separately show fully paid invoices. Partial payment status exists in the schema; payment allocation/ledger is not yet implemented.
 - PDFs use A4 company letterhead, QR registration checks, and manual signature spaces. QR checks are **not** certified digital signatures.
-- BAST captures inspection booleans and notes, not photos, e-signatures, or transportation scheduling.
+- BAST captures inspection booleans, notes, and photo attachments (private Supabase Storage bucket `bast-photos`; the R2 media layer serves fleet photos — migrating BAST photos to it is a later phase, see `docs/media-architecture.md` §52). E-signatures and transportation scheduling are not captured.
 - SPH uses an existing contract's unit/rate and is not a standalone quotation negotiation module.
-- For the next iteration: immutable audit events, detailed operator assignments, payment ledger, attachments/object storage, automated compliance reminders, and dedicated admin user management.
+- For the next iteration: detailed operator assignments, payment ledger, BAST photo migration to the R2 media layer, orphan-media reconciler, automated compliance reminders, and dedicated admin user management.
 
 ## Validation
 

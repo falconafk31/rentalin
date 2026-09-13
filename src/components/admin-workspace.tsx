@@ -25,7 +25,7 @@ const actionLabels: Record<string, string> = {
 const entityLabels: Record<string, string> = {
   fleet: 'Armada', clients: 'Klien', contracts: 'Kontrak', timesheets: 'Timesheet', bast: 'BAST',
   invoices: 'Invoice', settings: 'Pengaturan', profiles: 'Pengguna', database: 'Database',
-  document_templates: 'Template PDF',
+  document_templates: 'Template PDF', media: 'Media (Foto)',
 };
 
 // ---------------------------------------------------------------------------

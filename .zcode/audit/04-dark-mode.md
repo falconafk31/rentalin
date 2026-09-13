@@ -1,5 +1,7 @@
 # Topik 4 — Dark Mode: Palet Warna & Rencana Implementasi
 
+> ✅ Dieksekusi (kecuali DM-5/DM-6/DM-7 — lihat audit.md O11-O13)
+
 > Scope: seluruh UI web (dashboard, form, tabel, chart, login). **Dokumen PDF (BAST,
 > Invoice, Kontrak, Perjanjian, SPH) TIDAK ikut dark mode** — tetap putih permanen
 > (dokumen cetak/legal, bukan permukaan kerja layar). Sumber warna asli:

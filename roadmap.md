@@ -137,75 +137,8 @@ rentalin/
 
 ---
 
-## 4. Analisa Kode
-
-### 4.1 Kekuatan
-
-1. **Transaksi dan locking yang benar.** Penugasan unit ke kontrak dan pembuatan invoice memakai `SELECT … FOR UPDATE` dalam transaksi, mencegah race condition: satu unit tidak bisa dikontrak ganda, satu timesheet tidak bisa ditagih dua kali.
-2. **Validasi digeser ke database.** Generated columns (`total_hours`, `effective_hours`), `CHECK` constraint (HM awal ≤ akhir, breakdown ≤ total), partial unique index (satu kontrak aktif per unit), `UNIQUE(contract_id, date)` untuk timesheet harian. Logika bisnis kritis tidak bergantung pada UI.
-3. **Otorisasi per-aksi, bukan per-halaman.** Setiap Server Action memanggil `requireUser([roles])`; role dibaca dari tabel `profiles` (bukan metadata auth yang bisa diedit user) — keputusan keamanan yang tepat.
-4. **Fail-closed.** Tanpa konfigurasi Supabase di Vercel: login menolak, dashboard redirect. Mode pratinjau (admin demo + seed) hanya aktif di luar Vercel dan ditandai jelas.
-5. **Kebersihan keluaran.** CSV di-escape terhadap formula injection (`=+@-`), dokumen publik hanya membocorkan nomor + jenis, PDF route memvalidasi format UUID.
-6. **UX solid untuk MVP.** Satu komponen `ModuleWorkspace` generik melayani 7 modul (cari, filter, sort, pagination klien, modal, konfirmasi destruktif, toast), notifikasi badge, global search ⌘K.
-
-### 4.2 Temuan — Performa & Skala
-
-| # | Temuan | Dampak | Prioritas |
-|---|---|---|---|
-| P1 | `getWorkspaceData()` melakukan `SELECT *` penuh pada 7 tabel tanpa `LIMIT`, dan **dipanggil dua kali per request** (di `dashboard/layout.tsx` **dan** di halaman `page.tsx`/`[module]/page.tsx`) | Dengan data ribuan baris, payload server→client membengkak; TTFB naik; konsumsi memori Vercel naik | 🔴 Tinggi |
-| P2 | Pencarian, filter, sort, dan pagination dilakukan di client component atas data penuh | Tidak scale; memori browser | 🔴 Tinggi |
-| P3 | Belum ada indeks pada kolom FK yang sering di-join: `contracts.client_id`, `invoices.contract_id`, `handovers.contract_id`, `timesheets.operator_id`, `timesheets.invoice_id`, `fleet.status` | Query agregasi melambat seiring pertumbuhan | 🟡 Sedang |
-| P4 | Dashboard metrik (pendapatan bulan ini, growth) dihitung di client dari data penuh; sebaiknya agregasi SQL (`SUM … GROUP BY month`) | Akurat & hemat | 🟡 Sedang |
-
-**Rekomendasi:** bungkus `getWorkspaceData` dengan React `cache()` untuk menghilangkan fetch ganda (perbaikan cepat), lalu pecah menjadi query per-modul + pagination server-side (Fase 2). Tambahkan indeks FK di `schema.sql` **dan** `schema.ts` sekaligus.
-
-### 4.3 Temuan — Keamanan & Otorisasi
-
-| # | Temuan | Dampak | Prioritas |
-|---|---|---|---|
-| S1 | `/api/report` (CSV berisi seluruh tagihan) dan `/api/documents/[kind]/[id]` (PDF invoice) hanya `requireUser()` tanpa batasan role → **operator** dapat mengunduh data finansial | Kebocoran internal; bertentangan dengan ketatnya RLS (operator read-only *tanpa* akses invoice via Data API) | ✅ **Ditutup** — Quick Win #1 (`audit.md`), termasuk pengetatan RLS `invoices` di migration 0004 |
-| S2 | Tidak ada kebijakan audit: siapa mengubah apa tidak terekam | Sulit investigasi; wajib untuk ERP keuangan | 🟡 Sedang (Fase 2) |
-| S3 | Halaman `/verify/doc` menampilkan nama perusahaan hardcoded "PT Penyewaan Alat Berat", bukan dari `company_settings` | Inkonsistensi identitas dokumen | 🟢 Rendah |
-| S4 | Rate-limit login bergantung sepenuhnya pada bawaan Supabase Auth | Cukup, tetapi perlu dikonfirmasi saat hardening produksi | 🟢 Rendah |
-| S5 | Tidak ada mekanisme reset password / undangan user dari dalam aplikasi | Ketergantungan pada admin Supabase dashboard | 🟡 Sedang (Fase 1–2) |
-
-> Catatan positif: mode pratinjau berisiko rendah karena (a) tidak aktif bila `VERCEL` terdeteksi, (b) ditandai eksplisit di UI, (c) seed dijamin idempotent dengan advisory lock.
-
-### 4.4 Temuan — Konsistensi Skema (schema.sql vs schema.ts)
-
-Dua sumber kebenaran ini sudah hampir identik, tetapi ada divergensi kecil yang bisa menyebabkan perilaku berbeda antara pratinjau lokal dan produksi:
-
-| Item | `schema.sql` (produksi) | `schema.ts` (Drizzle/pratinjau) | Risiko |
-|---|---|---|---|
-| `timesheets.operator_id` | Nullable (`REFERENCES profiles(id)`) | `notNull()` | Insert tanpa operator gagal di pratinjau tapi lolos di produksi (atau sebaliknya saat membaca) |
-| `timesheets.invoice_id` FK | `ON DELETE RESTRICT` | Default (`NO ACTION`) | Praktis setara; tetap layak diseragamkan |
-| CHECK tanggal kontrak | Inline `CHECK (end_date >= start_date)` | bernama `contract_dates` | Kosmetik |
-| Policy RLS | Ada | Tidak dimodelkan Drizzle | By design (RLS hanya relevan untuk Data API) |
-
-**Rekomendasi:** jadikan `src/db/schema.ts` satu-satunya sumber kebenaran untuk tabel bisnis; hasilkan SQL migrasi dengan `drizzle-kit generate` dan simpan di repo (`drizzle/`), sementara `schema.sql` menjadi *bootstrap Supabase* yang memakai migrasi tersebut + bagian Supabase-specific (FK `auth.users`, RLS, fungsi role). Ini mencegah drift seiring roadmap berjalan.
-
-### 4.5 Temuan — Logika Bisnis
-
-| # | Temuan | Detail |
-|---|---|---|
-| B1 | **PPN 11% hardcoded** di dua tempat (`actions.ts` dan teks PDF). README sudah memperingatkan untuk verifikasi aturan pajak. Sebaiknya jadi pengaturan (`company_settings.ppn_rate`) | 🟡 |
-| B2 | **Penomoran dokumen** `PREFIX/TAHUN/<timestamp8>-<random4>` — unik tapi tidak berurutan/estetik untuk dokumen formal (invoice/kontrak). Pertimbangkan sequence per tahun per prefix | 🟢 |
-| B3 | **Seed data** menghitung PPN dengan formula *tax-inclusive* (`amount*11/111`) sementara aksi invoice memakai *add-on* (`subtotal*0.11`) — angka demo tidak persis mencerminkan perhitungan nyata | 🟢 |
-| B4 | **Status invoice `overdue` tidak pernah otomatis** — harus diubah manual; belum ada cron | 🟡 |
-| B5 | **Pelunasan semua-atau-tidak-sama-sekali**: `changeStatus('invoices', id, 'paid')` melompat dari status apa pun ke `paid`; `partial` ada di skema tapi belum ada ledger alokasi pembayaran | 🟡 |
-| B6 | **Operator self-record**: `operatorId` selalu = user yang login. Admin memakai akunnya sendiri saat mencatatkan atas nama operator (belum ada penugasan operator per kontrak) | 🟡 |
-| B7 | Timesheet boleh diisi mundur sampai `contract.startDate` tanpa batas window (mis. 30 hari) — potensi backdating | 🟢 |
-| B8 | `error.tsx` dashboard menangkap error render, tetapi error role di `requireUser` dilempar sebagai `Error` generik — pesan Indonesia tampil apa adanya ke user (acceptable, tapi bisa dipisah `auth` vs `system`) | 🟢 |
-
-### 4.6 Temuan — Kualitas Proses
-
-- ❌ **Nol test** (unit/integrasi/e2e) padahal Playwright sudah ada di dependencies — transaksi invoice dan validasi timesheet adalah kandidat test pertama karena berisiko finansial.
-- ❌ Tidak ada CI (lint/typecheck/build otomatis di PR).
-- ❌ Tidak ada `.env.example` — daftar variabel hanya di README.
-- ⚠️ `drizzle.config.json` berisi kredensial lokal plaintext (wajar untuk lokal, tapi sebaiknya baca dari env).
-- ⚠️ `<html lang="en">` padahal UI Indonesia (minor aksesibilitas/SEO).
-
----
+Analisa kode, temuan, dan status perbaikan terkini: lihat [`audit.md`](audit.md)
+(dokumen ini fokus ke alur kerja, migrasi Supabase, dan roadmap fase berikutnya).
 
 ## 5. Alur Kerja Aplikasi
 
@@ -230,22 +163,6 @@ flowchart TD
 > approved belum tertagih, unit bebas lagi setelah kontrak completed.
 > BAST 12 titik: mesin, hidraulik, rantai/roda, oli, BBM, aki, lampu,
 > rem, bucket, kabin, APAR/P3K, SIKO (migrasi 0006).
-
-### 5.2 Matriks hak akses per modul
-
-| Modul | admin | operations | operator | finance |
-|---|---|---|---|---|
-| Fleet (buat/ubah) | ✅ | ✅ | 👁 lihat | 👁 lihat |
-| Clients (CRUD) | ✅ | ✅ | 👁 lihat | 👁 lihat |
-| Contracts (buat, selesaikan) | ✅ | ✅ | 👁 lihat | 👁 lihat |
-| Timesheets (submit) | ✅ | ✅ | ✅ (diri sendiri) | ❌ |
-| Timesheets (approve/reject) | ✅ | ✅ | ❌ | ❌ |
-| BAST | ✅ | ✅ | 👁 lihat | 👁 lihat |
-| Invoices (terbitkan, tandai lunas) | ✅ | ❌ | ❌ | ✅ |
-| Settings perusahaan | ✅ | ❌ | ❌ | ❌ |
-| CSV laporan & PDF (kondisi saat ini) | ✅ | ✅ | ⚠️ ✅ *(temuan S1 — sebaiknya dibatasi)* | ✅ |
-
-RLS di `schema.sql` konsisten dengan matriks ini untuk akses via Data API (operator: read-all kecuali write timesheet miliknya sendiri dengan `status='pending'` dan `operator_id = auth.uid()`).
 
 ### 5.3 Alur autentikasi & sesi
 
@@ -393,6 +310,7 @@ Estimasi = effort relatif untuk 1–2 engineer. Prioritas mengikuti prinsip: **k
 | 2.20 | **BAST: Ubah + unique constraint + optimasi query** | Tombol Ubah di row BAST untuk revisi (tanggal/checklist/foto/catatan); form support edit mode dengan defaultValue; PhotoUploader support existing photos; backend UPDATE handler; migrasi 0021 bersihkan duplikat mobilisasi (simpan 1 tertua per kontrak) + unique constraint `(contract_id, type)` level DB; desain final 1 mobilisasi + 1 demobilisasi per kontrak (maks 2 baris); optimasi getFormOptions LIMIT 100 untuk performa — selesai |
 | 2.21 | **BAST: memo checklist + foto, hierarki form** | `BastChecklist` + `PhotoUploader` diekstrak dari `RecordModal` menjadi komponen `memo` dengan callback stabil (`useCallback`); checkbox tetap uncontrolled (`defaultChecked`) sehingga klik terasa instan tanpa rekonsiliasi pohon modal; label full-row 18px + hover + umpan balik checked; header seksi "Informasi BAST" & "Dokumentasi Kondisi Unit"; thumbnail 72px — selesai |
 | 2.22 | **Dasbor kompak + tren pendapatan harian** | KPI dipadatkan (±95–105px: padding 13px, value 26px, ikon 30px); spacing antar-seksi 16–18px; heading ringkas; chart 280px; rentang 7 Hari / 1 Bulan / 3 Bulan / 6 Bulan / 1 Tahun / Semua — 7H/1B memakai agregat harian nyata 62 hari (`revenueByDay` di `getDashboardData`, read-only tanpa migrasi), sisanya agregat bulanan; samakan `metric-value` 760px ke 26px — selesai |
+| 2.23 | **Media layer R2 — foto fleet (cover + galeri)** | Arsitektur `docs/media-architecture.md`: tabel `media_files` (migrasi 0023 + RLS, constraint pair entity/category) + Cloudflare Worker Media API (`media-worker/`: `upload-url`/`complete`/`GET :id`/`DELETE :id`, auth JWT GoTrue + role `profiles` via Data API, validasi MIME/ukuran/object-key + **magic bytes** saat completion) + R2 privat 3 env (`rentalin-{dev,staging,production}-media`, presigned PUT langsung dari browser — binary tidak lewat Vercel) + kompresi sisi klien WebP ≤1600px q80 (fallback JPEG, hard cap 2 MB, progress XHR) + Server Action `requestFleetPhotoUpload`/`completeFleetPhotoUpload`/`deleteFleetPhoto`/`getFleetMedia` (peran: upload admin/operations/operator, hapus admin/operations) + UI "Foto Unit" (memoized, fail-soft) + thumbnail list fleet (signed URL pendek, lazy, independent dari KPI) + audit upload/delete + `MEDIA_API_URL` opsional (tanpa ini fitur nonaktif, aplikasi normal) + CSP `connect-src` host R2. Foto BAST disengaja TIDAK disentuh (Supabase Storage 0012, anti-regresi §45) — keputusan & koreksi audit dokumentasi: `docs/media-architecture.md` §52. Sisa (PR menyusul): deploy bucket/Worker + secrets, reconciler orphan `pending`/`failed`, fase BAST (migrasi PhotoUploader → Media API + cleanup legacy) — selesai (kode) |
 
 ### Fase 3 — Skala & Nilai Tambah *(±kuarter berikutnya, prioritas ditentukan feedback pilot)*
 

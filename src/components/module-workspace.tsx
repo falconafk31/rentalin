@@ -6,8 +6,9 @@ import { EquipmentIcon } from './icons';
 import { Button } from './ui/button';
 import { Modal } from './ui/dialog';
 import { Badge } from './overview';
-import { saveRecord, bulkCreateFleet, changeStatus, deleteClient, resetDatabase, reviseContract, recordPayment, getFormOptions, getRevisionHistory, getBillableHours, getInvoicePayments } from '@/app/actions';
-import type { FormOptionsData } from '@/app/actions';
+import { saveRecord, bulkCreateFleet, changeStatus, deleteClient, resetDatabase, reviseContract, recordPayment, getFormOptions, getRevisionHistory, getBillableHours, getInvoicePayments, getFleetMedia, requestFleetPhotoUpload, completeFleetPhotoUpload, deleteFleetPhoto } from '@/app/actions';
+import type { FormOptionsData, FleetMediaData } from '@/app/actions';
+import { compressImage, putToPresignedUrl } from '@/lib/image-compress';
 import { money, dateLabel, dateTimeLabel, timeLabel, labels, todayISO, isPastDue, isExpiringSoon } from '@/lib/format';
 import type { ModulePageData, ModuleRow, FleetRow, ClientRow, ContractRow, TimesheetRow, HandoverRow, InvoiceRow, PaymentRow, CompanySettings, ModuleFilters, TemplateKind, DocumentTemplate } from '@/lib/data';
 import { MODULE_PAGE_SIZE } from '@/lib/pagination';
@@ -41,6 +42,8 @@ const fleetCategories = ['Ekskavator', 'Buldozer', 'Vibro Roller', 'Crane', 'Whe
 const bastItems: [string, string, string][] = [['engine', 'Mesin', 'Mesin menyala normal, tidak ada kebocoran atau suara abnormal.'], ['hydraulics', 'Sistem Hidraulik', 'Tekanan stabil, selang dan silinder tanpa rembes.'], ['tracks', 'Rantai / Roda', 'Track shoe / ban, sprocket, dan roller kondisi baik.'], ['oil', 'Oli & Cairan', 'Level oli mesin, coolant, dan oli hidraulik aman.'], ['fuel', 'Bahan Bakar', 'Level BBM tercatat, tutup tangki dan selang baik.'], ['battery', 'Aki & Starter', 'Starter tokcer, terminal aki bersih dan kencang.'], ['lights', 'Lampu & Klakson', 'Lampu kerja, beacon, klakson, dan alarm mundur berfungsi.'], ['brakes', 'Rem & Kemudi', 'Rem dan kemudi responsif, tanpa speleng berlebih.'], ['bucket', 'Bucket / Attachment', 'Bucket / blade, gigi, pin, dan bushing tidak retak.'], ['cabin', 'Kabin & Kaca', 'Kabin / ROPS, jok, sabuk, spion, kaca, dan wiper baik.'], ['safety', 'APAR & P3K', 'APAR, kotak P3K, dan perlengkapan darurat tersedia.'], ['documents', 'SIKO & Dokumen', 'SIKO / SILO, STNK / KIR, dan catatan HM difoto.']];
 
 type EditableRecord = Record<string, string | number | boolean | string[] | Date | null>;
+// Baris fleet dari server (+ coverUrl signed URL opt., doc §46).
+type FleetRowUi = FleetRow & { coverUrl?: string | null };
 type Row = { id: string; status: string; cells: React.ReactNode[]; raw: EditableRecord };
 type RevisionRow = Awaited<ReturnType<typeof getRevisionHistory>>[number];
 
@@ -243,10 +246,18 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
   // sudah dilengkapi label JOIN di server (tanpa lookup per baris).
   const rows: Row[] = useMemo(() => {
     if (module === 'fleet') {
-      return (optRows as FleetRow[]).map(f => ({
+      return (optRows as FleetRowUi[]).map(f => ({
         id: f.id, status: f.status, raw: f as unknown as EditableRecord,
         cells: [
-          <div className="unit-cell" key="unit"><span className="unit-icon"><EquipmentIcon /></span><span><b>{f.brandModel}</b><small>{f.unitCode}{isExpiringFleet(f, warnDays, tz) && <TriangleAlert size={12} className="amber-text" />}</small></span></div>,
+          // Thumbnail cover (doc §11/§46): optimized WebP ≤1600px + signed URL
+          // pendek, lazy-loaded — fallback ikon bila unit belum punya foto
+          // atau layanan media belum dikonfigurasi.
+          <div className="unit-cell" key="unit">{f.coverUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- signed URL R2 privat, bukan aset next/image
+            <span className="unit-photo"><img src={f.coverUrl} alt="" loading="lazy" decoding="async" /></span>
+          ) : (
+            <span className="unit-icon"><EquipmentIcon /></span>
+          )}<span><b>{f.brandModel}</b><small>{f.unitCode}{isExpiringFleet(f, warnDays, tz) && <TriangleAlert size={12} className="amber-text" />}</small></span></div>,
           <div key="category">{f.category}<small className="cell-sub">Tahun {f.year}</small></div>,
           f.currentLocation || '—', money(f.hourlyRate), <Badge status={f.status} key="status" />,
           canWrite ? <div className="row-actions" key="edit"><button className="icon-button" aria-label={`Ubah ${f.unitCode}`} title="Ubah unit" onClick={() => edit(f)}><Pencil size={15} />Ubah</button></div> : <span key="read">—</span>,
@@ -545,6 +556,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
           module={module} settings={data.settings} editing={editing} revising={revising} bulk={bulk}
           pending={pending} canWrite={canWrite} formErrors={formErrors} ppnRate={ppnRate}
           options={formOptions} revisions={revisions} categoryOptions={data.categoryOptions ?? []}
+          mediaEnabled={data.media.enabled}
           onOpenChange={guardRecordModal} onCancel={closeRecordModal} onSubmit={submit}
         />
       )}
@@ -572,10 +584,10 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
 // getFormOptions, dipanggil saat modal dibuka); jam dapat ditagih diambil
 // saat kontrak dipilih (getBillableHours); riwayat revisi dari `revisions`.
 // ---------------------------------------------------------------------------
-function RecordModal({ module, settings, editing, revising, bulk, pending, canWrite, formErrors, ppnRate, options, revisions, categoryOptions, onOpenChange, onCancel, onSubmit }: {
+function RecordModal({ module, settings, editing, revising, bulk, pending, canWrite, formErrors, ppnRate, options, revisions, categoryOptions, mediaEnabled, onOpenChange, onCancel, onSubmit }: {
   module: string; settings: CompanySettings; editing: EditableRecord | null; revising: EditableRecord | null; bulk: boolean;
   pending: boolean; canWrite: boolean; formErrors: Record<string, string> | null; ppnRate: number;
-  options: FormOptionsData | null; revisions: RevisionRow[] | null; categoryOptions: string[];
+  options: FormOptionsData | null; revisions: RevisionRow[] | null; categoryOptions: string[]; mediaEnabled: boolean;
   onOpenChange: (v: boolean) => void; onCancel: () => void; onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
 }) {
   const c = config[module];
@@ -678,6 +690,11 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
               {field('sikoExpiry', 'Tanggal Berakhir SIKO', 'date', false)}
               {field('insuranceExpiry', 'Tanggal Berakhir Asuransi', 'date', false)}
               {editing && isExpiringFleet(editing as unknown as FleetRow, warnDays, tz) && <div className="info-callout span-2"><TriangleAlert size={18} /><p>Dokumen unit mendekati atau telah melewati masa berlaku. Perbarui tanggal setelah perpanjangan selesai.</p></div>}
+              {/* Foto unit (doc §32): tersimpan otomatis per unggah — terpisah
+                  dari simpan data unit agar form data tidak ikut tergantung
+                  pada jaringan media. */}
+              {mediaEnabled && editing && canWrite && <FleetPhotoSection fleetId={String(editing.id)} />}
+              {mediaEnabled && !editing && <div className="info-callout span-2"><Info size={18} /><p>Simpan unit terlebih dahulu. Foto unit (cover &amp; galeri) dapat ditambahkan melalui tombol <b>Ubah</b>.</p></div>}
             </>
           )}
 
@@ -959,6 +976,144 @@ const PhotoUploader = memo(function PhotoUploader({ errors, existing }: { errors
           ))}
         </div>
       )}
+    </div>
+  );
+});
+// ---------------------------------------------------------------------------
+// Foto unit FLEET — cover + galeri (docs/media-architecture.md §11/§14/§32).
+// Alur: browser kompres (WebP ≤1600px, ≤2 MB) → Server Action meminta
+// presigned PUT (metadata 'pending' dibuat) → browser PUT langsung ke R2
+// (dengan progress) → action completion → Worker verifikasi object →
+// metadata 'active' → halaman di-refresh. Foto tersimpan saat unggah selesai,
+// TERPISAH dari form data unit (form tidak menunggu jaringan media).
+// Memoized — pola PhotoUploader — agar ketikan di form data tidak
+// me-render ulang state unggahan.
+// ---------------------------------------------------------------------------
+const FleetPhotoSection = memo(function FleetPhotoSection({ fleetId }: { fleetId: string }) {
+  const [media, setMedia] = useState<FleetMediaData | null>(null);
+  const [phase, setPhase] = useState<'' | 'compress' | 'upload' | 'saving'>('');
+  const [progress, setProgress] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const coverInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setMedia(await getFleetMedia(fleetId));
+    } catch {
+      setMedia({ cover: null, gallery: [] });
+    }
+  }, [fleetId]);
+
+  // Muat awal: di-defer 0 ms agar setState terjadi di callback, bukan di
+  // tubuh effect (pola timer yang sama dengan toast; aturan
+  // react-hooks/set-state-in-effect). Pratinjau foto bukan jalur kritis —
+  // jeda 1 frame tak terlihat.
+  useEffect(() => {
+    const t = setTimeout(() => { void load(); }, 0);
+    return () => clearTimeout(t);
+  }, [load]);
+
+  const upload = useCallback(async (category: 'cover' | 'gallery', file: File) => {
+    setBusy(true);
+    setError('');
+    setProgress(null);
+    try {
+      setPhase('compress');
+      const img = await compressImage(file);
+      const ticket = await requestFleetPhotoUpload(fleetId, category, img.mimeType, img.size, img.width, img.height, file.name);
+      if (!ticket.success || !ticket.data) throw new Error(ticket.message || 'Tidak dapat memulai unggahan.');
+      setPhase('upload');
+      await putToPresignedUrl(ticket.data.uploadUrl, img.blob, img.mimeType, setProgress);
+      setPhase('saving');
+      setProgress(null);
+      const done = await completeFleetPhotoUpload(ticket.data.mediaId);
+      if (!done.success) throw new Error(done.message || 'Metadata foto gagal disimpan.');
+      await load();
+    } catch (e) {
+      setError((e as Error).message || 'Unggahan gagal. Coba lagi.');
+    }
+    setBusy(false);
+    setPhase('');
+    setProgress(null);
+  }, [fleetId, load]);
+
+  const remove = useCallback(async (id: string) => {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await deleteFleetPhoto(id);
+      if (!result.success) throw new Error(result.message);
+      await load();
+    } catch (e) {
+      setError((e as Error).message || 'Gagal menghapus foto.');
+    }
+    setBusy(false);
+  }, [load]);
+
+  const pick = useCallback((e: React.ChangeEvent<HTMLInputElement>, category: 'cover' | 'gallery') => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) void upload(category, file);
+  }, [upload]);
+
+  const cover = media?.cover ?? null;
+  const gallery = media?.gallery ?? [];
+  const phaseLabel = phase === 'compress' ? 'Mengompres foto...' : phase === 'upload' ? 'Mengunggah ke penyimpanan...' : 'Menyimpan...';
+
+  return (
+    <div className="form-field fleet-media span-2">
+      <div className="form-section-header">Foto Unit</div>
+      <div className="fleet-media-grid">
+        <div className="fleet-media-col">
+          <span>Foto Utama Unit (Cover)</span>
+          {cover?.url ? (
+            <span className="photo-thumb fleet-photo-thumb">
+              {/* eslint-disable-next-line @next/next/no-img-element -- signed URL R2 privat, bukan aset remote publik */}
+              <img src={cover.url} alt="Foto utama unit" loading="lazy" decoding="async" />
+              <button type="button" disabled={busy} onClick={() => remove(cover.id)} aria-label="Hapus foto cover" title="Hapus foto cover"><X size={13} /></button>
+            </span>
+          ) : (
+            <span className="photo-empty"><ImagePlus size={22} /><small>Belum ada foto</small></span>
+          )}
+          <input ref={coverInputRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={e => pick(e, 'cover')} aria-label="Pilih foto cover" />
+          <div className="fleet-media-actions">
+            <Button variant="outline" size="sm" type="button" disabled={busy} onClick={() => coverInputRef.current?.click()} title="Pilih atau ambil foto (maks 10 MB, dikompres otomatis)">
+              {cover ? <><Pencil size={14} />Ganti Foto</> : <><ImagePlus size={14} />+ Tambah Foto</>}
+            </Button>
+          </div>
+        </div>
+        <div className="fleet-media-col">
+          <span>Galeri</span>
+          {gallery.length > 0 ? (
+            <div className="photo-thumbs">
+              {gallery.map(g => (
+                <span className="photo-thumb" key={g.id}>
+                  {g.url ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- signed URL R2 privat, bukan aset remote publik
+                    <img src={g.url} alt="Foto galeri unit" loading="lazy" decoding="async" />
+                  ) : (
+                    <span className="photo-thumb-fallback" aria-hidden><ImagePlus size={18} /></span>
+                  )}
+                  <button type="button" disabled={busy} onClick={() => remove(g.id)} aria-label="Hapus foto galeri"><X size={13} /></button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <small className="cell-sub">Belum ada foto galeri.</small>
+          )}
+          <input ref={galleryInputRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={e => pick(e, 'gallery')} aria-label="Pilih foto galeri" />
+          <div className="fleet-media-actions">
+            <Button variant="outline" size="sm" type="button" disabled={busy} onClick={() => galleryInputRef.current?.click()} title="Pilih atau ambil foto (maks 10 MB, dikompres otomatis)">
+              <ImagePlus size={14} />+ Tambah Foto
+            </Button>
+          </div>
+        </div>
+      </div>
+      {phase && <small className="cell-sub" role="status">{phaseLabel}{progress != null ? ` ${progress}%` : ''}</small>}
+      {error && <small className="field-error">{error}</small>}
+      <small className="cell-sub">Foto dikompres otomatis di browser (WebP ≤ 2 MB) dan tersimpan terpisah dari data unit.</small>
     </div>
   );
 });

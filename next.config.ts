@@ -3,7 +3,9 @@ import type { NextConfig } from "next";
 // CSP produksi (TASK-1 O-E): hanya di production agar HMR development
 // (yang butuh 'unsafe-eval') tidak terganggu. Diizinkan: skrip/style
 // inline Next.js, font Google, Storage Supabase (img https + blob
-// pratinjau), dan koneksi Supabase REST + realtime.
+// pratinjau), koneksi Supabase REST + realtime, dan endpoint S3-kompatibel
+// R2 (presigned PUT foto fleet langsung dari browser — doc media §15/§16;
+// host spesifik *.r2.cloudflarestorage.com, bukan wildcard umum).
 const isProd = process.env.NODE_ENV === "production";
 const csp = [
   "default-src 'self'",
@@ -11,7 +13,7 @@ const csp = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   "img-src 'self' data: blob: https:",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.r2.cloudflarestorage.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

@@ -1,4 +1,5 @@
 # Modul: Kontrak Sewa (`/dashboard/contracts`)
+n> ✅ Dieksekusi — lihat "Status eksekusi" di README.md
 
 ## Spesifik modul ini
 - Form punya 2 varian besar: buat baru vs revisi (`revising`) — masing-masing render blok

@@ -1,4 +1,5 @@
 # Modul: BAST Serah Terima (`/dashboard/bast`)
+n> ✅ Dieksekusi — lihat "Status eksekusi" di README.md
 
 ## Spesifik modul ini
 - Checklist 12 titik + `PhotoUploader` adalah komponen paling unik (tidak ada modul lain

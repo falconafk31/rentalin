@@ -1,4 +1,5 @@
 # Modul: Penagihan/Invoice (`/dashboard/invoices`)
+n> ✅ Dieksekusi — lihat "Status eksekusi" di README.md
 
 Lihat juga: [`../02-konsistensi-form-list.md`](../02-konsistensi-form-list.md) (K1 — sumber
 utama temuan `.invoice-stats` vs `.module-stats`).

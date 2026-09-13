@@ -1,4 +1,5 @@
 # Modul: Pengaturan (`/dashboard/settings`)
+n> ✅ Dieksekusi — lihat "Status eksekusi" di README.md
 
 Lihat juga: [`../02-konsistensi-form-list.md`](../02-konsistensi-form-list.md) (K4 — sumber
 pola `.cell-sub` yang tidak dipakai modul lain), [`../03-icon-audit-2026-2036.md`](../03-icon-audit-2026-2036.md) (I2/R2 — ikon `Rocket`).
