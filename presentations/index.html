@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HeavyOps — Tur Produk &amp; Fitur</title>
+<style>
+*{margin:0;box-sizing:border-box}
+body{background:#101114;color:#ececee;font-family:'DM Sans','Segoe UI','DejaVu Sans',Arial,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:1px solid #232529}
+.mark{width:34px;height:34px;border-radius:9px;background:#f47727;display:grid;place-items:center;transform:rotate(-2deg);flex-shrink:0}
+.mark svg{width:21px;height:21px;color:#fff}
+header b{font-size:17px;letter-spacing:-.3px}
+header small{color:#8b8e95;display:block;font-size:12px;margin-top:1px}
+.spacer{flex:1}
+button{font:inherit;cursor:pointer;border:1px solid #2c2f34;background:#1a1c20;color:#d6d8dc;border-radius:8px;padding:8px 14px;font-size:13.5px;font-weight:600}
+button:hover{border-color:#f47727;color:#f4995f}
+button.primary{background:#f47727;border-color:#f47727;color:#fff}
+button.primary:hover{background:#df6620}
+.stage{flex:1;display:flex;align-items:center;justify-content:center;padding:22px;min-height:0}
+.slide-wrap{position:relative;width:min(1180px,94vw);aspect-ratio:16/9;background:#000;border-radius:12px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.55)}
+.slide-wrap img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:top center;opacity:0;transition:opacity .35s}
+.slide-wrap img.on{opacity:1}
+.caption{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(transparent,rgba(8,9,11,.92) 30%);padding:46px 34px 20px;font-size:15px;line-height:1.65;color:#e8e9eb;max-height:46%;overflow:auto}
+.caption .t{color:#f4995f;font-weight:700;font-size:12.5px;letter-spacing:2px;margin-bottom:8px;text-transform:uppercase}
+.caption.hide{display:none}
+.bar{display:flex;align-items:center;gap:14px;padding:12px 22px;border-top:1px solid #232529}
+.prog{flex:1;height:5px;background:#26282d;border-radius:99px;overflow:hidden}
+.prog i{display:block;height:100%;background:#f47727;width:0;transition:width .3s}
+#counter{font-size:13px;color:#9a9da3;min-width:70px;text-align:right}
+.dots{display:flex;gap:6px;overflow-x:auto;max-width:46vw}
+.dots button{width:9px;height:9px;border-radius:50%;padding:0;border:0;background:#3a3d43}
+.dots button.on{background:#f47727}
+audio{display:none}
+.hint{font-size:12px;color:#71747a}
+</style>
+</head>
+<body>
+<header>
+  <div class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17h16M6 17l2-7h8l2 7M9 10V7h6v3"/><circle cx="8" cy="19.5" r="1.6"/><circle cx="16" cy="19.5" r="1.6"/></svg></div>
+  <div><b>HeavyOps — Tur Produk &amp; Fitur</b><small>Presentasi interaktif · mockup diambil langsung dari aplikasi · voice over Bahasa Indonesia</small></div>
+  <div class="spacer"></div>
+  <button id="btnCap">Sembunyikan teks</button>
+  <button id="btnAuto" class="primary">▶ Putar otomatis</button>
+</header>
+<div class="stage">
+  <div class="slide-wrap">
+    <div id="imgs"></div>
+    <div class="caption" id="cap"></div>
+  </div>
+</div>
+<div class="bar">
+  <button id="prev">← Sebelumnya</button>
+  <button id="play">🔊 Ulangi suara</button>
+  <button id="next">Berikutnya →</button>
+  <div class="prog"><i id="prog"></i></div>
+  <div class="dots" id="dots"></div>
+  <div id="counter">1 / 13</div>
+</div>
+<audio id="au"></audio>
+<script>
+const SLIDES = [
+ { shot:"cover", title:"Pembuka", text:"Selamat datang di tur produk HeavyOps, sistem manajemen rental alat berat. Dalam beberapa menit ke depan, kita akan melihat dasbor operasional, pengelolaan armada, kontrak sewa, timesheet harian, hingga penagihan invoice. Semua ditampilkan dengan data demonstrasi yang realistis." },
+ { shot:"login", title:"Masuk & Peran Akses", text:"Perjalanan dimulai dari halaman masuk. Pada penerapan produksi, HeavyOps menggunakan autentikasi Supabase dengan empat peran akses: admin, operations, operator, dan finance. Di lingkungan pratinjau lokal seperti ini, tersedia mode administrator lokal yang jelas berlabel, sehingga sistem tetap bisa dieksplorasi tanpa konfigurasi eksternal." },
+ { shot:"dashboard", title:"Dasbor Utama", text:"Inilah dasbor utama, pusat kendali operasional. Saat ini tercatat 24 unit armada, 18 unit sedang disewa dengan utilisasi 75 persen. Pendapatan bulan ini 248,5 juta rupiah, naik 17,5 persen dari bulan lalu, dan ada 8 tagihan belum lunas. Grafik tren pendapatan dan donat status armada diperbarui langsung dari basis data, lengkap dengan peringatan dokumen armada yang perlu perhatian." },
+ { shot:"fleet", title:"Armada Alat Berat", text:"Modul Armada Alat Berat mengelola seluruh unit: 3 unit tersedia, 18 disewa, 2 dalam perawatan, dan 1 dalam mobilisasi. Banner kuning mengingatkan bahwa 4 unit memiliki SIKO atau asuransi yang berakhir dalam 30 hari, sehingga perpanjangan bisa dijadwalkan tepat waktu. Setiap unit menampilkan kategori, tahun, lokasi proyek, tarif per jam, dan status terkini, dengan pencarian, filter kategori, serta pengurutan." },
+ { shot:"clients", title:"Data Klien", text:"Data Klien menyimpan 8 perusahaan mitra, mulai dari PT Wijaya Karya hingga PT Nindya Karya, lengkap dengan NPWP, penanggung jawab, telepon, dan surel pengadaan. Data dapat dicari, diubah, dan dihapus dengan aman karena sistem menjaga integritas relasi ke kontrak." },
+ { shot:"contracts", title:"Kontrak Sewa", text:"Kontrak Sewa menghubungkan klien dengan unit yang tersedia. Terdapat 18 kontrak aktif, masing-masing dengan periode sewa dan tarif per jam. Dari setiap baris kita bisa mengunduh Surat Penawaran Harga dan Surat Perjanjian Sewa dalam format PDF, melakukan revisi, atau menyelesaikan kontrak sehingga unit otomatis kembali tersedia." },
+ { shot:"bast", title:"BAST Serah Terima", text:"BAST Serah Terima mendokumentasikan kondisi unit saat mobilisasi dan demobilisasi, dengan pemeriksaan digital: mesin, sistem hidraulik, rantai, hingga APAR dan P3K. Contohnya BAST 2026 001 untuk kontrak PT Wijaya Karya berjenis mobilisasi, dengan kondisi seluruh komponen baik. Dokumen PDF dapat diunduh kapan saja." },
+ { shot:"timesheets", title:"Timesheet Harian", text:"Timesheet Harian mencatat jam kerja operator per unit. Terdapat 24 catatan, dan 8 di antaranya menunggu persetujuan. Jam efektif dihitung otomatis dari selisih jam meter awal dan akhir, dikurangi jam kerusakan. Manajer dapat menyetujui atau menolak setiap catatan, dan hanya jam yang disetujui yang bisa ditagihkan." },
+ { shot:"invoices", title:"Penagihan Invoice", text:"Penagihan Invoice mengagregasi jam kerja yang disetujui menjadi tagihan dengan PPN 11 persen. Total nilai tagihan seluruh periode mencapai 1 miliar 81,5 juta rupiah: 10 tagihan lunas, 7 belum dibayar, dan 1 jatuh tempo. Pembayaran dicatat langsung dari tabel, invoice PDF dapat diunduh, dan tautan verifikasi dikirim ke klien." },
+ { shot:"settings", title:"Pengaturan", text:"Modul Pengaturan menyimpan profil perusahaan untuk kop surat dan blok tanda tangan: nama, alamat, NPWP, penandatangan, hingga rekening bank. Informasi ini dipakai pada seluruh dokumen PDF. Tersedia pula tab Template PDF untuk menyesuaikan format SPH, BAST, invoice, dan perjanjian." },
+ { shot:"users", title:"Pengguna & Log Audit", text:"Untuk administrasi, halaman Pengguna dan Peran mengelola hak akses akun internal, serta mengundang anggota baru melalui surel dengan peran operator, finance, operations, atau admin. Seluruh tindakan penting otomatis terekam pada Log Audit: siapa melakukan apa dan kapan, hingga 200 aktivitas terakhir." },
+ { shot:"verify", title:"Verifikasi Dokumen Publik", text:"Setiap dokumen memiliki tautan verifikasi publik. Seperti terlihat di sini, BAST 2026 001 terverifikasi terdaftar pada sistem operasional PT Penyewaan Alat Berat, tanpa menampilkan rincian keuangan maupun data klien, demi kerahasiaan perusahaan." },
+ { shot:"closing", title:"Penutup", text:"Inilah alur kerja lengkap HeavyOps: buat kontrak sewa, catat BAST mobilisasi, isi timesheet harian, dapatkan persetujuan, terbitkan penagihan invoice, lalu tutup dengan BAST demobilisasi. HeavyOps, kendali penuh operasional rental alat berat Anda. Terima kasih." }
+];
+const imgsBox=document.getElementById('imgs'),cap=document.getElementById('cap'),au=document.getElementById('au');
+let idx=0,auto=false;
+SLIDES.forEach((s,i)=>{
+  const im=new Image();im.src='shots/'+s.shot+'.png';im.alt=s.title;imgsBox.appendChild(im);
+  const d=document.createElement('button');d.title=s.title;d.onclick=()=>go(i,true);document.getElementById('dots').appendChild(d);
+});
+function go(i,manual){
+  idx=(i+SLIDES.length)%SLIDES.length;
+  [...imgsBox.children].forEach((im,k)=>im.classList.toggle('on',k===idx));
+  [...document.getElementById('dots').children].forEach((d,k)=>d.classList.toggle('on',k===idx));
+  cap.innerHTML='<div class="t">'+SLIDES[idx].title+'</div>'+SLIDES[idx].text;
+  document.getElementById('counter').textContent=(idx+1)+' / '+SLIDES.length;
+  document.getElementById('prog').style.width=((idx+1)/SLIDES.length*100)+'%';
+  au.src='audio/'+['01-cover','02-login','03-dashboard','04-fleet','05-clients','06-contracts','07-bast','08-timesheets','09-invoices','10-settings','11-users','12-verify','13-closing'][idx]+'.mp3';
+  au.play().catch(()=>{});
+  if(manual){/* tetap lanjut auto bila aktif */}
+}
+au.onended=()=>{ if(auto) go(idx+1); };
+document.getElementById('prev').onclick=()=>go(idx-1,true);
+document.getElementById('next').onclick=()=>go(idx+1,true);
+document.getElementById('play').onclick=()=>au.play();
+document.getElementById('btnAuto').onclick=e=>{auto=!auto;e.target.textContent=auto?'⏸ Mode otomatis aktif':'▶ Putar otomatis';e.target.classList.toggle('primary');if(auto)au.play();};
+document.getElementById('btnCap').onclick=e=>{const c=cap.classList.toggle('hide');e.target.textContent=c?'Tampilkan teks':'Sembunyikan teks';};
+addEventListener('keydown',e=>{if(e.key==='ArrowRight'||e.key===' '){go(idx+1,true)}else if(e.key==='ArrowLeft'){go(idx-1,true)}});
+go(0);
+</script>
+</body>
+</html>
