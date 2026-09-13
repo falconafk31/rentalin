@@ -21,6 +21,8 @@ Siklus bisnis: **armada → kontrak → timesheet → persetujuan → invoice �
 | 2 | [`roadmap.md`](roadmap.md) | Analisa arsitektur, alur kerja, matriks hak akses per role, roadmap 4 fase (sebagian item sudah ditandai ✅) |
 | 3 | [`audit.md`](audit.md) | Temuan audit **terverifikasi tool** (lint/build/audit) + status perbaikan; kode item `A*` (tambah), `K*` (kurangi), `O*` (optimize) dipakai sebagai referensi lintas dokumen & issue |
 | 4 | [`supabase/README.md`](supabase/README.md) | Struktur & alur migrasi Supabase 6 tahap, aturan change management skema, troubleshooting |
+| 5 | [`docs/media-architecture.md`](docs/media-architecture.md) | Arsitektur media R2/Worker; baca bila task menyangkut foto fleet/BAST |
+| 6 | [`docs/icon-map.md`](docs/icon-map.md) | Peta ikon lucide-react per konsep; cek sebelum import ikon baru |
 
 ## 3. Antrian kerja
 
@@ -54,10 +56,12 @@ npm audit                       # tidak boleh ada severity HIGH
 6. **UI & pesan error Bahasa Indonesia**; format uang/tanggal lewat `src/lib/format.ts`; jangan membuat landing page (`/` redirect ke dashboard, by design).
 7. **Definition of done:** lint + typecheck + build (tanpa env) + `npm audit` tanpa HIGH semuanya hijau, **lalu** perbarui status item terkait di `audit.md`/`roadmap.md` pada commit yang sama.
 8. **Gaya commit:** satu topik per commit, subjek ringkas Bahasa Indonesia (lihat `git log` untuk contoh).
+9. **Sebelum `import` ikon baru dari `lucide-react`, cek `docs/icon-map.md`** — satu konsep = satu ikon, jangan pakai ulang ikon yang sudah dipetakan ke konsep lain.h).
 
-## 6. Status terakhir (per 12 Sep 2026)
+## 6. Status terakhir (per 12 September 2026)
 
 - ✅ Audit penuh selesai (`audit.md`) — 4 Quick Wins Utama **sudah dikerjakan**: role check route finansial (+ RLS invoices di migration 0004), lint bersih, lazy-init DB (build lolos tanpa env), postcss 8.5.28 (HIGH tertutup).
+- ✅ **Audit UI/UX (`.zcode/audit/`)** — seluruh topik 01–04 + file modul sudah dieksekusi (dark mode, ikon, konsistensi form, kehalusan list); status detail kini di `.zcode/audit/README.md`. Sisa: 4 keputusan produk (`audit.md` O11-O14).
 - ✅ Dokumentasi handoff lengkap: `roadmap.md`, `audit.md`, `supabase/README.md` (+ migrations 0001–0005, seed, template provisioning user).
 - ✅ **Media layer foto fleet (R2)** — `media_files` (migrasi 0023) + Cloudflare Worker Media API (`media-worker/`, belum deploy) + kompresi WebP di browser + UI foto fleet (cover/galeri + thumbnail). Foto BAST **tidak disentuh** (Supabase Storage 0012). Arsitektur & keputusan: `docs/media-architecture.md` (§52 = acuan tertinggi; catat: Catatan Revisi lama di dokumen itu keliru — foto BAST memang sudah ada sejak A13). Tanpa `MEDIA_API_URL` fitur ini nonaktif; aplikasi tetap normal.
 - ⏭️ Berikutnya: deploy bucket R2 + Worker (operator, `media-worker/README.md`) + isi `MEDIA_API_URL`; isi `#2`–`#7` (sisa Fase 0 cepat), lalu `#8`–`#9` — setelah itu Fase 1 mengikuti `supabase/README.md`. (Isu `#10` pagination server-side sudah dikerjakan; saat deploy jalankan juga migrasi `0017_pagination_indexes.sql` dan `0023_media_files.sql`.)
