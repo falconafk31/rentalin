@@ -260,6 +260,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
           )}<span><b>{f.brandModel}</b><small>{f.unitCode}{isExpiringFleet(f, warnDays, tz) && <TriangleAlert size={12} className="amber-text" />}</small></span></div>,
           <div key="category">{f.category}<small className="cell-sub">Tahun {f.year}</small></div>,
           f.currentLocation || '—', money(f.hourlyRate), <Badge status={f.status} key="status" />,
+          <div className="row-actions" key="hist"><button className="icon-button" aria-label={`Riwayat ${f.unitCode}`} title="Lihat detail riwayat unit" onClick={() => openHistory(f.id)}><History size={15} />Riwayat</button></div>,
           canWrite ? <div className="row-actions" key="edit"><button className="icon-button" aria-label={`Ubah ${f.unitCode}`} title="Ubah unit" onClick={() => edit(f)}><Pencil size={15} />Ubah</button></div> : <span key="read">—</span>,
         ],
       }));
