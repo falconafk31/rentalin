@@ -1,16 +1,16 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, memo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Plus, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, Pencil, Trash2, FileDown, Check, X, TriangleAlert, LoaderCircle, CircleCheck, Building2, Filter, Info, ShieldCheck, Wallet, ImagePlus, ClipboardCheck } from 'lucide-react';
+import { History,  Search, Plus, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, Pencil, Trash2, FileDown, Check, X, TriangleAlert, LoaderCircle, CircleCheck, Building2, Filter, Info, ShieldCheck, Wallet, ImagePlus, ClipboardCheck, HardHat } from 'lucide-react';
 import { EquipmentIcon } from './icons';
 import { Button } from './ui/button';
 import { Modal } from './ui/dialog';
 import { Badge } from './overview';
-import { saveRecord, bulkCreateFleet, changeStatus, deleteClient, reviseContract, recordPayment, getFormOptions, getRevisionHistory, getBillableHours, getInvoicePayments, getFleetMedia, requestFleetPhotoUpload, completeFleetPhotoUpload, deleteFleetPhoto } from '@/app/actions';
+import { saveRecord, bulkCreateFleet, changeStatus, deleteClient, reviseContract, recordPayment, getFormOptions, getRevisionHistory, getBillableHours, getInvoicePayments, getFleetMedia, requestFleetPhotoUpload, completeFleetPhotoUpload, deleteFleetPhoto, deleteOperator, getFleetUnitHistory, type FleetUnitHistory } from '@/app/actions';
 import type { FormOptionsData, FleetMediaData } from '@/app/actions';
 import { compressImage, putToPresignedUrl } from '@/lib/image-compress';
 import { money, dateLabel, dateTimeLabel, timeLabel, labels, todayISO, isPastDue, isExpiringSoon } from '@/lib/format';
-import type { ModulePageData, ModuleRow, FleetRow, ClientRow, ContractRow, TimesheetRow, HandoverRow, InvoiceRow, PaymentRow, CompanySettings, ModuleFilters } from '@/lib/data';
+import type { ModulePageData, ModuleRow, FleetRow, ClientRow, OperatorRow, ContractRow, TimesheetRow, HandoverRow, InvoiceRow, PaymentRow, CompanySettings, ModuleFilters } from '@/lib/data';
 import { MODULE_PAGE_SIZE } from '@/lib/pagination';
 import { calcInvoiceTotals, remainingBalance } from '@/lib/finance';
 
@@ -19,6 +19,7 @@ import { calcInvoiceTotals, remainingBalance } from '@/lib/finance';
 const config: Record<string, { title: string; description: string; add: string; singular: string; submit: string }> = {
   fleet: { title: 'Armada Alat Berat', description: 'Kelola seluruh unit, pantau ketersediaan, dan pastikan kesiapan armada Anda.', add: 'Tambah Unit', singular: 'Unit Alat Berat', submit: 'Simpan Data' },
   clients: { title: 'Data Klien', description: 'Kelola hubungan bisnis dan informasi perusahaan mitra Anda.', add: 'Tambah Klien', singular: 'Klien', submit: 'Simpan Data' },
+  operators: { title: 'Operator & Driver', description: 'Kelola data operator: SIO/SIM, masa berlaku lisensi, dan tarif per jam atau per hari.', add: 'Tambah Operator', singular: 'Operator', submit: 'Simpan Data' },
   contracts: { title: 'Kontrak Sewa', description: 'Kelola kesepakatan sewa, penugasan unit, dan periode kontrak.', add: 'Buat Kontrak', singular: 'Kontrak Sewa', submit: 'Simpan Data' },
   timesheets: { title: 'Timesheet Harian', description: 'Pantau jam kerja alat berat dan kelola persetujuan catatan operator.', add: 'Catat Jam Kerja', singular: 'Catatan Kerja Harian', submit: 'Ajukan Catatan' },
   bast: { title: 'Berita Acara Serah Terima', description: 'Dokumentasikan kondisi unit saat mobilisasi dan demobilisasi.', add: 'Buat BAST', singular: 'Berita Acara Serah Terima', submit: 'Simpan Data' },
@@ -28,6 +29,7 @@ const config: Record<string, { title: string; description: string; add: string; 
 const tableMeta: Record<string, { headers: string[]; statuses: string[] }> = {
   fleet: { headers: ['No', 'Unit Alat Berat', 'Kategori / Tahun', 'Lokasi Saat Ini', 'Tarif per Jam', 'Status', 'Tindakan'], statuses: ['available', 'renting', 'maintenance', 'in_transit'] },
   clients: { headers: ['No', 'Perusahaan', 'NPWP', 'Penanggung Jawab', 'Kontak', 'Kontrak', 'Tindakan'], statuses: [] },
+  operators: { headers: ['No', 'Operator', 'SIO / Lisensi', 'Tarif', 'Log Kerja', 'Status', 'Tindakan'], statuses: ['active', 'inactive'] },
   contracts: { headers: ['No', 'Nomor Kontrak', 'Klien / Unit', 'Periode Sewa', 'Tarif per Jam', 'Status', 'Tindakan'], statuses: ['active', 'draft', 'completed'] },
   timesheets: { headers: ['No', 'Tanggal / Kontrak', 'Unit Alat Berat', 'HM Awal → Akhir', 'Jam Efektif', 'Status', 'Persetujuan'], statuses: ['pending', 'approved', 'rejected'] },
   bast: { headers: ['No', 'Nomor Dokumen', 'Kontrak / Klien', 'Tanggal Serah Terima', 'Jenis', 'Kondisi Unit', 'Dokumen'], statuses: ['mobilization', 'demobilization'] },
@@ -41,6 +43,7 @@ const bastItems: [string, string, string][] = [['engine', 'Mesin', 'Mesin menyal
 type EditableRecord = Record<string, string | number | boolean | string[] | Date | null>;
 // Baris fleet dari server (+ coverUrl signed URL opt., doc §46).
 type FleetRowUi = FleetRow & { coverUrl?: string | null };
+type OperatorRowUi = OperatorRow;
 type Row = { id: string; status: string; cells: React.ReactNode[]; raw: EditableRecord };
 type RevisionRow = Awaited<ReturnType<typeof getRevisionHistory>>[number];
 
@@ -134,6 +137,9 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
   const [revising, setRevising] = useState<EditableRecord | null>(null);
   const [formErrors, setFormErrors] = useState<Record<string, string> | null>(null);
   const [paying, setPaying] = useState<InvoiceRow | null>(null);
+  const [history, setHistory] = useState<FleetUnitHistory | null | 'loading'>(null);
+  const openHistory = (unitId: string) => { setHistory('loading'); getFleetUnitHistory(unitId).then(h => setHistory('error' in h ? null : h)).catch(() => setHistory(null)); };
+
   // Select async (O-A): opsi referensi modal + riwayat revisi/pembayaran
   // diambil tepat saat dibutuhkan, bukan dikirim utuh di payload halaman.
   const [formOptions, setFormOptions] = useState<FormOptionsData | null>(initialOptions);
@@ -267,6 +273,24 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
           <div key="contact">{client.picPhone || '—'}<small className="cell-sub">{client.picEmail}</small></div>,
           `${client.contractCount} kontrak`,
           canWrite ? <div className="row-actions" key="actions"><button className="icon-button" onClick={() => edit(client)} aria-label={`Ubah ${client.companyName}`} title="Ubah data klien"><Pencil size={15} />Ubah</button><button className="icon-button danger-icon" aria-label={`Hapus ${client.companyName}`} title="Hapus data klien" onClick={() => setConfirm({ title: 'Hapus Data Klien', text: `Apakah Anda yakin ingin menghapus ${client.companyName}? Klien yang memiliki kontrak tidak dapat dihapus.`, action: () => deleteClient(client.id) })}><Trash2 size={15} />Hapus</button></div> : null,
+        ],
+      }));
+    }
+    if (module === 'operators') {
+      const todayIso = new Date();
+      const mm = String(todayIso.getMonth() + 1).padStart(2, '0');
+      const dd = String(todayIso.getDate()).padStart(2, '0');
+      const warnUntil = [todayIso.getFullYear(), mm, dd].join('-');
+      const isExpiring = (v?: string | null) => !!v && v <= warnUntil;
+      return (optRows as OperatorRowUi[]).map(o => ({
+        id: o.id, status: o.status, raw: o as unknown as EditableRecord,
+        cells: [
+          <div className="unit-cell" key="name"><span className="unit-icon blue"><HardHat size={21} /></span><span><b>{o.fullName}</b><small>{o.employeeNo || o.phone || '-'}{o.ktpNo ? ` | NIK ${o.ktpNo.slice(0, 6)}**` : ''}</small></span></div>,
+          <div key="sio">{o.sioClass || o.sioNumber ? `${o.sioClass || ''}${o.sioNumber ? ` - ${o.sioNumber}` : ''}` : '-'}{o.sioExpiry && <small className="cell-sub">{o.sioExpiry}{isExpiring(o.sioExpiry) && <TriangleAlert size={12} className="amber-text" />}</small>}</div>,
+          <div key="rate">{Number(o.ratePerHour) > 0 ? `${money(o.ratePerHour)}/jam` : '-'}{Number(o.ratePerDay) > 0 && <small className="cell-sub">{money(o.ratePerDay)}/hari</small>}</div>,
+          `${o.logCount} log`,
+          <Badge status={o.status} key="status" />,
+          canWrite ? <div className="row-actions" key="actions"><button className="icon-button" onClick={() => edit(o)} aria-label={`Ubah ${o.fullName}`} title="Ubah operator"><Pencil size={15} />Ubah</button><button className="icon-button danger-icon" aria-label={`Hapus ${o.fullName}`} title="Hapus operator" onClick={() => setConfirm({ title: 'Hapus Operator', text: `Apakah Anda yakin ingin menghapus ${o.fullName}? Operator yang masih ditugaskan pada kontrak tidak dapat dihapus.`, action: () => deleteOperator(o.id) })}><Trash2 size={15} />Hapus</button></div> : null,
         ],
       }));
     }
@@ -493,6 +517,58 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
         </div>
       </Modal>
 
+      {history && (
+        <Modal open onOpenChange={v => { if (!v) setHistory(null); }} title={history === 'loading' ? 'Memuat riwayat...' : `Riwayat Unit ${history.unit.unitCode}`} description={history !== 'loading' ? `${history.unit.brandModel} - ${history.unit.category}` : undefined}>
+          {history !== 'loading' && (
+            <div className="history-drawer">
+              <div className="summary-box" style={{ marginBottom: 14 }}>
+                <div><span>Kontrak</span><b>{history.summary.contractCount} ({history.summary.completedCount} selesai)</b></div>
+                <div><span>Catatan timesheet</span><b>{history.summary.logCount} log / {history.summary.workDays} hari</b></div>
+                <div><span>Total jam efektif</span><b>{history.summary.effectiveHours.toLocaleString('id-ID')} jam</b></div>
+                <div><span>Jam breakdown</span><b>{history.summary.breakdownHours.toLocaleString('id-ID')} jam</b></div>
+                {history.summary.hmUsed !== null && <div><span>Total HM terpakai</span><b>{history.summary.hmUsed.toLocaleString('id-ID')} HM</b></div>}
+                {history.summary.revenue !== null && <div><span>Pendapatan unit</span><b>{money(history.summary.revenue)}</b></div>}
+                {history.summary.operatorCost !== null && history.summary.operatorCost > 0 && <div><span>Biaya operator</span><b>{money(history.summary.operatorCost)}</b></div>}
+              </div>
+              {history.operators.length > 0 && (
+                <>
+                  <h3 style={{ fontSize: 14, margin: '10px 0 6px' }}>Riwayat Operator</h3>
+                  <div className="table-scroll" style={{ maxHeight: 200 }}>
+                    <table>
+                      <thead><tr><th>Operator</th><th>Log</th><th>Jam Efektif</th><th>Terakhir</th></tr></thead>
+                      <tbody>{history.operators.map(o => <tr key={o.name}><td>{o.name}</td><td>{o.logs}</td><td>{o.hours.toLocaleString('id-ID')} jam</td><td>{o.last || '-'}</td></tr>)}</tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+              {history.contracts.length > 0 && (
+                <>
+                  <h3 style={{ fontSize: 14, margin: '12px 0 6px' }}>Riwayat Sewa</h3>
+                  <div className="table-scroll" style={{ maxHeight: 200 }}>
+                    <table>
+                      <thead><tr><th>Kontrak</th><th>Klien</th><th>Periode</th><th>Operator</th><th>Status</th></tr></thead>
+                      <tbody>{history.contracts.map(k => <tr key={k.id}><td>{k.contractNumber}</td><td>{k.clientName || '-'}</td><td>{k.startDate} s.d. {k.endDate}</td><td>{k.includeOperator ? 'Include' : 'Dry hire'}</td><td><Badge status={k.status} /></td></tr>)}</tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+              {history.recentLogs.length > 0 && (
+                <>
+                  <h3 style={{ fontSize: 14, margin: '12px 0 6px' }}>Timesheet Terbaru</h3>
+                  <div className="table-scroll" style={{ maxHeight: 220 }}>
+                    <table>
+                      <thead><tr><th>Tanggal</th><th>Operator</th><th>HM Awal-Akhir</th><th>Jam Efektif</th><th>Status</th></tr></thead>
+                      <tbody>{history.recentLogs.map(l => <tr key={l.id}><td>{l.date}</td><td>{l.driver || '-'}</td><td>{Number(l.startHm).toLocaleString('id-ID')} - {Number(l.endHm).toLocaleString('id-ID')}</td><td>{Number(l.effectiveHours).toLocaleString('id-ID')} jam</td><td><Badge status={l.status} /></td></tr>)}</tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+              {history.operators.length === 0 && history.recentLogs.length === 0 && <p className="muted" style={{ fontSize: 13 }}>Unit ini belum memiliki riwayat penggunaan.</p>}
+            </div>
+          )}
+          {history === 'loading' && <div className="loading-rows" role="status" aria-label="Memuat">{Array.from({ length: 4 }, (_, i) => <div key={i} />)}</div>}
+        </Modal>
+      )}
       {toast && <div className={`toast ${toast.success ? 'toast-success' : 'toast-error'}`} role="status">{toast.success ? <CircleCheck size={20} /> : <TriangleAlert size={20} />}<span>{toast.message}</span><button onClick={() => setToast(null)} aria-label="Tutup pemberitahuan"><X size={16} /></button></div>}
     </div>
   );
@@ -522,6 +598,9 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
   const [bStart, setBStart] = useState(1);
   const [bCount, setBCount] = useState(5);
   const [billable, setBillable] = useState<number | null>(null);
+  const [includeOperator, setIncludeOperator] = useState(false);
+  const [selectedOperators, setSelectedOperators] = useState<string[]>([]);
+  const [operatorRateType, setOperatorRateType] = useState('hourly');
 
   const contracts = useMemo(() => options?.contracts ?? [], [options]);
   const fleetOptions = useMemo(() => options?.fleet ?? [], [options]);
@@ -619,9 +698,47 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
             </>
           )}
 
-          {module === 'clients' && (
-            <>
-              {field('companyName', 'Nama Perusahaan', 'text', true, { placeholder: 'PT Nama Perusahaan' })}
+          {module === 'operators' && (
+          <>
+            <label className="form-field"><span>Nama lengkap *</span><input name="fullName" defaultValue={String(editing?.fullName ?? '')} required maxLength={120} /></label>
+            <div className="form-grid-2">
+              <label className="form-field"><span>No. pegawai</span><input name="employeeNo" defaultValue={String(editing?.employeeNo ?? '')} maxLength={40} /></label>
+              <label className="form-field"><span>Telepon</span><input name="phone" defaultValue={String(editing?.phone ?? '')} maxLength={30} /></label>
+            </div>
+            <label className="form-field"><span>No. KTP (16 digit)</span><input name="ktpNo" defaultValue={String(editing?.ktpNo ?? '')} maxLength={20} inputMode="numeric" />{ferr('ktpNo')}</label>
+            <div className="form-grid-2">
+              <label className="form-field"><span>Kelas SIO</span><input name="sioClass" defaultValue={String(editing?.sioClass ?? '')} placeholder="Excavator / Crane ..." maxLength={60} /></label>
+              <label className="form-field"><span>Nomor SIO</span><input name="sioNumber" defaultValue={String(editing?.sioNumber ?? '')} maxLength={60} /></label>
+            </div>
+            <div className="form-grid-2">
+              <label className="form-field"><span>Masa berlaku SIO</span><input type="date" name="sioExpiry" defaultValue={String(editing?.sioExpiry ?? '')} />{ferr('sioExpiry')}</label>
+              <label className="form-field"><span>Masa berlaku SIM</span><input type="date" name="licenseExpiry" defaultValue={String(editing?.licenseExpiry ?? '')} />{ferr('licenseExpiry')}</label>
+            </div>
+            <div className="form-grid-2">
+              <label className="form-field"><span>Kelas SIM</span><input name="licenseClass" defaultValue={String(editing?.licenseClass ?? '')} placeholder="B2 umum ..." maxLength={40} /></label>
+              <label className="form-field"><span>Status</span>
+                <select name="status" defaultValue={String(editing?.status ?? 'active')}>
+                  <option value="active">Aktif</option>
+                  <option value="inactive">Nonaktif</option>
+                </select>{ferr('status')}
+              </label>
+            </div>
+            <div className="form-grid-2">
+              <label className="form-field"><span>Tarif per jam (Rp)</span><input type="number" name="ratePerHour" min={0} step={1000} defaultValue={String(editing?.ratePerHour ?? '0')} />{ferr('ratePerHour')}</label>
+              <label className="form-field"><span>Tarif per hari (Rp)</span><input type="number" name="ratePerDay" min={0} step={10000} defaultValue={String(editing?.ratePerDay ?? '0')} />{ferr('ratePerDay')}</label>
+            </div>
+            <label className="form-field"><span>Mode tarif default</span>
+              <select name="defaultRateType" defaultValue={String(editing?.defaultRateType ?? 'hourly')}>
+                <option value="hourly">Per jam</option>
+                <option value="daily">Per hari</option>
+              </select>{ferr('defaultRateType')}
+            </label>
+            <label className="form-field"><span>Catatan</span><textarea name="notes" rows={2} defaultValue={String(editing?.notes ?? '')} maxLength={500} /></label>
+          </>
+        )}
+        {module === 'clients' && (
+          <>
+            {field('companyName', 'Nama Perusahaan', 'text', true, { placeholder: 'PT Nama Perusahaan' })}
               {field('npwp', 'NPWP', 'text', false)}
               {field('picName', 'Nama Penanggung Jawab')}
               {field('picKtp', 'No. KTP Penanggung Jawab', 'text', false)}
@@ -657,6 +774,30 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
               {field('startDate', 'Tanggal Mulai', 'date')}
               {field('endDate', 'Tanggal Selesai', 'date')}
               {field('ratePerHour', 'Tarif Sewa per Jam (Rp)', 'number', true, { min: 1, step: '0.01', placeholder: '350000' })}
+              <label className="form-field span-2 toggle-field"><input type="checkbox" name="includeOperator" checked={includeOperator} onChange={e => setIncludeOperator(e.target.checked)} /><span>Sertakan operator (wet hire)</span></label>
+              {includeOperator && (
+                <>
+                  <label className="form-field span-2"><span>Pilih operator (bisa lebih dari satu) <i>*</i></span>
+                    <div className="operator-picker">
+                      {(options?.operators ?? []).map(o => (
+                        <label key={o.id} className="operator-option">
+                          <input type="checkbox" value={o.id} checked={selectedOperators.includes(o.id)} onChange={e => setSelectedOperators(prev => e.target.checked ? [...prev, o.id] : prev.filter(x => x !== o.id))} />
+                          <span><b>{o.fullName}</b><small>{o.sioClass || 'Tanpa SIO'} - {Number(o.ratePerHour) > 0 ? `${money(o.ratePerHour)}/jam` : `${money(o.ratePerDay)}/hari`}</small></span>
+                        </label>
+                      ))}
+                    </div>
+                    {!options && <small className="cell-sub">Memuat data operator...</small>}
+                    {ferr('operatorId')}
+                  </label>
+                  <label className="form-field"><span>Mode tarif operator <i>*</i></span>
+                    <select name="operatorRateType" value={operatorRateType} onChange={e => setOperatorRateType(e.target.value)}>
+                      <option value="hourly">Per jam</option>
+                      <option value="daily">Per hari</option>
+                    </select>{ferr('operatorRateType')}
+                  </label>
+                  <label className="form-field"><span>Tarif operator (Rp) <i>*</i></span><input name="operatorRate" type="number" min={1} step="0.01" />{ferr('operatorRate')}</label>
+                </>
+              )}
               <div className="info-callout span-2"><Info size={18} /><p>Kontrak yang disimpan langsung aktif. Status unit akan berubah menjadi Disewa.</p></div>
             </>
           )}
@@ -664,6 +805,12 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
           {module === 'timesheets' && (
             <>
               {selectContract}
+              <label className="form-field"><span>Operator pengemudi</span>
+                <select name="operatorDriverId" defaultValue={String(editing?.operatorDriverId || '')}>
+                  <option value="">- tidak dicatat -</option>
+                  {(options?.operators ?? []).map(o => <option key={o.id} value={o.id}>{o.fullName}{o.sioClass ? ` (${o.sioClass})` : ''}</option>)}
+                </select>{ferr('operatorDriverId')}
+              </label>
               {field('date', 'Tanggal Operasional', 'date', true, { max: todayISO(tz) })}
               <div />
               {[['startHm', 'HM Awal', 'start'], ['endHm', 'HM Akhir', 'end'], ['breakdownHours', 'Durasi Kerusakan (Jam)', 'breakdown']].map(([name, label, key]) => (

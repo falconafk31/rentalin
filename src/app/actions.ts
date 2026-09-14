@@ -35,6 +35,9 @@ const fieldLabel: Record<string,string> = {
   ppnRate:'Tarif PPN', expiryWarningDays:'Ambang peringatan', city:'Kota penandatanganan', timezone:'Zona waktu', reason:'Alasan revisi', amount:'Nominal pembayaran',
   method:'Metode pembayaran', reference:'Referensi', paidAt:'Tanggal bayar', prefix:'Prefix kode', startNumber:'Nomor awal',
   count:'Jumlah unit', fullName:'Nama lengkap', role:'Peran', invoiceId:'Tagihan', id:'Data',
+  employeeNo:'No. pegawai', ktpNo:'No. KTP', sioClass:'Kelas SIO', sioNumber:'Nomor SIO', sioExpiry:'Masa berlaku SIO',
+  licenseClass:'Kelas SIM', licenseExpiry:'Masa berlaku SIM', ratePerDay:'Tarif per hari',
+  defaultRateType:'Mode tarif default', includeOperator:'Sertakan operator', operatorDriverId:'Operator pengemudi',
 };
 const label = (k:string) => fieldLabel[k] || k;
 const required = (f:FormData,k:string) => {const v=text(f,k);if(!v)throw new FieldError({[k]:`${label(k)} wajib diisi.`});return v;};
@@ -86,6 +89,29 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
     else {if(status==='renting')throw new FieldError({status:'Buat kontrak untuk menetapkan unit sebagai disewa.'});await tx.insert(s.fleet).values(values);}
    });
    await logAudit({ ...actor, action: id ? 'update' : 'create', entity: 'fleet', entityId: id || null, summary: `${id ? 'Mengubah' : 'Menambah'} unit ${values.unitCode} (${values.brandModel})` });
+   } else if(module==='operators') {
+    const fullName=required(form,'fullName');
+    const rateHour=number(form,'ratePerHour');
+    const rateDay=number(form,'ratePerDay');
+    if(rateHour<=0&&rateDay<=0)throw new FieldError({ratePerHour:'Isi minimal salah satu tarif (per jam atau per hari).'});
+    const rateType=text(form,'defaultRateType')||'hourly';
+    if(!['hourly','daily'].includes(rateType))throw new FieldError({defaultRateType:'Mode tarif tidak valid.'});
+    if(rateType==='hourly'&&rateHour<=0)throw new FieldError({ratePerHour:'Tarif per jam wajib > 0 bila mode tarif per jam.'});
+    if(rateType==='daily'&&rateDay<=0)throw new FieldError({ratePerDay:'Tarif per hari wajib > 0 bila mode tarif per hari.'});
+    const ktp=text(form,'ktpNo');
+    if(ktp&&!/^[0-9]{16}$/.test(ktp.replace(/[\s-]/g,'')))throw new FieldError({ktpNo:'No. KTP harus 16 digit angka.'});
+    const values={fullName,employeeNo:text(form,'employeeNo')||null,ktpNo:ktp||null,phone:text(form,'phone')||null,
+      sioClass:text(form,'sioClass')||null,sioNumber:text(form,'sioNumber')||null,sioExpiry:text(form,'sioExpiry')||null,
+      licenseClass:text(form,'licenseClass')||null,licenseExpiry:text(form,'licenseExpiry')||null,
+      ratePerHour:String(rateHour),ratePerDay:String(rateDay),defaultRateType:rateType,
+      status:text(form,'status')||'active',notes:text(form,'notes')||null};
+    if(!['active','inactive'].includes(values.status))throw new FieldError({status:'Status operator tidak valid.'});
+    if(id){
+      await db.update(s.operators).set(values).where(eq(s.operators.id,id));
+    } else {
+      await db.insert(s.operators).values(values);
+    }
+    await logAudit({ ...actor, action: id ? 'update' : 'create', entity: 'operators', entityId: id || null, summary: `${id ? 'Mengubah' : 'Menambah'} operator ${values.fullName}` });
   } else if(module==='clients') {
    const email=text(form,'picEmail');if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new FieldError({picEmail:'Alamat surel tidak valid.'});
    const values={companyName:required(form,'companyName'),picName:required(form,'picName'),npwp:text(form,'npwp'),picKtp:text(form,'picKtp'),address:text(form,'address'),picPhone:text(form,'picPhone'),picEmail:email};
@@ -94,14 +120,28 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
   } else if(module==='contracts') {
    const unitId=required(form,'unitId'),startDate=validDate(form,'startDate'),endDate=validDate(form,'endDate');
    if(endDate<startDate)throw new FieldError({endDate:'Tanggal selesai harus setelah tanggal mulai.'});
+   const includeOperator=form.get('includeOperator')==='on'||form.get('includeOperator')==='true';
+   const operatorIdsRaw=form.getAll('operatorIds').flatMap(v=>String(v).split(',')).map(v=>v.trim()).filter(v=>UUID_RE.test(v));
+   let operatorRate: string|null=null, operatorRateType: string|null=null;
+   if(includeOperator){
+    if(!operatorIdsRaw.length)throw new FieldError({operatorId:'Pilih minimal satu operator untuk kontrak include operator.'});
+    operatorRateType=text(form,'operatorRateType')||'hourly';
+    if(!['hourly','daily'].includes(operatorRateType))throw new FieldError({operatorRateType:'Mode tarif operator tidak valid.'});
+    operatorRate=String(number(form,'operatorRate',1));
+   }
    let contractNumber=text(form,'contractNumber');
    const docYear=todayISO(tz).slice(0,4);
    await db.transaction(async tx=>{
     const [unit]=await tx.select().from(s.fleet).where(eq(s.fleet.id,unitId)).for('update');
     if(!unit||unit.status!=='available')throw new FieldError({unitId:'Unit tidak tersedia. Pilih unit lain.'});
     if(!contractNumber)contractNumber=await nextDocNumber(tx,'KTR',s.contracts.contractNumber,s.contracts,docYear);
-    await tx.insert(s.contracts).values({contractNumber,clientId:required(form,'clientId'),unitId,startDate,endDate,ratePerHour:String(number(form,'ratePerHour',1)),status:'active'});
+    const [contract]=await tx.insert(s.contracts).values({contractNumber,clientId:required(form,'clientId'),unitId,startDate,endDate,ratePerHour:String(number(form,'ratePerHour',1)),status:'active',includeOperator,operatorRate,operatorRateType}).returning({id:s.contracts.id});
     await tx.update(s.fleet).set({status:'renting'}).where(eq(s.fleet.id,unitId));
+     if(includeOperator&&contract){
+      const [dupOp]=await tx.select({id:s.operators.id}).from(s.operators).where(and(inArray(s.operators.id,operatorIdsRaw),ne(s.operators.status,'active')));
+      if(dupOp)throw new FieldError({operatorId:'Ada operator yang tidak aktif. Pilih operator aktif.'});
+      await tx.insert(s.contractOperators).values(operatorIdsRaw.map(oid=>({contractId:contract.id,operatorId:oid})));
+     }
    });
    await logAudit({ ...actor, action: 'create', entity: 'contracts', summary: `Membuat kontrak ${contractNumber}` });
   } else if(module==='timesheets') {
@@ -111,7 +151,7 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
    const date=validDate(form,'date'),startHm=number(form,'startHm'),endHm=number(form,'endHm'),breakdownHours=number(form,'breakdownHours');
    if(date>todayISO(tz)||date<contract.startDate||date>contract.endDate)throw new FieldError({date:'Tanggal harus dalam periode kontrak dan tidak boleh di masa depan.'});
    if(endHm<startHm||endHm-startHm>24||breakdownHours>endHm-startHm)throw new FieldError({endHm:'Periksa HM akhir dan durasi kerusakan. Maksimal 24 jam.'});
-   await db.insert(s.timesheets).values({contractId,unitId:contract.unitId,operatorId:user.id,date,startHm:String(startHm),endHm:String(endHm),breakdownHours:String(breakdownHours),notes:text(form,'notes'),status:'pending'});
+   const driverId=text(form,'operatorDriverId');if(driverId&&!UUID_RE.test(driverId))throw new FieldError({operatorDriverId:'Operator tidak valid.'});if(driverId){const [drv]=await db.select({id:s.operators.id,status:s.operators.status}).from(s.operators).where(eq(s.operators.id,driverId));if(!drv)throw new FieldError({operatorDriverId:'Operator tidak ditemukan.'});if(drv.status!=='active')throw new FieldError({operatorDriverId:'Operator tidak aktif.'});}await db.insert(s.timesheets).values({contractId,unitId:contract.unitId,operatorId:user.id,operatorDriverId:driverId||null,date,startHm:String(startHm),endHm:String(endHm),breakdownHours:String(breakdownHours),notes:text(form,'notes'),status:'pending'});
    await logAudit({ ...actor, action: 'create', entity: 'timesheets', summary: `Mencatat jam kerja ${date} untuk ${contract.contractNumber}` });
   } else if(module==='bast') {
    const type=required(form,'type');if(!['mobilization','demobilization'].includes(type))throw new FieldError({type:'Jenis serah terima tidak valid.'});
@@ -322,6 +362,91 @@ export async function deleteClient(id:string): Promise<ActionResult> {
   revalidatePath('/dashboard','layout');return {success:true,message:'Data klien berhasil dihapus.'};
  }
  catch{return {success:false,message:'Klien tidak dapat dihapus karena masih memiliki kontrak atau akses tidak diizinkan.'};}
+}
+
+export type FleetUnitHistory = {
+  unit: { id: string; unitCode: string; brandModel: string; category: string; year: number | null; status: string; hourlyRate: string; currentLocation: string | null; sikoExpiry: string | null; insuranceExpiry: string | null };
+  summary: { contractCount: number; completedCount: number; logCount: number; workDays: number; effectiveHours: number; breakdownHours: number; hmUsed: number | null; revenue: number | null; operatorCost: number | null };
+  operators: { name: string; logs: number; hours: number; first: string | null; last: string | null }[];
+  contracts: { id: string; contractNumber: string; clientName: string | null; startDate: string; endDate: string; status: string; includeOperator: boolean }[];
+  recentLogs: { id: string; date: string; driver: string | null; startHm: string; endHm: string; effectiveHours: string; breakdownHours: string; status: string }[];
+};
+
+export async function getFleetUnitHistory(unitId: string): Promise<FleetUnitHistory | { error: 'unauthorized' | 'not_found' }> {
+  const user = await requireUser();
+  if (!UUID_RE.test(unitId)) return { error: 'not_found' };
+  const [unit] = await db.select().from(s.fleet).where(eq(s.fleet.id, unitId));
+  if (!unit) return { error: 'not_found' };
+  const contractRows = await db.select({
+    id: s.contracts.id, contractNumber: s.contracts.contractNumber, clientName: s.clients.companyName,
+    startDate: s.contracts.startDate, endDate: s.contracts.endDate, status: s.contracts.status, includeOperator: s.contracts.includeOperator,
+  }).from(s.contracts).leftJoin(s.clients, eq(s.clients.id, s.contracts.clientId))
+    .where(eq(s.contracts.unitId, unitId)).orderBy(desc(s.contracts.startDate));
+  const logRows = await db.select({
+    date: s.timesheets.date, startHm: s.timesheets.startHm, endHm: s.timesheets.endHm,
+    effectiveHours: s.timesheets.effectiveHours, breakdownHours: s.timesheets.breakdownHours,
+    status: s.timesheets.status, driver: s.operators.fullName, driverProfile: s.profiles.fullName,
+    contractId: s.timesheets.contractId,
+  }).from(s.timesheets)
+    .leftJoin(s.operators, eq(s.operators.id, s.timesheets.operatorDriverId))
+    .leftJoin(s.profiles, eq(s.profiles.id, s.timesheets.operatorId))
+    .where(eq(s.timesheets.unitId, unitId))
+    .orderBy(desc(s.timesheets.date));
+  const revenueRows = await db.select({ total: s.invoices.totalAmount, contractId: s.invoices.contractId })
+    .from(s.invoices).innerJoin(s.contracts, eq(s.contracts.id, s.invoices.contractId))
+    .where(eq(s.contracts.unitId, unitId));
+  const isFinance = ['admin','finance','operations'].includes(user.role);
+  const contractIds = new Set(contractRows.map(x => x.id));
+  const effectiveHours = logRows.filter(l => l.status === 'approved').reduce((a, l) => a + Number(l.effectiveHours), 0);
+  const breakdownHours = logRows.reduce((a, l) => a + Number(l.breakdownHours), 0);
+  const hmVals = logRows.flatMap(l => [Number(l.startHm), Number(l.endHm)]).filter(v => Number.isFinite(v));
+  const hmUsed = hmVals.length ? Math.max(...hmVals) - Math.min(...hmVals) : null;
+  // Biaya operator tercatat (wet hire): tarif kontrak x jam efektif/hari kerja per kontrak.
+  let operatorCost: number | null = null;
+  const costByContract = await Promise.all(contractRows.filter(x => x.includeOperator).map(async x => {
+    const [c] = await db.select({ rate: s.contracts.operatorRate, type: s.contracts.operatorRateType }).from(s.contracts).where(eq(s.contracts.id, x.id));
+    if (!c || !c.rate) return 0;
+    const logs = logRows.filter(l => l.contractId === x.id && l.status === 'approved');
+    return c.type === 'daily'
+      ? new Set(logs.map(l => l.date)).size * Number(c.rate)
+      : logs.reduce((a, l) => a + Number(l.effectiveHours), 0) * Number(c.rate);
+  }));
+  if (isFinance) operatorCost = costByContract.reduce((a, b) => a + b, 0);
+  const opMap = new Map<string, { logs: number; hours: number; dates: string[] }>();
+  for (const l of logRows) {
+    const name = l.driver || l.driverProfile;
+    if (!name) continue;
+    const cur = opMap.get(name) ?? { logs: 0, hours: 0, dates: [] };
+    cur.logs++; cur.hours += Number(l.effectiveHours); cur.dates.push(l.date);
+    opMap.set(name, cur);
+  }
+  return {
+    unit: { id: unit.id, unitCode: unit.unitCode, brandModel: unit.brandModel, category: unit.category, year: unit.year, status: unit.status, hourlyRate: unit.hourlyRate, currentLocation: unit.currentLocation, sikoExpiry: unit.sikoExpiry, insuranceExpiry: unit.insuranceExpiry },
+    summary: {
+      contractCount: contractRows.length, completedCount: contractRows.filter(x => x.status === 'completed').length,
+      logCount: logRows.length, workDays: new Set(logRows.map(l => l.date)).size,
+      effectiveHours: Math.round(effectiveHours * 100) / 100, breakdownHours: Math.round(breakdownHours * 100) / 100,
+      hmUsed, revenue: isFinance ? Math.round(revenueRows.reduce((a, r) => a + Number(r.total), 0) * 100) / 100 : null,
+      operatorCost: operatorCost === null ? null : Math.round(operatorCost * 100) / 100,
+    },
+    operators: Array.from(opMap.entries()).map(([name, v]) => ({ name, logs: v.logs, hours: Math.round(v.hours * 100) / 100, first: v.dates.length ? v.dates[v.dates.length - 1] : null, last: v.dates[0] ?? null }))
+      .sort((a, b) => b.hours - a.hours),
+    contracts: contractRows.map(x => ({ id: x.id, contractNumber: x.contractNumber, clientName: x.clientName, startDate: x.startDate, endDate: x.endDate, status: x.status, includeOperator: x.includeOperator })),
+    recentLogs: logRows.slice(0, 8).map(l => ({ id: `${l.contractId}-${l.date}`, date: l.date, driver: l.driver || l.driverProfile, startHm: String(l.startHm), endHm: String(l.endHm), effectiveHours: String(l.effectiveHours), breakdownHours: String(l.breakdownHours), status: l.status })),
+  };
+}
+export async function deleteOperator(id:string): Promise<ActionResult> {
+ try{
+  const user=await requireUser(operationRoles);
+  if(!UUID_RE.test(id))return {success:false,message:'Operator tidak valid.'};
+  const [op]=await db.select({fullName:s.operators.fullName}).from(s.operators).where(eq(s.operators.id,id));
+  const [used]=await db.select({n:sql<number>`count(*)`.mapWith(Number)}).from(s.contractOperators).where(eq(s.contractOperators.operatorId,id));
+  if(used&&Number(used.n)>0)return {success:false,message:'Operator masih ditugaskan pada kontrak. Nonaktifkan sebagai gantinya.'};
+  await db.delete(s.operators).where(eq(s.operators.id,id));
+  await logAudit({ actorId: user.id, actorName: user.fullName, action: 'delete', entity: 'operators', entityId: id, summary: `Menghapus operator ${op?.fullName || id}` });
+  revalidatePath('/dashboard','layout');return {success:true,message:'Operator berhasil dihapus.'};
+ }
+ catch{return {success:false,message:'Operator tidak dapat dihapus atau akses tidak diizinkan.'};}
 }
 
 export async function updateUserRole(form:FormData): Promise<ActionResult> {
@@ -544,6 +669,7 @@ export type FormOptionsData = {
   contracts: { id: string; contractNumber: string; ratePerHour: string; status: string; clientName: string | null; unitCode: string | null }[];
   clients: { id: string; companyName: string }[];
   fleet: { id: string; unitCode: string; brandModel: string; hourlyRate: string; status: string }[];
+  operators?: { id: string; fullName: string; sioClass: string | null; ratePerHour: string; ratePerDay: string; defaultRateType: string }[];
 };
 
 export async function getFormOptions(module: string, editingUnitId?: string): Promise<FormOptionsData> {
@@ -559,7 +685,13 @@ export async function getFormOptions(module: string, editingUnitId?: string): Pr
     ]);
     return { ...empty, clients, fleet };
   }
+   if (module === 'contracts') {
+    const operatorRows = await db.select({ id: s.operators.id, fullName: s.operators.fullName, sioClass: s.operators.sioClass, ratePerHour: s.operators.ratePerHour, ratePerDay: s.operators.ratePerDay, defaultRateType: s.operators.defaultRateType })
+      .from(s.operators).where(eq(s.operators.status, 'active')).orderBy(s.operators.fullName);
+    return { ...empty, operators: operatorRows };
+   }
   if (module === 'timesheets' || module === 'bast' || module === 'invoices') {
+    const operatorRows2 = await db.select({ id: s.operators.id, fullName: s.operators.fullName, sioClass: s.operators.sioClass, ratePerHour: s.operators.ratePerHour, ratePerDay: s.operators.ratePerDay, defaultRateType: s.operators.defaultRateType }).from(s.operators).where(eq(s.operators.status, 'active')).orderBy(s.operators.fullName);
     // Form kontrak: timesheet/BAST hanya kontrak aktif; invoice boleh semua.
     // LIMIT 100 kontrak terbaru untuk performa (cukup untuk kebanyakan kasus).
     const contracts = await db.select({
@@ -571,7 +703,7 @@ export async function getFormOptions(module: string, editingUnitId?: string): Pr
       .where(module === 'invoices' ? undefined : eq(s.contracts.status, 'active'))
       .orderBy(desc(s.contracts.createdAt))
       .limit(100);
-    return { ...empty, contracts };
+    return { ...empty, contracts, operators: operatorRows2 };
   }
   return empty;
 }

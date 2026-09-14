@@ -15,6 +15,7 @@ export const navigation: NavEntry[] = [
   { path: '/dashboard', label: 'Dasbor Utama', icon: LayoutDashboard, section: '' },
   { path: '/dashboard/fleet', label: 'Armada Alat Berat', icon: EquipmentIcon, section: 'DATA POKOK' },
   { path: '/dashboard/clients', label: 'Data Klien', icon: Building2, section: 'DATA POKOK' },
+  { path: '/dashboard/operators', label: 'Operator & Driver', icon: UsersRound, section: 'DATA POKOK' },
   { path: '/dashboard/contracts', label: '1. Kontrak Sewa', icon: FileText, section: 'SEWA BERJALAN' },
   { path: '/dashboard/bast', label: '2. BAST Serah Terima', icon: ClipboardCheck, section: 'SEWA BERJALAN' },
   { path: '/dashboard/timesheets', label: '3. Timesheet Harian', icon: ClipboardList, section: 'SEWA BERJALAN' },
