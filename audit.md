@@ -122,6 +122,7 @@ Seluruh temuan di bawah sudah diverifikasi dengan menjalankan tool langsung terh
 | O13 | **✅ DM-7 ditutup** | `src/app/layout.tsx` | Tema dashboard diterapkan pada `.app-shell` saja; halaman verifikasi publik dan pemulihan akses tetap terang. Login memiliki toggle lokal tanpa memengaruhi halaman lain. | ✅ Selesai |
 | O14 | **B1-varian-penuh — `next/image` + signed URL untuk foto BAST** | `src/components/bast-checklist.tsx`, `supabase/storage.bast-photos` | Varian penuh audit (`next/image` + signed URL Supabase) tidak dipilih karena preview memakai object-URL lokal (blob:) yang tidak didukung `next/image`. Butuh keputusan bila ingin pindah ke signed-URL. | ⚠️ Keputusan produk |
 | O15 | **✅ UX shell — navigasi & header saat scroll** | `src/app/globals.css` | Sidebar desktop/mobile memiliki area scroll mandiri; topbar dashboard memakai `position: sticky` agar tetap terlihat saat konten digulir. | ✅ Selesai |
+| O16 | **✅ Audit dark mode — contrast & scope pass** | `src/app/globals.css`, `shell.tsx`, `overview*.tsx`, `ui/dialog.tsx` | Verifikasi 14 Sep 2026: tema login/dashboard terisolasi, boot script scoped mencegah flash reload dark, input/autofill/modal/chart/status/metadata/pagination gelap dipetakan ke token, halaman non-dashboard tetap terang, lint/typecheck/build/audit production bersih. | ✅ Selesai; visual browser QA lanjutan tetap direkomendasikan |
 
 ---
 

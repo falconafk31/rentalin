@@ -71,6 +71,9 @@ di atas — jangan bikin palet baru untuk chart, supaya badge dan chart konsiste
 - `/dashboard` memakai class `.app-shell.dashboard-dark` saat toggle di topbar aktif.
   Preferensi disimpan di `localStorage['heavyops-dashboard-theme']`, tanpa atribut
   `data-theme` global atau pengaruh ke halaman pemulihan akses dan verifikasi publik.
+  Skrip boot kecil menjadi child pertama `.app-shell`: bila preferensi tersimpan `dark`,
+  skrip menambahkan class scoped sebelum hydration sehingga reload tidak memulai dari
+  palet terang; skrip tidak menyentuh `<html>`, `<body>`, atau halaman publik.
 - Field login dan dashboard menggunakan permukaan gelap yang sama untuk placeholder, nilai
   yang sudah diketik, fokus, dan browser autofill. Chart dashboard juga membaca token tema
   sehingga tidak mempertahankan tooltip atau grid putih.
@@ -89,3 +92,24 @@ di atas — jangan bikin palet baru untuk chart, supaya badge dan chart konsiste
    terhadap scroll viewport.
 5. QA manual lanjutan: validasi kontras fokus/error pada browser target dan pastikan PDF/
    dokumen cetak tetap putih permanen.
+
+## Hasil audit teknis — 14 September 2026
+
+- ✅ Scope: `.login-page.login-night` hanya untuk login; `.app-shell.dashboard-dark`
+  mencakup dashboard dan seluruh route di bawah shell. Tidak ada runtime selector
+  `[data-theme]`, theme attribute pada `<html>`, atau style dashboard pada body.
+- ✅ Isolasi: forgot password, reset password, verifikasi publik, dan PDF tidak menerima
+  class dashboard; dokumen PDF tetap permukaan putih untuk kebutuhan cetak/legal.
+- ✅ Persistensi/sinkronisasi: key `heavyops-dashboard-theme`, event tab yang sama, event
+  `storage` lintas tab, `aria-pressed`, dan label toggle terverifikasi di `shell.tsx`.
+- ✅ Reload dark: boot script scoped di dalam `.app-shell` menambahkan class sebelum
+  hydration dari localStorage, tanpa mengembalikan anti-flash global.
+- ✅ Contrast pass: metadata, legend donut/chart, activity feed, account detail, checklist,
+  pagination ellipsis, row-action separator, input edit admin, select option, modal, status,
+  focus, placeholder, dan autofill memakai token dark atau override scoped; inline border
+  terang pada input edit admin tidak lagi bocor.
+- ✅ Validasi otomatis: `npm run lint`, `npm run typecheck`, `npm run build`,
+  `npm audit --omit=dev`, dan `git diff --check` bersih.
+- ⚠️ Visual browser QA belum mendapat sign-off: Chromium Playwright gagal diunduh karena
+  `ECONNRESET`, dan `/dashboard` tanpa environment data mengembalikan HTTP 500. Static
+  audit/build pass tidak menggantikan inspeksi visual pada data dashboard nyata.

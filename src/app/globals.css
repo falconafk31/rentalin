@@ -546,3 +546,59 @@ th.col-no{text-transform:none}
   .dashboard-theme-toggle-label{display:none}
   .dashboard-theme-toggle{padding:4px;min-width:36px;justify-content:center}
 }
+
+/* Contrast pass — components whose light theme used standalone text literals. */
+.pagination-ellipsis{color:var(--muted)}
+.inline-edit-input{border:1px solid var(--border);border-radius:6px;min-height:33px;padding:6px 9px;font-size:14px;width:150px;background:var(--surface);color:var(--text)}
+.app-shell.dashboard-dark .chart-legend>span,
+.app-shell.dashboard-dark .status-legend>a,
+.app-shell.dashboard-dark .status-legend small,
+.app-shell.dashboard-dark .status-percent,
+.app-shell.dashboard-dark .donut-center span,
+.app-shell.dashboard-dark .utilization,
+.app-shell.dashboard-dark .activity-item p,
+.app-shell.dashboard-dark .activity-item small,
+.app-shell.dashboard-dark .panel-header p,
+.app-shell.dashboard-dark .revenue-summary>div>span,
+.app-shell.dashboard-dark .chart-footer,
+.app-shell.dashboard-dark .chart-footer a,
+.app-shell.dashboard-dark .invoice-stats span,
+.app-shell.dashboard-dark .invoice-stats small,
+.app-shell.dashboard-dark .account-panel>p,
+.app-shell.dashboard-dark .account-details>span,
+.app-shell.dashboard-dark .form-section-header,
+.app-shell.dashboard-dark .inspection-checklist>p,
+.app-shell.dashboard-dark .inspection-checklist small{
+  color:var(--muted)!important;
+}
+.app-shell.dashboard-dark .status-legend b,
+.app-shell.dashboard-dark .activity-item b,
+.app-shell.dashboard-dark .account-panel>p b,
+.app-shell.dashboard-dark .account-details b,
+.app-shell.dashboard-dark .inspection-checklist b{
+  color:var(--text);
+}
+.app-shell.dashboard-dark .utilization>div{
+  background:var(--border);
+}
+.app-shell.dashboard-dark .row-actions>*+*:before{
+  background:var(--border);
+}
+.app-shell.dashboard-dark .field-error{
+  color:var(--status-red);
+}
+.app-shell.dashboard-dark .module-table-panel td input:not([type="hidden"]){
+  background:var(--surface-alt);
+  border-color:var(--border)!important;
+  color:var(--text);
+  caret-color:var(--orange);
+  -webkit-text-fill-color:var(--text);
+}
+.app-shell.dashboard-dark .module-table-panel td input:not([type="hidden"]):focus{
+  border-color:var(--orange)!important;
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--orange) 22%,transparent);
+}
+.app-shell.dashboard-dark option{
+  background:var(--surface);
+  color:var(--text);
+}

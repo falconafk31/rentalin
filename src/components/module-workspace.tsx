@@ -540,7 +540,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
             <div className="pagination">
               <button disabled={data.page === 1} onClick={() => navigate({ page: data.page - 1 })} onMouseEnter={() => data.page > 1 && prefetch({ page: data.page - 1 })} onFocus={() => data.page > 1 && prefetch({ page: data.page - 1 })} aria-label="Halaman sebelumnya"><ChevronLeft size={16} /></button>
               {pageItems(data.page, data.pageCount).map((item, i) => item === 'gap'
-                ? <span key={`gap-${i}`} style={{ alignSelf: 'center', padding: '0 4px', color: '#94a3b8', fontSize: 13 }}>…</span>
+                ? <span key={`gap-${i}`} className="pagination-ellipsis" style={{ alignSelf: 'center', padding: '0 4px', fontSize: 13 }}>…</span>
                 : <button key={item} className={data.page === item ? 'active' : ''} onClick={() => navigate({ page: item })} onMouseEnter={() => item !== data.page && prefetch({ page: item })} onFocus={() => item !== data.page && prefetch({ page: item })}>{item}</button>)}
               <button disabled={data.page === data.pageCount} onClick={() => navigate({ page: data.page + 1 })} onMouseEnter={() => data.page < data.pageCount && prefetch({ page: data.page + 1 })} onFocus={() => data.page < data.pageCount && prefetch({ page: data.page + 1 })} aria-label="Halaman berikutnya"><ChevronRight size={16} /></button>
             </div>
