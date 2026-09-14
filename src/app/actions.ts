@@ -677,20 +677,20 @@ export async function getFormOptions(module: string, editingUnitId?: string): Pr
   await requireUser();
   const empty: FormOptionsData = { contracts: [], clients: [], fleet: [] };
   if (module === 'contracts') {
-    const [clients, fleet] = await Promise.all([
+    const [clients, fleet, operatorRows] = await Promise.all([
       db.select({ id: s.clients.id, companyName: s.clients.companyName }).from(s.clients).orderBy(s.clients.companyName),
       db.select({ id: s.fleet.id, unitCode: s.fleet.unitCode, brandModel: s.fleet.brandModel, hourlyRate: s.fleet.hourlyRate, status: s.fleet.status })
         .from(s.fleet)
         .where(editingUnitId && UUID_RE.test(editingUnitId) ? or(eq(s.fleet.status, 'available'), eq(s.fleet.id, editingUnitId)) : eq(s.fleet.status, 'available'))
         .orderBy(s.fleet.unitCode),
+      // FIX: opsi operator wet-hire sebelumnya ada di blok contracts kedua yang
+      // unreachable - picker "Pilih operator" selalu kosong.
+      db.select({ id: s.operators.id, fullName: s.operators.fullName, sioClass: s.operators.sioClass, ratePerHour: s.operators.ratePerHour, ratePerDay: s.operators.ratePerDay, defaultRateType: s.operators.defaultRateType })
+        .from(s.operators).where(eq(s.operators.status, "active")).orderBy(s.operators.fullName),
     ]);
-    return { ...empty, clients, fleet };
+    return { ...empty, clients, fleet, operators: operatorRows };
   }
-   if (module === 'contracts') {
-    const operatorRows = await db.select({ id: s.operators.id, fullName: s.operators.fullName, sioClass: s.operators.sioClass, ratePerHour: s.operators.ratePerHour, ratePerDay: s.operators.ratePerDay, defaultRateType: s.operators.defaultRateType })
-      .from(s.operators).where(eq(s.operators.status, 'active')).orderBy(s.operators.fullName);
-    return { ...empty, operators: operatorRows };
-   }
+   
   if (module === 'timesheets' || module === 'bast' || module === 'invoices') {
     const operatorRows2 = await db.select({ id: s.operators.id, fullName: s.operators.fullName, sioClass: s.operators.sioClass, ratePerHour: s.operators.ratePerHour, ratePerDay: s.operators.ratePerDay, defaultRateType: s.operators.defaultRateType }).from(s.operators).where(eq(s.operators.status, 'active')).orderBy(s.operators.fullName);
     // Form kontrak: timesheet/BAST hanya kontrak aktif; invoice boleh semua.
