@@ -1,11 +1,11 @@
 # Topik 4 — Dark Mode: Palet Warna & Rencana Implementasi
 
-> ✅ Dieksekusi (kecuali DM-5/DM-6/DM-7 — lihat audit.md O11-O13)
-
-> Scope: seluruh UI web (dashboard, form, tabel, chart, login). **Dokumen PDF (BAST,
+> ✅ Dieksekusi dengan keputusan produk lanjutan (14 September 2026).
+> Night mode hanya berlaku pada halaman `/login`; ruang kerja dashboard, pemulihan
+> akses, verifikasi publik, dan dokumen PDF tetap terang. **Dokumen PDF (BAST,
 > Invoice, Kontrak, Perjanjian, SPH) TIDAK ikut dark mode** — tetap putih permanen
 > (dokumen cetak/legal, bukan permukaan kerja layar). Sumber warna asli:
-> `src/app/globals.css` (:root, status badge, metric-icon, chart).
+> `src/app/globals.css` (:root + `.login-page.login-night`).
 
 ## Prinsip pemilihan warna
 
@@ -18,10 +18,12 @@
 - **5 warna status badge tetap sama hue-nya** (amber/hijau/merah/biru/ungu) — cuma versi
   gelapnya. Ini penting: pengguna sudah hafal "oranye = pending, hijau = selesai" dari mode
   terang; kalau hue diganti pas dark mode, itu justru bikin bingung, bukan bikin bagus.
-- **Login page tetap terang selamanya** (rekomendasi, bukan keharusan teknis) — halaman
-  ini palet krem/beige terpisah (`#f2f0eb`) yang jadi identitas visual "wajah" aplikasi,
-  bukan permukaan kerja data. Pola umum: layar auth/marketing tetap 1 tema, dashboard ikut
-  preferensi user.
+- **Login page menjadi satu-satunya permukaan night mode** — halaman ini adalah titik masuk
+  yang fokus dan dapat memakai palet slate gelap (`#14171c`) tanpa mengubah keterbacaan
+  dashboard yang padat data. Form input memakai satu permukaan gelap yang sama untuk
+  placeholder, ketikan, dan autofill agar tidak terasa berganti warna setelah diisi.
+- **Ruang kerja dashboard tetap terang** — keputusan ini menghapus toggle tema global dan
+  mencegah mode OS/localStorage mengubah tabel, chart, modal, dan navigasi operasional.
 
 ## Token warna — Terang (sekarang) vs Gelap (diusulkan)
 
@@ -62,23 +64,22 @@ di atas — jangan bikin palet baru untuk chart, supaya badge dan chart konsiste
 
 ## Cara aktivasi (teknis, ringkas)
 
-- Tambah atribut `data-theme="dark"` di `<html>`, toggle dari tombol di profile menu
-  (sudah ada slot popover profil di `shell.tsx`) — simpan pilihan di `localStorage` +
-  baca `prefers-color-scheme` sebagai default awal.
-- Semua token di atas didefinisikan 2x: `:root{...}` (terang, sudah ada) dan
-  `[data-theme="dark"]{...}` (baru) — komponen **tidak perlu diubah sama sekali** karena
-  sudah pakai `var(--nama)`, kecuali ~250 tempat yang masih hardcode hex (lihat topik
-  sebelumnya) yang harus dipetakan ke variable dulu sebelum dark mode bisa jalan penuh.
-- Skrip anti-flash kecil di `<head>` (baca localStorage sebelum React mount) supaya tidak
-  ada kedipan tema terang sekilas saat reload.
+- `/login` merender `.login-page.login-night`; token gelap diwariskan hanya di subtree
+  tersebut. Tidak ada atribut `data-theme` global, toggle di profile menu, atau pembacaan
+  `localStorage`/`prefers-color-scheme` yang dapat mengubah ruang kerja.
+- Field login menggunakan `--input-surface:#21262f` untuk placeholder, nilai yang sudah
+  diketik, fokus, dan browser autofill. Ini mencegah preview putih berubah menjadi abu-abu
+  setelah input.
+- Token terang di `:root` tetap menjadi sumber tunggal untuk dashboard, form, tabel, chart,
+  pemulihan akses, dan verifikasi publik. PDF/dokumen cetak tidak disentuh.
 
 ## Urutan eksekusi yang disarankan
 
-1. Migrasi ~250 hex di `globals.css` → `var(--token)` (termasuk token baru `--surface-alt`
-   dan 5×3 warna status) — pekerjaan mekanis, bisa 1 sesi.
-2. Tambah blok `[data-theme="dark"]` dengan nilai di tabel atas.
-3. Toggle + persistensi + anti-flash script.
-4. Tangani DM1–DM4 secara manual (butuh cek visual, tidak bisa full otomatis).
-5. QA manual: buka tiap modul + modal + toast + chart dalam mode gelap, cek kontras teks
-   status badge (semua kombinasi di atas sudah dipilih agar rasio kontras teks:bg ≥ 4.5:1).
-6. PDF/dokumen cetak: tidak disentuh (sudah di luar scope by design).
+1. ✅ Isolasi palet night mode di `.login-page.login-night`; jangan pasang tema pada
+   `<html>` agar dashboard tidak ikut berubah.
+2. ✅ Selaraskan permukaan input: placeholder, teks terisi, fokus, dan autofill memakai
+   warna `--input-surface` yang sama.
+3. ✅ QA shell: sidebar memiliki overflow vertikal di desktop/mobile dan topbar sticky
+   terhadap scroll viewport.
+4. QA manual lanjutan: validasi kontras fokus/error pada browser target dan pastikan PDF/
+   dokumen cetak tetap putih permanen.

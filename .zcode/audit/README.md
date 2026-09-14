@@ -39,6 +39,11 @@ audit ini murni temuan+saran, belum ada perubahan kode.
 > Verifikasi akhir: `npm run lint` 0 error 0 warning · `npx tsc --noEmit` bersih ·
 > `env -u DATABASE_URL npm run build` sukses.
 
+> **Keputusan produk lanjutan (14 September 2026):** night mode diisolasi ke `/login` saja.
+> Dashboard/ruang kerja, pemulihan akses, dan verifikasi publik tetap terang; toggle tema
+> global dan anti-flash `data-theme` dihapus. Sidebar kini memiliki scroll mandiri dan
+> topbar dashboard sticky pada viewport.
+
 Commit terpisah per topik: `4703121` (01) · `0400796` (02) · `6110ce6` (03) · `8fc274c` (modul) · `26ab4eb` (perbaikan build) · `6fc56a6` (G2 susulan) · `7fc7d88` (topik 04 dark mode).
 
 ### Per topik
@@ -77,7 +82,9 @@ Commit terpisah per topik: `4703121` (01) · `0400796` (02) · `6110ce6` (03) ·
 
 #### Topik 04 — Dark mode (`.zcode/audit/04-dark-mode.md`)
 
-Commit: `7fc7d88` — `feat(theme): dark mode per audit/04-dark-mode.md`.
+Commit historis: `7fc7d88` — `feat(theme): dark mode per audit/04-dark-mode.md`.
+Keputusan produk lanjutan 14 September 2026 membatasi night mode ke `/login`; rincian
+implementasi terbaru di bawah menggantikan bagian toggle global dari commit historis.
 
 | Item | File kode | Efek |
 |---|---|---|
@@ -91,7 +98,8 @@ Commit: `7fc7d88` — `feat(theme): dark mode per audit/04-dark-mode.md`.
 | Langkah 4 — DM3 | `src/app/globals.css` | `::selection` versi gelap `#4a3320` (tint oranye gelap dari tabel). Outline fokus `#ef762d77` → `color-mix(in srgb, var(--orange) 47%, transparent)`. |
 | Langkah 4 — DM4 | `src/app/globals.css` | `.photo-thumb img` diberi `background:var(--surface)` — thumbnail foto BAST tidak jadi kotak putih menyala. |
 | Langkah 5 — QA kontras | — | Dihitung programatik: rasio teks:bg badge gelap **amber 7.19 · hijau 6.55 · merah 6.12 · biru 7.12 · ungu 6.63** (semua ≥ 4.5:1, sesuai klaim audit). |
-| Langkah 6 — login & PDF | `src/app/globals.css` | `.login-page` mendedeklarasikan ulang token terang di subtree-nya → halaman login tetap terang permanen walho `data-theme="dark"` aktif. PDF (`pdf-document.tsx`) tidak disentuh sama sekali. |
+| Langkah 6 — login & PDF (historis) | `src/app/globals.css` | `.login-page` pernah mendedeklarasikan ulang token terang; keputusan produk terbaru membaliknya: hanya `/login` memakai `.login-page.login-night`, sedangkan PDF (`pdf-document.tsx`) tetap tidak disentuh. |
+| Follow-up 14 Sep 2026 — login-only + shell | `globals.css`, `login-form.tsx`, `shell.tsx`, `layout.tsx` | Night mode dipindah menjadi subtree login; input placeholder/terisi/autofill konsisten pada `--input-surface`; toggle global dan `data-theme` dihapus; `.navigation` scroll mandiri; `.topbar` sticky pada desktop/mobile. |
 
 #### File modul
 
