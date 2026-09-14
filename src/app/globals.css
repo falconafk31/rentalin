@@ -136,6 +136,7 @@ th.col-no{text-transform:none}
 .login-page.login-night .form-field input::placeholder,
 .login-page.login-night .form-field textarea::placeholder{
   color:var(--muted);
+  -webkit-text-fill-color:var(--muted);
   opacity:1;
 }
 .login-page.login-night .form-field input:focus,
@@ -446,6 +447,7 @@ th.col-no{text-transform:none}
 .app-shell.dashboard-dark .form-field input::placeholder,
 .app-shell.dashboard-dark .form-field textarea::placeholder{
   color:var(--muted);
+  -webkit-text-fill-color:var(--muted);
   opacity:1;
 }
 .app-shell.dashboard-dark .form-field input:focus,
@@ -593,6 +595,11 @@ th.col-no{text-transform:none}
   color:var(--text);
   caret-color:var(--orange);
   -webkit-text-fill-color:var(--text);
+}
+.app-shell.dashboard-dark .module-table-panel td input::placeholder{
+  color:var(--muted);
+  -webkit-text-fill-color:var(--muted);
+  opacity:1;
 }
 .app-shell.dashboard-dark .module-table-panel td input:not([type="hidden"]):focus{
   border-color:var(--orange)!important;
