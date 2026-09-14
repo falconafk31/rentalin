@@ -1,18 +1,17 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, memo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Plus, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, Pencil, Trash2, FileDown, Check, X, TriangleAlert, LoaderCircle, CircleCheck, Building2, Filter, Info, Save, ShieldCheck, Wallet, ImagePlus, ClipboardCheck } from 'lucide-react';
+import { Search, Plus, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, Pencil, Trash2, FileDown, Check, X, TriangleAlert, LoaderCircle, CircleCheck, Building2, Filter, Info, ShieldCheck, Wallet, ImagePlus, ClipboardCheck } from 'lucide-react';
 import { EquipmentIcon } from './icons';
 import { Button } from './ui/button';
 import { Modal } from './ui/dialog';
 import { Badge } from './overview';
-import { saveRecord, bulkCreateFleet, changeStatus, deleteClient, resetDatabase, reviseContract, recordPayment, getFormOptions, getRevisionHistory, getBillableHours, getInvoicePayments, getFleetMedia, requestFleetPhotoUpload, completeFleetPhotoUpload, deleteFleetPhoto } from '@/app/actions';
+import { saveRecord, bulkCreateFleet, changeStatus, deleteClient, reviseContract, recordPayment, getFormOptions, getRevisionHistory, getBillableHours, getInvoicePayments, getFleetMedia, requestFleetPhotoUpload, completeFleetPhotoUpload, deleteFleetPhoto } from '@/app/actions';
 import type { FormOptionsData, FleetMediaData } from '@/app/actions';
 import { compressImage, putToPresignedUrl } from '@/lib/image-compress';
 import { money, dateLabel, dateTimeLabel, timeLabel, labels, todayISO, isPastDue, isExpiringSoon } from '@/lib/format';
-import type { ModulePageData, ModuleRow, FleetRow, ClientRow, ContractRow, TimesheetRow, HandoverRow, InvoiceRow, PaymentRow, CompanySettings, ModuleFilters, TemplateKind, DocumentTemplate } from '@/lib/data';
+import type { ModulePageData, ModuleRow, FleetRow, ClientRow, ContractRow, TimesheetRow, HandoverRow, InvoiceRow, PaymentRow, CompanySettings, ModuleFilters } from '@/lib/data';
 import { MODULE_PAGE_SIZE } from '@/lib/pagination';
-import { TemplatesWorkspace, type TemplatesData } from './template-workspace';
 import { calcInvoiceTotals, remainingBalance } from '@/lib/finance';
 
 // G6 (audit 02): label tombol submit hidup di config — modul baru cukup
@@ -24,7 +23,6 @@ const config: Record<string, { title: string; description: string; add: string; 
   timesheets: { title: 'Timesheet Harian', description: 'Pantau jam kerja alat berat dan kelola persetujuan catatan operator.', add: 'Catat Jam Kerja', singular: 'Catatan Kerja Harian', submit: 'Ajukan Catatan' },
   bast: { title: 'Berita Acara Serah Terima', description: 'Dokumentasikan kondisi unit saat mobilisasi dan demobilisasi.', add: 'Buat BAST', singular: 'Berita Acara Serah Terima', submit: 'Simpan Data' },
   invoices: { title: 'Penagihan', description: 'Terbitkan tagihan dari jam kerja yang disetujui dan pantau pembayaran.', add: 'Buat Invoice', singular: 'Tagihan Sewa', submit: 'Terbitkan Tagihan' },
-  settings: { title: 'Pengaturan', description: 'Kelola profil perusahaan dan informasi yang digunakan pada dokumen.', add: '', singular: '', submit: 'Simpan Perubahan' },
 };
 
 const tableMeta: Record<string, { headers: string[]; statuses: string[] }> = {
@@ -34,7 +32,6 @@ const tableMeta: Record<string, { headers: string[]; statuses: string[] }> = {
   timesheets: { headers: ['No', 'Tanggal / Kontrak', 'Unit Alat Berat', 'HM Awal → Akhir', 'Jam Efektif', 'Status', 'Persetujuan'], statuses: ['pending', 'approved', 'rejected'] },
   bast: { headers: ['No', 'Nomor Dokumen', 'Kontrak / Klien', 'Tanggal Serah Terima', 'Jenis', 'Kondisi Unit', 'Dokumen'], statuses: ['mobilization', 'demobilization'] },
   invoices: { headers: ['No', 'Nomor Tagihan', 'Klien / Kontrak', 'Total Tagihan', 'Jatuh Tempo', 'Status', 'Tindakan'], statuses: ['unpaid', 'paid', 'overdue', 'partial'] },
-  settings: { headers: [], statuses: [] },
 };
 
 const bastFields = ['engine', 'hydraulics', 'tracks', 'oil', 'fuel', 'battery', 'lights', 'brakes', 'bucket', 'cabin', 'safety', 'documents'];
@@ -133,13 +130,10 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
   // (tampilkan skeleton) atau aksi kecil (pager/sort/simpan — cukup dim).
   const [bigNav, setBigNav] = useState(false);
   const [confirm, setConfirm] = useState<{ title: string; text: string; action: () => Promise<{ success: boolean; message: string }> } | null>(null);
-  const [resetOpen, setResetOpen] = useState(false);
   const [bulk, setBulk] = useState(false);
   const [revising, setRevising] = useState<EditableRecord | null>(null);
   const [formErrors, setFormErrors] = useState<Record<string, string> | null>(null);
   const [paying, setPaying] = useState<InvoiceRow | null>(null);
-  // Tab Pengaturan: Perusahaan | Template PDF (ringkas tampilan yang penuh).
-  const [settingsTab, setSettingsTab] = useState<'perusahaan' | 'template'>('perusahaan');
   // Select async (O-A): opsi referensi modal + riwayat revisi/pembayaran
   // diambil tepat saat dibutuhkan, bukan dikirim utuh di payload halaman.
   const [formOptions, setFormOptions] = useState<FormOptionsData | null>(initialOptions);
@@ -214,7 +208,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
   }, []);
 
   const operational = ['admin', 'operations'].includes(data.user.role);
-  const canWrite = module === 'invoices' ? ['admin', 'finance'].includes(data.user.role) : module === 'settings' ? data.user.role === 'admin' : module === 'timesheets' ? ['admin', 'operations', 'operator'].includes(data.user.role) : operational;
+  const canWrite = module === 'invoices' ? ['admin', 'finance'].includes(data.user.role) : module === 'timesheets' ? ['admin', 'operations', 'operator'].includes(data.user.role) : operational;
 
   const act = useCallback((fn: () => Promise<{ success: boolean; message: string }>) => startTransition(async () => {
     setBigNav(false); // aksi (setujui/bayar/hapus) bukan navigasi: jangan tampilkan skeleton
@@ -366,12 +360,6 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
 
   const closeRecordModal = useCallback(() => { setOpen(false); setEditing(null); setRevising(null); setFormErrors(null); }, []);
   const guardRecordModal = useCallback((v: boolean) => { if (!pending) setOpen(v); }, [pending]);
-  const resetAll = useCallback(async (phrase: string) => {
-    const r = await resetDatabase(phrase);
-    if (r.success) setResetOpen(false);
-    return r;
-  }, []);
-  const confirmReset = useCallback((phrase: string) => act(() => resetAll(phrase)), [act, resetAll]);
 
   const sortLabel = filters.sort === 1 ? 'A–Z' : filters.sort === -1 ? 'Z–A' : 'Urutkan';
   const tabAllLabel = module === 'clients' ? 'klien' : 'data';
@@ -418,70 +406,6 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
 
       {module === 'timesheets' && <div className="info-callout"><Info size={19} /><p><b>{data.statusCounts.pending || 0} catatan menunggu persetujuan.</b> Hanya jam kerja yang disetujui yang dapat ditagihkan kepada klien.</p></div>}
 
-      {module === 'settings' ? (
-        <div>
-          <div className="table-tabs" style={{ marginBottom: 20 }}>
-            <button className={settingsTab === 'perusahaan' ? 'active' : ''} onClick={() => setSettingsTab('perusahaan')}>Perusahaan</button>
-            <button className={settingsTab === 'template' ? 'active' : ''} onClick={() => setSettingsTab('template')}>Template PDF<span>{data.templates ? Object.values(data.templates).filter(t => t.published).length : 0}/4 tayang</span></button>
-          </div>
-          {settingsTab === 'template' ? (
-            data.templates ? (
-              <TemplatesWorkspace data={data.templates as TemplatesData} canWrite={canWrite} />
-            ) : (
-              <div className="info-callout"><Info size={17} /><p>Data template tidak tersedia. Muat ulang halaman.</p></div>
-            )
-          ) : (
-        <div className="settings-grid">
-          <section className="panel settings-panel">
-            <div className="panel-header">
-              <div><h2>Profil Perusahaan</h2><p>Informasi ini ditampilkan pada kepala surat, blok tanda tangan, dan dokumen PDF (SPH, BAST, Invoice).</p></div>
-              <Building2 size={23} className="muted" />
-            </div>
-            <form onSubmit={submit}>
-              <div className="form-grid">
-                <label className="form-field span-2"><span>Nama Perusahaan <i>*</i></span><input name="companyName" required defaultValue={data.settings.companyName} disabled={!canWrite} />{formErrors?.companyName && <small className="field-error">{formErrors.companyName}</small>}</label>
-                <label className="form-field span-2"><span>Alamat Perusahaan <i>*</i></span><textarea name="address" required defaultValue={data.settings.address} disabled={!canWrite} />{formErrors?.address && <small className="field-error">{formErrors.address}</small>}</label>
-                <label className="form-field"><span>Surel Perusahaan <i>*</i></span><input type="email" name="email" required defaultValue={data.settings.email} disabled={!canWrite} />{formErrors?.email && <small className="field-error">{formErrors.email}</small>}</label>
-                <label className="form-field"><span>Nomor Telepon <i>*</i></span><input name="phone" required defaultValue={data.settings.phone} disabled={!canWrite} />{formErrors?.phone && <small className="field-error">{formErrors.phone}</small>}</label>
-                <label className="form-field"><span>Nama Penandatangan</span><input name="signerName" defaultValue={data.settings.signerName} disabled={!canWrite} placeholder="Nama lengkap penandatangan dokumen" /></label>
-                <label className="form-field"><span>Jabatan Penandatangan</span><input name="signerTitle" defaultValue={data.settings.signerTitle} disabled={!canWrite} placeholder="Contoh: Manajer Operasional" /></label>
-                <label className="form-field"><span>NPWP Perusahaan</span><input name="npwp" defaultValue={data.settings.npwp} disabled={!canWrite} placeholder="Contoh: 01.234.567.8-901.000" />{formErrors?.npwp ? <small className="field-error">{formErrors.npwp}</small> : <small className="cell-sub">Blok identitas PIHAK PERTAMA di perjanjian.</small>}</label>
-                <label className="form-field"><span>No. KTP Penandatangan</span><input name="signerKtp" defaultValue={data.settings.signerKtp} disabled={!canWrite} placeholder="16 digit sesuai KTP" />{formErrors?.signerKtp ? <small className="field-error">{formErrors.signerKtp}</small> : <small className="cell-sub">Identitas wakil PIHAK PERTAMA di perjanjian.</small>}</label>
-                <label className="form-field"><span>Nama Bank</span><input name="bankName" defaultValue={data.settings.bankName} disabled={!canWrite} placeholder="Contoh: BCA" /></label>
-                <label className="form-field"><span>Nama Pemilik Rekening</span><input name="bankAccountName" defaultValue={data.settings.bankAccountName} disabled={!canWrite} placeholder="Sesuai buku rekening" /></label>
-                <label className="form-field"><span>Nomor Rekening</span><input name="bankAccountNumber" defaultValue={data.settings.bankAccountNumber} disabled={!canWrite} placeholder="Nomor rekening penerima pembayaran" />{formErrors?.bankAccountNumber ? <small className="field-error">{formErrors.bankAccountNumber}</small> : <small className="cell-sub">Dipakai di PASAL 3 perjanjian &amp; info bayar invoice.</small>}</label>
-                <label className="form-field"><span>Kota Penandatanganan <i>*</i></span><input name="city" required maxLength={100} defaultValue={data.settings.city} disabled={!canWrite} placeholder="Contoh: Jakarta" />{formErrors?.city ? <small className="field-error">{formErrors.city}</small> : <small className="cell-sub">Muncul di baris &quot;Kota, tanggal&quot; dokumen PDF.</small>}</label>
-                <label className="form-field"><span>Zona Waktu Dokumen <i>*</i></span><select name="timezone" defaultValue={data.settings.timezone} disabled={!canWrite}>{(['WIB', 'WITA', 'WIT'] as const).map(z => <option key={z} value={z}>{labels[z]}</option>)}</select>{formErrors?.timezone ? <small className="field-error">{formErrors.timezone}</small> : <small className="cell-sub">Kalender &quot;hari ini&quot; untuk badge jatuh tempo & tanggal dokumen.</small>}</label>
-                <label className="form-field"><span>Tarif PPN (%) <i>*</i></span><input name="ppnRate" type="number" required min={0} max={100} step="0.01" defaultValue={data.settings.ppnRate} disabled={!canWrite} />{formErrors?.ppnRate ? <small className="field-error">{formErrors.ppnRate}</small> : <small className="cell-sub">Berlaku untuk invoice baru; invoice lama tidak berubah.</small>}</label>
-                <label className="form-field"><span>Ambang Peringatan Dokumen (hari) <i>*</i></span><input name="expiryWarningDays" type="number" required min={1} max={180} step={1} defaultValue={data.settings.expiryWarningDays} disabled={!canWrite} />{formErrors?.expiryWarningDays ? <small className="field-error">{formErrors.expiryWarningDays}</small> : <small className="cell-sub">SIKO/asuransi dalam rentang ini ikut badge peringatan.</small>}</label>
-              </div>
-              {canWrite && <div className="form-footer"><Button disabled={pending}>{pending ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}Simpan Perubahan</Button></div>}
-            </form>
-          </section>
-          <section className="panel account-panel">
-            <span className="account-shield"><ShieldCheck size={25} /></span>
-            <h2>Keamanan &amp; Akses</h2>
-            <p>Akun Anda memiliki hak akses <b>{labels[data.user.role]}</b>.</p>
-            <div className="account-details">
-              <span>Nama pengguna<b>{data.user.fullName}</b></span>
-              <span>Surel<b>{data.user.email}</b></span>
-              <span>Autentikasi<b>{data.user.preview ? 'Mode pratinjau lokal' : 'Supabase Auth'}</b></span>
-            </div>
-            <div className="info-callout"><Info size={17} /><p>{data.user.preview ? 'Data demonstrasi tersimpan pada basis data lokal. Autentikasi wajib dikonfigurasi sebelum penerapan produksi.' : 'Perubahan peran pengguna hanya dapat dilakukan oleh administrator basis data.'}</p></div>
-          </section>
-          {data.user.role === 'admin' && (
-            <section className="panel account-panel">
-              <span className="account-shield"><TriangleAlert size={25} /></span>
-              <h2>Zona Berbahaya</h2>
-              <p>Hapus <b>seluruh data operasional</b> (armada, klien, kontrak, timesheet, BAST, invoice, pembayaran) setelah masa testing. Akun pengguna dan profil perusahaan dipertahankan.</p>
-              <div className="account-details"><span>Operasi ini<b>tidak dapat dibatalkan</b></span></div>
-              <Button variant="destructive" onClick={() => setResetOpen(true)}><Trash2 size={16} />Reset Database</Button>
-            </section>
-          )}
-        </div>
-          )}
-        </div>
-      ) : (
         <section className="panel module-table-panel">
           {/* G2 (audit 02): fleet tidak lagi merender tab status — kartu
               ModuleSummary di atas tabel sudah jadi satu-satunya filter status,
@@ -546,7 +470,6 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
             </div>
           </div>
         </section>
-      )}
 
       {/* Modal hanya di-mount saat terbuka: state ketikan di dalam form (HM,
           prefix bulk, dsb.) hidup di komponen anak sehingga TIDAK me-render
@@ -569,8 +492,6 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
           <Button disabled={pending} onClick={() => { if (confirm) act(confirm.action); }}>{pending ? <LoaderCircle size={16} className="spin" /> : <Check size={16} />}Konfirmasi</Button>
         </div>
       </Modal>
-
-      {resetOpen && <ResetModal pending={pending} onOpenChange={v => { if (!v && !pending) setResetOpen(false); }} onCancel={() => setResetOpen(false)} onReset={confirmReset} />}
 
       {toast && <div className={`toast ${toast.success ? 'toast-success' : 'toast-error'}`} role="status">{toast.success ? <CircleCheck size={20} /> : <TriangleAlert size={20} />}<span>{toast.message}</span><button onClick={() => setToast(null)} aria-label="Tutup pemberitahuan"><X size={16} /></button></div>}
     </div>
@@ -796,26 +717,6 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
           </Button>
         </div>
       </form>
-    </Modal>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Modal reset database — frasa konfirmasi lokal, parent tidak ikut render.
-// ---------------------------------------------------------------------------
-function ResetModal({ pending, onOpenChange, onCancel, onReset }: {
-  pending: boolean; onOpenChange: (v: boolean) => void; onCancel: () => void; onReset: (phrase: string) => void;
-}) {
-  const [phrase, setPhrase] = useState('');
-  return (
-    <Modal open onOpenChange={onOpenChange} title="Reset Database" description="Seluruh data operasional (armada, klien, kontrak, timesheet, BAST, invoice, pembayaran) akan dihapus permanen. Akun pengguna dan profil perusahaan dipertahankan. Ketik HAPUS SEMUA DATA untuk melanjutkan.">
-      <div className="form-grid">
-        <label className="form-field span-2"><span>Konfirmasi penghapusan <i>*</i></span><input value={phrase} onChange={e => setPhrase(e.target.value)} placeholder="HAPUS SEMUA DATA" /></label>
-      </div>
-      <div className="form-footer">
-        <Button variant="outline" onClick={onCancel} disabled={pending}>Batal</Button>
-        <Button variant="destructive" disabled={pending || phrase !== 'HAPUS SEMUA DATA'} onClick={() => onReset(phrase)}>{pending ? <LoaderCircle size={16} className="spin" /> : <Trash2 size={16} />}Hapus Semua Data</Button>
-      </div>
     </Modal>
   );
 }

@@ -169,7 +169,7 @@ export function Shell({ data, children }: { data: ShellData; children: React.Rea
                 <div className="header-popover profile-menu">
                   <b>{data.user.fullName}</b><p>{data.user.email}</p>
                   {data.user.preview && <span className="preview-label">Mode pratinjau · Data demonstrasi</span>}
-                  <Link href="/dashboard/settings" onClick={() => setProfile(false)}><Settings2 size={16} />Pengaturan akun</Link>
+                  <Link href="/dashboard/settings" onClick={() => setProfile(false)}><Settings2 size={16} />Pengaturan</Link>
                   <form action={signOut}><button><LogOut size={16} />Keluar dari sistem</button></form>
                 </div>
               )}
