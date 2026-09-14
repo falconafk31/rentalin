@@ -25,19 +25,27 @@
 | [`modules/invoices.md`](./modules/invoices.md) | Penagihan/Invoice |
 | [`modules/settings.md`](./modules/settings.md) | Pengaturan |
 
-## Cara pakai
+## Cara pakai *(catatan audit awal)*
 
-Tunjuk file + item mana yang mau dieksekusi (mis. "kerjakan 02 poin K1-K3 + icon-audit poin I1"),
-audit ini murni temuan+saran, belum ada perubahan kode.
+Tunjuk file + item mana yang mau dieksekusi (mis. "kerjakan 02 poin K1-K3 + icon-audit poin I1").
+Pernyataan bahwa audit ini murni temuan dan belum ada perubahan kode berlaku untuk snapshot
+awal sebelum eksekusi, bukan untuk status branch saat ini.
 
 ---
 
-## Status eksekusi (12 September 2026)
+## Status eksekusi (snapshot historis 12 September 2026)
 
-> Branch kerja: `feat/ui-audit-exec` (commit lokal saja, **tidak** di-push/di-merge).
+> Snapshot historis branch kerja: `feat/ui-audit-exec` (commit lokal saja, **tidak** di-push/di-merge); branch aktif saat ini didokumentasikan oleh Git checkout.
 > Semua saran dari 10 file audit dieksekusi kecuali 1 item yang masih menunggu keputusan (B1-varian-penuh); G2 sudah diputus dan dikerjakan susulan (commit `6fc56a6`).
 > Verifikasi akhir: `npm run lint` 0 error 0 warning · `npx tsc --noEmit` bersih ·
 > `env -u DATABASE_URL npm run build` sukses.
+
+> **Keputusan produk lanjutan (14 September 2026):** night mode tersedia secara
+> terisolasi di `/login` dan `/dashboard` beserta seluruh halaman di bawah dashboard shell.
+> Pemulihan akses, reset password, verifikasi publik, dan PDF tetap terang; toggle global
+> `data-theme` dihapus. Toggle login berada di sudut kanan atas di luar form, toggle
+> dashboard terlihat langsung di topbar. Sidebar memiliki scroll mandiri dan topbar dashboard
+> sticky pada viewport.
 
 Commit terpisah per topik: `4703121` (01) · `0400796` (02) · `6110ce6` (03) · `8fc274c` (modul) · `26ab4eb` (perbaikan build) · `6fc56a6` (G2 susulan) · `7fc7d88` (topik 04 dark mode).
 
@@ -77,21 +85,27 @@ Commit terpisah per topik: `4703121` (01) · `0400796` (02) · `6110ce6` (03) ·
 
 #### Topik 04 — Dark mode (`.zcode/audit/04-dark-mode.md`)
 
-Commit: `7fc7d88` — `feat(theme): dark mode per audit/04-dark-mode.md`.
+Commit historis: `7fc7d88` — `feat(theme): dark mode per audit/04-dark-mode.md`.
+Bagian langkah 1–6 di bawah mempertahankan jejak keputusan historis; selector
+`[data-theme="dark"]`, toggle profile, dan skrip anti-flash global **bukan lagi runtime**.
+Keputusan produk aktif per 14 September 2026 adalah night mode terisolasi pada `/login`
+dan `/dashboard` beserta halaman di bawah dashboard shell; login tetap di luar form,
+dan dashboard berada di topbar.
 
 | Item | File kode | Efek |
 |---|---|---|
 | Langkah 1 — token baru | `src/app/globals.css` (`:root`) | Ditambah `--surface-alt:#fafbfc` + 15 token status (5 kategori × text/bg/border) dengan nilai TERANG persis tabel audit; nilai gelap menyusul di blok dark. |
 | Langkah 1 — migrasi hex | `src/app/globals.css` | Nilai yang PERSIS ada di tabel audit dipetakan ke `var(--token)`: `#f7f8fa`→`--bg`, `#fff` (latar)→`--surface`, `#fafbfc`/`#f8f9fb`→`--surface-alt`, `#25292e`→`--text`, `#eaebed`→`--border`, `#ef762d`→`--orange`, `#fff0e7`→`--orange-light`, `#348b67`→`--green`, dan 15 nilai status badge → token status. Mode terang identik (nilai token = nilai lama). Dua `color:#fff` di atas aksen (`.brand-mark`, `.button-danger`) sengaja tetap literal putih — bukan `--surface`, karena di dark mode token itu jadi gelap. |
-| Langkah 2 — blok gelap | `src/app/globals.css` (`[data-theme="dark"]`) | Semua token didefinisikan ulang dengan nilai persis tabel audit (`--bg:#14171c`, `--surface:#1b1f26`, `--surface-alt:#21262f`, `--text:#e7e9ec`, `--muted:#8b929c`, `--border:#2b3038`, `--orange:#f2874a`, `--orange-light:#3a2a1c`, `--green:#4caf82`, + 15 status). Tidak ada warna di luar tabel. `color-scheme` ikut di-set per tema (kontrol native browser). |
-| Langkah 3 — toggle | `src/components/shell.tsx` | Tombol "Mode gelap"/"Mode terang" di popover profil (slot yang sudah ada), memakai `Moon`/`Sun`. Status dibaca lewat `useSyncExternalStore` dari atribut `data-theme` (menghindari setState-in-effect yang dilarang eslint proyek); pilihan disimpan di `localStorage['heavyops-theme']`. |
-| Langkah 3 — anti-flash | `src/app/layout.tsx` | Skrip inline di `<head>` (sebelum React mount): baca `localStorage`, fallback ke `prefers-color-scheme`, lalu pasang `data-theme="dark"` — tidak ada kedipan tema terang saat reload. |
+| Langkah 2 — blok gelap *(historis)* | `src/app/globals.css` (`[data-theme="dark"]`, sudah dihapus) | Jejak implementasi lama yang pernah mendefinisikan token gelap global. Runtime sekarang memakai `.login-page.login-night` dan `.app-shell.dashboard-dark`; tidak ada selector `[data-theme="dark"]`. |
+| Langkah 3 — toggle *(historis)* | `src/components/shell.tsx` | Versi lama menaruh "Mode gelap"/"Mode terang" di popover profil dan membaca atribut `data-theme`; implementasi itu sudah dihapus. Runtime sekarang menampilkan toggle sederhana langsung di topbar dashboard dengan key `localStorage['heavyops-dashboard-theme']`. |
+| Langkah 3 — anti-flash *(historis/global, dihapus)* | `src/app/layout.tsx` | Skrip inline global yang pernah membaca `localStorage`/`prefers-color-scheme` dan memasang `data-theme="dark"` sudah dihapus agar login, pemulihan akses, verifikasi publik, dan PDF tidak terkena tema dashboard. |
 | Langkah 4 — DM1 | `src/app/globals.css` | Modal, popover header, hasil pencarian, dan toast di dark mode: border dinaikkan (campuran token, bukan warna baru) + shadow `#00000055`. |
 | Langkah 4 — DM2 | `src/app/layout.tsx` | Class Tailwind `bg-slate-100 text-slate-900` dihapus dari `<body>`; `globals.css` (`var(--bg)`/`var(--text)`) jadi satu-satunya sumber warna body. |
 | Langkah 4 — DM3 | `src/app/globals.css` | `::selection` versi gelap `#4a3320` (tint oranye gelap dari tabel). Outline fokus `#ef762d77` → `color-mix(in srgb, var(--orange) 47%, transparent)`. |
 | Langkah 4 — DM4 | `src/app/globals.css` | `.photo-thumb img` diberi `background:var(--surface)` — thumbnail foto BAST tidak jadi kotak putih menyala. |
 | Langkah 5 — QA kontras | — | Dihitung programatik: rasio teks:bg badge gelap **amber 7.19 · hijau 6.55 · merah 6.12 · biru 7.12 · ungu 6.63** (semua ≥ 4.5:1, sesuai klaim audit). |
-| Langkah 6 — login & PDF | `src/app/globals.css` | `.login-page` mendedeklarasikan ulang token terang di subtree-nya → halaman login tetap terang permanen walho `data-theme="dark"` aktif. PDF (`pdf-document.tsx`) tidak disentuh sama sekali. |
+| Langkah 6 — login & PDF (historis) | `src/app/globals.css` | `.login-page` pernah mendedeklarasikan ulang token terang; implementasi aktif memakai `.login-page.login-night` untuk login dan `.app-shell.dashboard-dark` untuk dashboard, sedangkan PDF (`pdf-document.tsx`) tetap tidak disentuh. |
+| Follow-up 14 Sep 2026 — login + dashboard + shell | `globals.css`, `login-form.tsx`, `overview.tsx`, `overview-charts.tsx`, `shell.tsx`, `layout.tsx` | Night mode terisolasi pada login dan dashboard; toggle sederhana berada di luar form/topbar; input placeholder/terisi/autofill konsisten; chart memakai CSS token; boot script scoped mencegah flash reload dark; toggle global dan `data-theme` dihapus; `.navigation` scroll mandiri; `.topbar` sticky pada desktop/mobile. |
 
 #### File modul
 

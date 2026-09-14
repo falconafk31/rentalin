@@ -79,10 +79,10 @@ export function Overview({ data }: { data: DashboardData }) {
   }, [range, selected, revenue, data.revenueByMonth, data.revenueByDay, now]);
 
   const statusData = useMemo(() => [
-    { name: 'Disewa', value: data.fleetByStatus.renting || 0, color: '#f47727', status: 'renting' },
-    { name: 'Tersedia', value: data.fleetByStatus.available || 0, color: '#50a885', status: 'available' },
-    { name: 'Perawatan', value: data.fleetByStatus.maintenance || 0, color: '#efbf5b', status: 'maintenance' },
-    { name: 'Dalam Mobilisasi', value: data.fleetByStatus.in_transit || 0, color: '#7998bc', status: 'in_transit' },
+    { name: 'Disewa', value: data.fleetByStatus.renting || 0, color: 'var(--status-amber)', status: 'renting' },
+    { name: 'Tersedia', value: data.fleetByStatus.available || 0, color: 'var(--status-green)', status: 'available' },
+    { name: 'Perawatan', value: data.fleetByStatus.maintenance || 0, color: 'var(--status-red)', status: 'maintenance' },
+    { name: 'Dalam Mobilisasi', value: data.fleetByStatus.in_transit || 0, color: 'var(--status-blue)', status: 'in_transit' },
   ], [data.fleetByStatus]);
   
   const monthRevenue = revenue(selected);

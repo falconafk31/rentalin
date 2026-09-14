@@ -64,7 +64,7 @@ export function UsersWorkspace({ data, banned }: { data: UsersData; banned: Reco
                   <tr key={p.id}>
                     <td>{editingId === p.id ? (
                       <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <input value={draftName} onChange={e => setDraftName(e.target.value)} maxLength={100} aria-label="Nama lengkap" style={{ border: '1px solid #e2e6eb', borderRadius: 6, minHeight: 33, padding: '6px 9px', fontSize: 14, width: 150 }} />
+                        <input className="inline-edit-input" value={draftName} onChange={e => setDraftName(e.target.value)} maxLength={100} aria-label="Nama lengkap" />
                         <button className="icon-button green" title="Simpan nama" aria-label="Simpan nama" disabled={pending} onClick={() => { const form = new FormData(); form.set('id', p.id); form.set('fullName', draftName); setEditingId(null); run(() => updateUserProfile(form)); }}><Check size={16} /></button>
                         <button className="icon-button" title="Batal" aria-label="Batal mengubah nama" onClick={() => setEditingId(null)}><X size={16} /></button>
                       </span>

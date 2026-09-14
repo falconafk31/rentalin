@@ -24,16 +24,39 @@ export const navigation: NavEntry[] = [
   { path: '/dashboard/audit', label: 'Log Audit', icon: ScrollText, section: 'LAINNYA', adminOnly: true },
 ];
 const navSections = ['DATA POKOK', 'SEWA BERJALAN', 'KEUANGAN', 'LAINNYA'];
+const DASHBOARD_THEME_KEY = 'heavyops-dashboard-theme';
+const DASHBOARD_THEME_EVENT = 'heavyops-dashboard-theme-change';
+let dashboardThemeFallback = false;
 
-// Sumber status tema: atribut data-theme di <html> (dipasang skrip anti-flash
-// di layout.tsx, diubah tombol di menu profil). Dibaca lewat store eksternal
-// supaya React ikut memperbarui ikon tanpa state turunan.
-const THEME_EVENT = 'heavyops-theme-change';
-const subscribeTheme = (onChange: () => void) => {
-  window.addEventListener(THEME_EVENT, onChange);
-  return () => window.removeEventListener(THEME_EVENT, onChange);
+const subscribeDashboardTheme = (onChange: () => void) => {
+  const handleChange = () => onChange();
+  window.addEventListener(DASHBOARD_THEME_EVENT, handleChange);
+  window.addEventListener('storage', handleChange);
+  return () => {
+    window.removeEventListener(DASHBOARD_THEME_EVENT, handleChange);
+    window.removeEventListener('storage', handleChange);
+  };
 };
-const themeSnapshot = () => document.documentElement.getAttribute('data-theme') === 'dark';
+
+const dashboardThemeSnapshot = () => {
+  try {
+    const stored = window.localStorage.getItem(DASHBOARD_THEME_KEY);
+    if (stored === 'dark') return true;
+    if (stored === 'light') return false;
+  } catch { /* localStorage dapat diblokir browser. */ }
+  return dashboardThemeFallback;
+};
+
+const dashboardThemeServerSnapshot = () => false;
+const dashboardThemeBootScript = `(() => {
+  try {
+    const script = document.currentScript;
+    const shell = script && script.parentElement;
+    if (shell && window.localStorage.getItem('${DASHBOARD_THEME_KEY}') === 'dark') {
+      shell.classList.add('dashboard-dark');
+    }
+  } catch {}
+})();`;
 
 export function Shell({ data, children }: { data: ShellData; children: React.ReactNode }) {
   const pathname = usePathname();
@@ -42,17 +65,13 @@ export function Shell({ data, children }: { data: ShellData; children: React.Rea
   const [notifications, setNotifications] = useState(false);
   const [profile, setProfile] = useState(false);
   const [help, setHelp] = useState(false);
-  // Tema (audit 04): nilai awal sudah ditentukan skrip anti-flash di <head>
-  // sebelum hydration. Status tema dibaca dari DOM lewat useSyncExternalStore
-  // (bukan setState di effect) supaya tidak ada cascading render dan snapshot
-  // server/klien tetap konsisten.
-  const dark = useSyncExternalStore(subscribeTheme, themeSnapshot, () => false);
+  const dark = useSyncExternalStore(subscribeDashboardTheme, dashboardThemeSnapshot, dashboardThemeServerSnapshot);
   const toggleTheme = () => {
     const next = !dark;
-    if (next) document.documentElement.setAttribute('data-theme', 'dark');
-    else document.documentElement.removeAttribute('data-theme');
-    try { localStorage.setItem('heavyops-theme', next ? 'dark' : 'light'); } catch { /* localStorage dapat diblokir browser */ }
-    window.dispatchEvent(new Event(THEME_EVENT));
+    dashboardThemeFallback = next;
+    try { window.localStorage.setItem(DASHBOARD_THEME_KEY, next ? 'dark' : 'light'); }
+    catch { /* Preferensi tema dapat diblokir browser. */ }
+    window.dispatchEvent(new Event(DASHBOARD_THEME_EVENT));
   };
   // Zona waktu kalender perusahaan untuk label tanggal (WIB default).
   const tz = data.settings.timezone;
@@ -75,7 +94,8 @@ export function Shell({ data, children }: { data: ShellData; children: React.Rea
   const visibleNav = useMemo(() => navigation.filter(n => !n.adminOnly || data.user.role === 'admin'), [data.user.role]);
 
   return (
-    <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
+    <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''} ${dark ? 'dashboard-dark' : ''}`} suppressHydrationWarning>
+      <script dangerouslySetInnerHTML={{ __html: dashboardThemeBootScript }} />
       {mobile && <div className="mobile-backdrop" onClick={() => setMobile(false)} />}
       <aside className={`sidebar ${mobile ? 'mobile-open' : ''}`}>
         <Link className="brand" href="/dashboard"><BrandMark /><div className="brand-copy"><div>HEAVY<span>OPS</span><span className="brand-dot">.</span></div><small>Sistem Manajemen Rental</small></div></Link>
@@ -121,6 +141,10 @@ export function Shell({ data, children }: { data: ShellData; children: React.Rea
           </div>
           <div className="header-actions">
             <GlobalSearch role={data.user.role} />
+            <button className="dashboard-theme-toggle" type="button" aria-pressed={dark} aria-label={dark ? 'Ganti ke mode terang' : 'Ganti ke mode malam'} onClick={toggleTheme}>
+              <span className="dashboard-theme-toggle-track" aria-hidden="true">{dark ? <Moon size={14} /> : <Sun size={14} />}</span>
+              <span className="dashboard-theme-toggle-label">{dark ? 'Malam' : 'Terang'}</span>
+            </button>
             <div className="header-popover-wrap">
               <button className={`notification-button icon-button ${notifications ? 'selected' : ''}`} aria-label="Lihat pemberitahuan" onClick={() => { setNotifications(!notifications); setProfile(false); }}>
                 <Bell size={20} />{(pending > 0 || expiringFleet > 0 || overdue > 0) && <i />}
@@ -146,7 +170,6 @@ export function Shell({ data, children }: { data: ShellData; children: React.Rea
                   <b>{data.user.fullName}</b><p>{data.user.email}</p>
                   {data.user.preview && <span className="preview-label">Mode pratinjau · Data demonstrasi</span>}
                   <Link href="/dashboard/settings" onClick={() => setProfile(false)}><Settings2 size={16} />Pengaturan akun</Link>
-                  <button type="button" onClick={toggleTheme} aria-pressed={dark}>{dark ? <Sun size={16} /> : <Moon size={16} />}{dark ? 'Mode terang' : 'Mode gelap'}</button>
                   <form action={signOut}><button><LogOut size={16} />Keluar dari sistem</button></form>
                 </div>
               )}

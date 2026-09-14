@@ -1,11 +1,11 @@
 # Topik 4 — Dark Mode: Palet Warna & Rencana Implementasi
 
-> ✅ Dieksekusi (kecuali DM-5/DM-6/DM-7 — lihat audit.md O11-O13)
-
-> Scope: seluruh UI web (dashboard, form, tabel, chart, login). **Dokumen PDF (BAST,
+> ✅ Dieksekusi dengan keputusan produk lanjutan (14 September 2026).
+> Night mode tersedia pada `/login` dan `/dashboard` melalui subtree terisolasi;
+> pemulihan akses, verifikasi publik, dan dokumen PDF tetap terang. **Dokumen PDF (BAST,
 > Invoice, Kontrak, Perjanjian, SPH) TIDAK ikut dark mode** — tetap putih permanen
 > (dokumen cetak/legal, bukan permukaan kerja layar). Sumber warna asli:
-> `src/app/globals.css` (:root, status badge, metric-icon, chart).
+> `src/app/globals.css` (:root + `.login-page.login-night` + `.app-shell.dashboard-dark`).
 
 ## Prinsip pemilihan warna
 
@@ -18,10 +18,13 @@
 - **5 warna status badge tetap sama hue-nya** (amber/hijau/merah/biru/ungu) — cuma versi
   gelapnya. Ini penting: pengguna sudah hafal "oranye = pending, hijau = selesai" dari mode
   terang; kalau hue diganti pas dark mode, itu justru bikin bingung, bukan bikin bagus.
-- **Login page tetap terang selamanya** (rekomendasi, bukan keharusan teknis) — halaman
-  ini palet krem/beige terpisah (`#f2f0eb`) yang jadi identitas visual "wajah" aplikasi,
-  bukan permukaan kerja data. Pola umum: layar auth/marketing tetap 1 tema, dashboard ikut
-  preferensi user.
+- **Login dan dashboard memiliki night mode terisolasi** — login memakai palet slate
+  gelap sebagai titik masuk, sementara dashboard dapat mengikuti preferensi pengguna tanpa
+  mengubah halaman pemulihan akses atau verifikasi publik. Form input memakai satu permukaan
+  gelap yang sama untuk placeholder, ketikan, dan autofill agar tidak terasa berganti warna.
+- **Toggle tetap berada di luar konteks form** — login memakai kontrol sederhana di sudut
+  kanan atas; dashboard memakai kontrol yang sama di topbar. Tidak ada menu profil yang harus
+  dibuka terlebih dahulu untuk mengganti tema.
 
 ## Token warna — Terang (sekarang) vs Gelap (diusulkan)
 
@@ -62,23 +65,51 @@ di atas — jangan bikin palet baru untuk chart, supaya badge dan chart konsiste
 
 ## Cara aktivasi (teknis, ringkas)
 
-- Tambah atribut `data-theme="dark"` di `<html>`, toggle dari tombol di profile menu
-  (sudah ada slot popover profil di `shell.tsx`) — simpan pilihan di `localStorage` +
-  baca `prefers-color-scheme` sebagai default awal.
-- Semua token di atas didefinisikan 2x: `:root{...}` (terang, sudah ada) dan
-  `[data-theme="dark"]{...}` (baru) — komponen **tidak perlu diubah sama sekali** karena
-  sudah pakai `var(--nama)`, kecuali ~250 tempat yang masih hardcode hex (lihat topik
-  sebelumnya) yang harus dipetakan ke variable dulu sebelum dark mode bisa jalan penuh.
-- Skrip anti-flash kecil di `<head>` (baca localStorage sebelum React mount) supaya tidak
-  ada kedipan tema terang sekilas saat reload.
+- `/login` merender `.login-page.login-night` secara default; token gelap diwariskan hanya
+  di subtree tersebut. Toggle sederhana ditempatkan di luar form, pada sudut kanan atas
+  halaman, untuk berpindah ke mode terang.
+- `/dashboard` memakai class `.app-shell.dashboard-dark` saat toggle di topbar aktif.
+  Preferensi disimpan di `localStorage['heavyops-dashboard-theme']`, tanpa atribut
+  `data-theme` global atau pengaruh ke halaman pemulihan akses dan verifikasi publik.
+  Skrip boot kecil menjadi child pertama `.app-shell`: bila preferensi tersimpan `dark`,
+  skrip menambahkan class scoped sebelum hydration sehingga reload tidak memulai dari
+  palet terang; skrip tidak menyentuh `<html>`, `<body>`, atau halaman publik.
+- Field login dan dashboard menggunakan permukaan gelap yang sama untuk placeholder, nilai
+  yang sudah diketik, fokus, dan browser autofill. Chart dashboard juga membaca token tema
+  sehingga tidak mempertahankan tooltip atau grid putih.
+- Token terang di `:root` tetap menjadi default untuk seluruh UI; PDF/dokumen cetak tidak
+  disentuh.
 
 ## Urutan eksekusi yang disarankan
 
-1. Migrasi ~250 hex di `globals.css` → `var(--token)` (termasuk token baru `--surface-alt`
-   dan 5×3 warna status) — pekerjaan mekanis, bisa 1 sesi.
-2. Tambah blok `[data-theme="dark"]` dengan nilai di tabel atas.
-3. Toggle + persistensi + anti-flash script.
-4. Tangani DM1–DM4 secara manual (butuh cek visual, tidak bisa full otomatis).
-5. QA manual: buka tiap modul + modal + toast + chart dalam mode gelap, cek kontras teks
-   status badge (semua kombinasi di atas sudah dipilih agar rasio kontras teks:bg ≥ 4.5:1).
-6. PDF/dokumen cetak: tidak disentuh (sudah di luar scope by design).
+1. ✅ Isolasi palet night mode di `.login-page.login-night` dan `.app-shell.dashboard-dark`;
+   halaman non-login/non-dashboard tidak ikut berubah.
+2. ✅ Selaraskan permukaan input: placeholder, teks terisi, fokus, dan autofill memakai
+   warna permukaan gelap yang sama.
+3. ✅ Sinkronkan chart dashboard ke CSS token agar grid, tooltip, garis, dan donut tetap
+   terbaca pada kedua tema.
+4. ✅ QA shell: sidebar memiliki overflow vertikal di desktop/mobile dan topbar sticky
+   terhadap scroll viewport.
+5. QA manual lanjutan: validasi kontras fokus/error pada browser target dan pastikan PDF/
+   dokumen cetak tetap putih permanen.
+
+## Hasil audit teknis — 14 September 2026
+
+- ✅ Scope: `.login-page.login-night` hanya untuk login; `.app-shell.dashboard-dark`
+  mencakup dashboard dan seluruh route di bawah shell. Tidak ada runtime selector
+  `[data-theme]`, theme attribute pada `<html>`, atau style dashboard pada body.
+- ✅ Isolasi: forgot password, reset password, verifikasi publik, dan PDF tidak menerima
+  class dashboard; dokumen PDF tetap permukaan putih untuk kebutuhan cetak/legal.
+- ✅ Persistensi/sinkronisasi: key `heavyops-dashboard-theme`, event tab yang sama, event
+  `storage` lintas tab, `aria-pressed`, dan label toggle terverifikasi di `shell.tsx`.
+- ✅ Reload dark: boot script scoped di dalam `.app-shell` menambahkan class sebelum
+  hydration dari localStorage, tanpa mengembalikan anti-flash global.
+- ✅ Contrast pass: metadata, legend donut/chart, activity feed, account detail, checklist,
+  pagination ellipsis, row-action separator, input edit admin, select option, modal, status,
+  focus, placeholder, dan autofill memakai token dark atau override scoped; inline border
+  terang pada input edit admin tidak lagi bocor.
+- ✅ Validasi otomatis: `npm run lint`, `npm run typecheck`, `npm run build`,
+  `npm audit --omit=dev`, dan `git diff --check` bersih.
+- ⚠️ Visual browser QA belum mendapat sign-off: Chromium Playwright gagal diunduh karena
+  `ECONNRESET`, dan `/dashboard` tanpa environment data mengembalikan HTTP 500. Static
+  audit/build pass tidak menggantikan inspeksi visual pada data dashboard nyata.
