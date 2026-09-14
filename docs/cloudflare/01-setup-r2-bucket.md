@@ -1,5 +1,10 @@
 # Langkah 1: Buat R2 Bucket
 
+> **USANG (Sep 2026) - JANGAN DIKUTI APA ADANYA.** Rujukan tunggal: [05-rencana-deploy-produksi.md](05-rencana-deploy-produksi.md) + `media-worker/README.md` + `docs/media-architecture.md` (seksi 43/44).
+> - Nama bucket dev = **`rentalin-dev-media`** (BUKAN `rentalin-local-media`).
+> - CORS: Origins = origin aplikasi saja (JANGAN `*` di produksi); Methods `PUT, GET, HEAD` (tanpa `DELETE`); Headers hanya `Content-Type`; Max Age `600`.
+> - Menu konfigurasi bucket = **Settings** (bukan "Environment variables"); catat **Account ID** untuk secret `R2_ACCOUNT_ID`.
+
 ## Prerequisites
 - Akun Cloudflare
 - Access ke project dengan Workers & R2 yang sudah diaktifkan

@@ -1,5 +1,11 @@
 # Langkah 2: Setup Cloudflare Worker
 
+> **USANG (Sep 2026) - JANGAN DIKUTI APA ADANYA.** Rujukan tunggal: [05-rencana-deploy-produksi.md](05-rencana-deploy-produksi.md).
+> - Konfigurasi = **`wrangler.jsonc`** (bukan `wrangler.toml`); struktur file aktual: `src/{index,supabase,r2,validate,errors}.ts` (tidak ada `src/routes/`).
+> - Secrets HANYA: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` - **`SUPABASE_SERVICE_ROLE_KEY` tidak dipakai** (Worker memakai var non-rahasia `SUPABASE_PUBLISHABLE_KEY` + token user).
+> - Endpoint `/health` mengembalikan {"ok":true,"env":"..."}; nama Worker `rentalin-media` (URL: `rentalin-media.<subdomain>.workers.dev`).
+> - Bila memakai `--env`, WAJIB ada blok `env.<nama>{ vars{...} }` lengkap - `vars` Wrangler tidak diwarisi (lihat Step 4 doc 05).
+
 ## 1. Install Wrangler
 
 ```bash

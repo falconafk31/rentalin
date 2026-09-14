@@ -1,5 +1,10 @@
 # Langkah 3: Set Environment Variables & Secrets
 
+> **USANG (Sep 2026) - JANGAN DIKUTI APA ADANYA.** Rujukan tunggal: [05-rencana-deploy-produksi.md](05-rencana-deploy-produksi.md).
+> - Env Next.js = **`MEDIA_API_URL`** (server-only), BUKAN `NEXT_PUBLIC_MEDIA_API_URL`; key Supabase = `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (bukan `..._ANON_KEY`).
+> - Tidak ada binding `MEDIA_BUCKET` (bucket = var `BUCKET_NAME`); tidak ada secret `SUPABASE_SERVICE_ROLE_KEY`.
+> - Secrets Worker = `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
+
 ## Secrets yang Diperlukan
 
 | Secret Name | Value | Cara Dapatkan |

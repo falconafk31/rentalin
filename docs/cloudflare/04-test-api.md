@@ -1,5 +1,10 @@
 # Langkah 4: Testing API Worker
 
+> **USANG (Sep 2026) - CONTOH DI DOKUMEN INI AKAN GAGAL BILA DIJALANKAN.** Rujukan tunggal: [05-rencana-deploy-produksi.md](05-rencana-deploy-produksi.md) (Step 8).
+> - Body `/media/upload-url` = camelCase 7 field wajib: `mediaId, entityType, entityId, category, mimeType, size, objectKey`; respons {uploadUrl, objectKey, mediaId, expiresAt}; `GET /media/:id` -> {url, expiresAt}.
+> - Baris `media_files` status `pending` HARUS dibuat lebih dulu; oversize = **400** `FILE_TOO_LARGE` (bukan 413); status DB `pending -> active` (bukan `completed`).
+> - Klaim "fleet milik orang lain -> 403" SALAH sebagai ekspektasi uji (Worker tidak cek kepemilikan). Ganti `supabase.auth.session()` -> `auth.getSession()`; host contoh -> URL Worker nyata.
+
 ## 1. Health Check
 
 ```bash
