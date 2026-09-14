@@ -601,6 +601,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
   const [includeOperator, setIncludeOperator] = useState(false);
   const [selectedOperators, setSelectedOperators] = useState<string[]>([]);
   const [operatorRateType, setOperatorRateType] = useState('hourly');
+  const [billableOperator, setBillableOperator] = useState<number | null>(null);
 
   const contracts = useMemo(() => options?.contracts ?? [], [options]);
   const fleetOptions = useMemo(() => options?.fleet ?? [], [options]);
@@ -649,7 +650,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
   const pickContract = useCallback((value: string) => {
     setContractId(value);
     setBillable(null);
-    if (module === 'invoices' && value) getBillableHours(value).then(r => setBillable(r.hours)).catch(() => setBillable(0));
+    if (module === 'invoices' && value) getBillableHours(value).then(r => { setBillable(r.hours); setBillableOperator(r.operatorAmount); }).catch(() => { setBillable(0); setBillableOperator(0); });
   }, [module]);
 
   const contractOptions = useMemo(() => contracts.map(x => <option key={x.id} value={x.id}>{x.contractNumber} — {x.clientName} ({x.unitCode})</option>), [contracts]);
@@ -847,6 +848,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
                 <h4>Ringkasan Tagihan</h4>
                 <div><span>Jam kerja disetujui, belum ditagihkan</span><b>{billable === null ? '…' : billable.toLocaleString('id-ID')} jam</b></div>
                 <div><span>Tarif sewa per jam</span><b>{money(selectedContract?.ratePerHour || 0)}</b></div>
+                {(billableOperator ?? 0) > 0 && <div><span>Jasa operator (wet hire)</span><b>{money(billableOperator ?? 0)}</b></div>}
                 <hr />
                 <div><span>Subtotal</span><b>{money(subtotal)}</b></div>
                 <div><span>PPN {ppnRate}%</span><b>{money(totals.tax)}</b></div>

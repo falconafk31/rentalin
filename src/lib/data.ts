@@ -702,9 +702,17 @@ export const getReportData = cache(async () => {
 
 // --- Bundle dokumen PDF (query titik, bukan seluruh workspace) ---------------
 export type DocumentBundle =
-  | { ok: true; settings: CompanySettings; contract: typeof s.contracts.$inferSelect; client: typeof s.clients.$inferSelect; unit: typeof s.fleet.$inferSelect; invoice?: typeof s.invoices.$inferSelect; handover?: typeof s.handovers.$inferSelect; hours?: number; payments?: PaymentRow[]; bastNumber?: string }
+  | { ok: true; settings: CompanySettings; contract: typeof s.contracts.$inferSelect; client: typeof s.clients.$inferSelect; unit: typeof s.fleet.$inferSelect; invoice?: typeof s.invoices.$inferSelect; handover?: typeof s.handovers.$inferSelect; hours?: number; payments?: PaymentRow[]; bastNumber?: string; operatorInfo?: { includeOperator: boolean; rate: string | null; rateType: string | null; names: string[] } }
   | { ok: false; reason: 'not_found' | 'incomplete' };
 
+async function loadOperatorInfo(contract: typeof s.contracts.$inferSelect): Promise<{ includeOperator: boolean; rate: string | null; rateType: string | null; names: string[] }> {
+  const names = contract.includeOperator
+    ? (await db.select({ name: s.operators.fullName }).from(s.contractOperators)
+        .innerJoin(s.operators, eq(s.operators.id, s.contractOperators.operatorId))
+        .where(eq(s.contractOperators.contractId, contract.id)).orderBy(s.operators.fullName)).map(n => n.name)
+    : [];
+  return { includeOperator: contract.includeOperator, rate: contract.operatorRate, rateType: contract.operatorRateType, names };
+}
 export async function getDocumentBundle(kind: 'invoice' | 'bast' | 'sph' | 'perjanjian', id: string): Promise<DocumentBundle> {
   const settings = await getSettingsRow();
   const loadContract = async (contractId: string): Promise<{ contract: typeof s.contracts.$inferSelect; client: typeof s.clients.$inferSelect; unit: typeof s.fleet.$inferSelect } | 'not_found' | 'incomplete'> => {
@@ -726,14 +734,14 @@ export async function getDocumentBundle(kind: 'invoice' | 'bast' | 'sph' | 'perj
         .orderBy(desc(s.handovers.date), desc(s.handovers.createdAt)).limit(1);
       bastNumber = h?.documentNumber;
     }
-    return { ok: true, settings, ...found, bastNumber };
+    return { ok: true, settings, ...found, bastNumber, operatorInfo: await loadOperatorInfo(found.contract) };
   }
   if (kind === 'bast') {
     const [handover] = await db.select().from(s.handovers).where(eq(s.handovers.id, id));
     if (!handover) return { ok: false, reason: 'not_found' };
     const found = await loadContract(handover.contractId);
     if (found === 'not_found' || found === 'incomplete') return { ok: false, reason: found };
-    return { ok: true, settings, ...found, handover };
+    return { ok: true, settings, ...found, handover, operatorInfo: await loadOperatorInfo(found.contract) };
   }
   const [invoice] = await db.select().from(s.invoices).where(eq(s.invoices.id, id));
   if (!invoice) return { ok: false, reason: 'not_found' };
@@ -743,7 +751,7 @@ export async function getDocumentBundle(kind: 'invoice' | 'bast' | 'sph' | 'perj
     db.select({ h: s.timesheets.effectiveHours }).from(s.timesheets).where(eq(s.timesheets.invoiceId, invoice.id)),
     db.select().from(s.payments).where(eq(s.payments.invoiceId, invoice.id)).orderBy(desc(s.payments.paidAt), desc(s.payments.createdAt)),
   ]);
-  return { ok: true, settings, ...found, invoice, hours: hourRows.reduce((a, r) => a + Number(r.h ?? 0), 0), payments };
+  return { ok: true, settings, ...found, invoice, hours: hourRows.reduce((a, r) => a + Number(r.h ?? 0), 0), payments, operatorInfo: await loadOperatorInfo(found.contract) };
 }
 
 // Peta akun banned untuk halaman Pengguna (A-4). Service-role, server-only;

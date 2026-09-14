@@ -9,7 +9,7 @@ import { isMediaConfigured, MediaApiError, requestMediaUploadUrl, completeMediaU
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { todayISO, money, resolveTz, type AppTimezone } from '@/lib/format';
-import { calcInvoiceTotals, remainingBalance, resolveInvoiceStatus, normalizePaymentAmount } from '@/lib/finance';
+import { calcInvoiceTotals, calcOperatorCost, calcInvoiceTotalsWithOperator, remainingBalance, resolveInvoiceStatus, normalizePaymentAmount } from '@/lib/finance';
 import { nextDocNumber } from '@/lib/docnum';
 
 export type ActionResult = { success: boolean; message: string; fieldErrors?: Record<string, string> };
@@ -197,10 +197,11 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
     const logs=await tx.select().from(s.timesheets).where(and(eq(s.timesheets.contractId,contractId),eq(s.timesheets.status,'approved'),isNull(s.timesheets.invoiceId))).for('update');
     if(!logs.length)throw new FieldError({contractId:'Tidak ada jam kerja disetujui yang belum ditagihkan.'});
     const hours=logs.reduce((a,l)=>a+Number(l.effectiveHours),0);
-    const totals=calcInvoiceTotals(hours,Number(contract.ratePerHour),ppnRate);
+    const operatorAmount=calcOperatorCost({includeOperator:!!contract.includeOperator,rateType:(contract.operatorRateType as 'hourly'|'daily'|null),rate:contract.operatorRate},logs.map(l=>({effectiveHours:l.effectiveHours??0,date:l.date})));
+    const totals=calcInvoiceTotalsWithOperator(hours,Number(contract.ratePerHour),ppnRate,operatorAmount);
     if(totals.subtotal<=0)throw new Error('Total jam efektif harus lebih dari nol.');
     invoiceNo = await nextDocNumber(tx,'INV',s.invoices.invoiceNumber,s.invoices,todayISO(tz).slice(0,4));
-    const [invoice]=await tx.insert(s.invoices).values({invoiceNumber:invoiceNo,contractId,subtotalAmount:totals.subtotal.toFixed(2),totalAmount:totals.total.toFixed(2),taxAmount:totals.tax.toFixed(2),taxRate:String(ppnRate),status:'unpaid',issueDate:todayISO(tz),dueDate}).returning();
+    const [invoice]=await tx.insert(s.invoices).values({invoiceNumber:invoiceNo,contractId,subtotalAmount:totals.subtotal.toFixed(2),totalAmount:totals.total.toFixed(2),taxAmount:totals.tax.toFixed(2),taxRate:String(ppnRate),status:'unpaid',issueDate:todayISO(tz),dueDate,operatorAmount:operatorAmount.toFixed(2)}).returning();
     for(const log of logs)await tx.update(s.timesheets).set({invoiceId:invoice.id}).where(eq(s.timesheets.id,log.id));
    });
    await logAudit({ ...actor, action: 'create', entity: 'invoices', summary: `Menerbitkan ${invoiceNo} (PPN ${ppnRate}%)` });
@@ -708,12 +709,14 @@ export async function getFormOptions(module: string, editingUnitId?: string): Pr
   return empty;
 }
 
-export async function getBillableHours(contractId: string): Promise<{ hours: number }> {
+export async function getBillableHours(contractId: string): Promise<{ hours: number; operatorAmount: number }> {
   await requireUser();
-  if (!UUID_RE.test(contractId)) return { hours: 0 };
-  const rows = await db.select({ h: s.timesheets.effectiveHours }).from(s.timesheets)
+  if (!UUID_RE.test(contractId)) return { hours: 0, operatorAmount: 0 };
+  const rows = await db.select({ h: s.timesheets.effectiveHours, d: s.timesheets.date, op: s.contracts.includeOperator, rateType: s.contracts.operatorRateType, rate: s.contracts.operatorRate }).from(s.timesheets)
+    .innerJoin(s.contracts, eq(s.contracts.id, s.timesheets.contractId))
     .where(and(eq(s.timesheets.contractId, contractId), eq(s.timesheets.status, 'approved'), isNull(s.timesheets.invoiceId)));
-  return { hours: rows.reduce((a, r) => a + Number(r.h ?? 0), 0) };
+  const operatorAmount = calcOperatorCost({ includeOperator: !!rows[0]?.op, rateType: (rows[0]?.rateType as 'hourly'|'daily'|null) ?? null, rate: rows[0]?.rate ?? null }, rows.map(r => ({ effectiveHours: r.h ?? 0, date: r.d })));
+  return { hours: rows.reduce((a, r) => a + Number(r.h ?? 0), 0), operatorAmount };
 }
 
 export async function getRevisionHistory(contractId: string): Promise<{ id: string; revisionNumber: number; createdAt: Date; prevRate: string; newRate: string; reason: string }[]> {
