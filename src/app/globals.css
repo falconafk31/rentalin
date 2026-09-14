@@ -218,3 +218,66 @@ th.col-no{text-transform:none}
 @media(max-width:760px){
   .topbar{z-index:30}
 }
+
+/* Login theme control — intentionally outside the form so it remains a quiet,
+   discoverable page preference rather than an account setting. */
+.login-page{
+  position:relative;
+}
+.login-theme-toggle{
+  position:absolute;
+  top:24px;
+  right:28px;
+  z-index:5;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  min-height:36px;
+  padding:4px 11px 4px 5px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  background:var(--surface);
+  color:#69717b;
+  box-shadow:0 4px 16px #19212c0d;
+  font-size:12px;
+  font-weight:600;
+}
+.login-theme-toggle:hover{
+  border-color:var(--orange);
+  color:var(--orange);
+}
+.login-theme-toggle:focus-visible{
+  outline-offset:4px;
+}
+.login-theme-toggle-track{
+  width:27px;
+  height:27px;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  background:#f1f2f4;
+  color:#777f88;
+}
+.login-page.login-night .login-theme-toggle{
+  border-color:var(--border);
+  background:var(--surface);
+  color:var(--text);
+  box-shadow:0 8px 24px #0000002b;
+}
+.login-page.login-night .login-theme-toggle:hover{
+  border-color:var(--orange);
+  color:var(--orange);
+}
+.login-page.login-night .login-theme-toggle-track{
+  background:var(--orange-light);
+  color:var(--orange);
+}
+@media(max-width:760px){
+  .login-theme-toggle{
+    top:16px;
+    right:16px;
+  }
+  .login-form-side{
+    padding-top:76px;
+  }
+}

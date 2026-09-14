@@ -99,7 +99,7 @@ implementasi terbaru di bawah menggantikan bagian toggle global dari commit hist
 | Langkah 4 — DM4 | `src/app/globals.css` | `.photo-thumb img` diberi `background:var(--surface)` — thumbnail foto BAST tidak jadi kotak putih menyala. |
 | Langkah 5 — QA kontras | — | Dihitung programatik: rasio teks:bg badge gelap **amber 7.19 · hijau 6.55 · merah 6.12 · biru 7.12 · ungu 6.63** (semua ≥ 4.5:1, sesuai klaim audit). |
 | Langkah 6 — login & PDF (historis) | `src/app/globals.css` | `.login-page` pernah mendedeklarasikan ulang token terang; keputusan produk terbaru membaliknya: hanya `/login` memakai `.login-page.login-night`, sedangkan PDF (`pdf-document.tsx`) tetap tidak disentuh. |
-| Follow-up 14 Sep 2026 — login-only + shell | `globals.css`, `login-form.tsx`, `shell.tsx`, `layout.tsx` | Night mode dipindah menjadi subtree login; input placeholder/terisi/autofill konsisten pada `--input-surface`; toggle global dan `data-theme` dihapus; `.navigation` scroll mandiri; `.topbar` sticky pada desktop/mobile. |
+| Follow-up 14 Sep 2026 — login-only + shell | `globals.css`, `login-form.tsx`, `shell.tsx`, `layout.tsx` | Night mode dipindah menjadi subtree login; toggle sederhana berada di luar form pada sudut kanan atas; input placeholder/terisi/autofill konsisten pada `--input-surface`; toggle global dan `data-theme` dihapus; `.navigation` scroll mandiri; `.topbar` sticky pada desktop/mobile. |
 
 #### File modul
 

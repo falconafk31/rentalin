@@ -64,9 +64,11 @@ di atas — jangan bikin palet baru untuk chart, supaya badge dan chart konsiste
 
 ## Cara aktivasi (teknis, ringkas)
 
-- `/login` merender `.login-page.login-night`; token gelap diwariskan hanya di subtree
-  tersebut. Tidak ada atribut `data-theme` global, toggle di profile menu, atau pembacaan
-  `localStorage`/`prefers-color-scheme` yang dapat mengubah ruang kerja.
+- `/login` merender `.login-page.login-night` secara default; token gelap diwariskan hanya
+  di subtree tersebut. Toggle sederhana ditempatkan di luar form, pada sudut kanan atas
+  halaman, untuk berpindah ke mode terang. Tidak ada atribut `data-theme` global, toggle
+  di profile menu, atau pembacaan `localStorage`/`prefers-color-scheme` yang dapat mengubah
+  ruang kerja.
 - Field login menggunakan `--input-surface:#21262f` untuk placeholder, nilai yang sudah
   diketik, fokus, dan browser autofill. Ini mencegah preview putih berubah menjadi abu-abu
   setelah input.
