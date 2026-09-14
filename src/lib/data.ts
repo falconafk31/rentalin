@@ -25,6 +25,10 @@ import { seedPreview } from '@/db/seed';
 export type CompanySettings = typeof s.companySettings.$inferSelect;
 export type DocumentTemplate = typeof s.documentTemplates.$inferSelect;
 export type TemplateKind = 'sph' | 'bast' | 'invoice' | 'perjanjian';
+// Set template PDF per jenis (published + histori) — dipakai halaman Pengaturan
+// > Template PDF. Sebelumnya menyatu sebagai field opsional ModulePageData
+// (F1): sekarang menjadi tipe sendiri untuk loader getSettingsTemplates.
+export type TemplateSet = Record<TemplateKind, { published: DocumentTemplate | null; history: DocumentTemplate[] }>;
 export type FleetRow = typeof s.fleet.$inferSelect;
 export type ProfileRow = typeof s.profiles.$inferSelect;
 export type AuditRow = typeof s.auditLog.$inferSelect;
@@ -39,7 +43,7 @@ export type ModuleRow = FleetRow | ClientRow | ContractRow | TimesheetRow | Hand
 
 const fallbackSettings: CompanySettings = { id: 'main', companyName: 'PT Penyewaan Alat Berat', address: 'Jakarta, Indonesia', email: '', phone: '', signerName: '', signerTitle: '', ppnRate: '11', expiryWarningDays: 30, city: 'Jakarta', timezone: 'WIB', npwp: '', signerKtp: '', bankName: '', bankAccountName: '', bankAccountNumber: '' };
 
-export const MODULE_SLUGS = ['fleet', 'clients', 'contracts', 'timesheets', 'bast', 'invoices', 'settings'] as const;
+export const MODULE_SLUGS = ['fleet', 'clients', 'contracts', 'timesheets', 'bast', 'invoices'] as const;
 export type ModuleSlug = (typeof MODULE_SLUGS)[number];
 // P4 (audit 01): 8 terlalu kecil — makin sering klik pager. 15 baris masih
 // ringan untuk payload RSC per halaman. Konstanta tinggal di lib/pagination.ts
@@ -128,6 +132,24 @@ export async function getTemplateHistory(kind: TemplateKind): Promise<DocumentTe
   return db.select().from(s.documentTemplates)
     .where(eq(s.documentTemplates.kind, kind))
     .orderBy(desc(s.documentTemplates.version));
+}
+
+// Published + histori ke-4 jenis template sekaligus — dipakai loader halaman
+// Pengaturan > Template PDF (getSettingsTemplates). Dipindah keluar dari
+// getModulePage (F1): template bukan bagian dari payload modul tabel.
+async function loadTemplates(): Promise<TemplateSet> {
+  const kinds: TemplateKind[] = ['sph', 'bast', 'invoice', 'perjanjian'];
+  return Object.fromEntries(await Promise.all(kinds.map(async (kind) => {
+    const [published, history] = await Promise.all([
+      db.select().from(s.documentTemplates)
+        .where(and(eq(s.documentTemplates.kind, kind), eq(s.documentTemplates.status, 'published')))
+        .orderBy(desc(s.documentTemplates.version)).limit(1).then(r => r[0] ?? null),
+      db.select().from(s.documentTemplates)
+        .where(eq(s.documentTemplates.kind, kind))
+        .orderBy(desc(s.documentTemplates.version)).limit(20),
+    ]);
+    return [kind, { published, history }] as const;
+  }))) as TemplateSet;
 }
 
 // Variabel template → nilai dokumen. Allowlist sinkron dengan
@@ -258,9 +280,6 @@ export type ModulePageData = {
   expiringCount?: number;
   categoryOptions?: string[];
   invoiceTotals?: { all: number; collected: number; paidCount: number; unpaidCount: number };
-  // Template PDF (modul settings): published + histori per jenis. Null di
-  // modul lain agar payload tabel tidak membengkak.
-  templates?: Record<TemplateKind, { published: DocumentTemplate | null; history: DocumentTemplate[] }>;
   // Media layer (foto fleet) — true hanya bila Supabase + MEDIA_API_URL siap
   // (mode pratinjau lokal selalu false; UI menyembunyikan seksi foto).
   media: { enabled: boolean };
@@ -285,24 +304,6 @@ export async function getModulePage(module: string, filters: ModuleFilters): Pro
     const rows = !rowsAtRequested.length && page !== requestedPage ? await rowsQuery(page) : rowsAtRequested;
     return { rows, page, pageCount };
   };
-
-  if (module === 'settings') {
-    // Editor Template PDF butuh published + histori ke-4 jenis. Hanya di
-    // modul settings agar payload modul tabel tidak membengkak.
-    const kinds: TemplateKind[] = ['sph', 'bast', 'invoice', 'perjanjian'];
-    const templates = Object.fromEntries(await Promise.all(kinds.map(async (kind) => {
-      const [published, history] = await Promise.all([
-        db.select().from(s.documentTemplates)
-          .where(and(eq(s.documentTemplates.kind, kind), eq(s.documentTemplates.status, 'published')))
-          .orderBy(desc(s.documentTemplates.version)).limit(1).then(r => r[0] ?? null),
-        db.select().from(s.documentTemplates)
-          .where(eq(s.documentTemplates.kind, kind))
-          .orderBy(desc(s.documentTemplates.version)).limit(20),
-      ]);
-      return [kind, { published, history }] as const;
-    }))) as Record<TemplateKind, { published: DocumentTemplate | null; history: DocumentTemplate[] }>;
-    return { ...base, filters: { ...filters, page: 1 }, rows: [], total: 0, page: 1, pageCount: 1, statusCounts: {}, templates };
-  }
 
   if (module === 'fleet') {
     const qCond: SQL | undefined = hasQ ? or(ilike(s.fleet.unitCode, like), ilike(s.fleet.brandModel, like), ilike(s.fleet.category, like), ilike(s.fleet.currentLocation, like)) : undefined;
@@ -642,6 +643,27 @@ export const getAuditData = cache(async (): Promise<AuditData> => {
     getSettingsRow(),
   ]);
   return { user, settings, auditLogs };
+});
+
+// --- Halaman Pengaturan (profil perusahaan + template PDF) ------------------
+// F1: rute statis sendiri (bukan lagi modul tabel), loader khusus — tidak
+// meminjam bentuk ModulePageData. Admin-only (requireUser(['admin'])),
+// selaras dengan users/audit.
+export type SettingsData = { user: SessionUser; settings: CompanySettings };
+export type SettingsTemplatesData = { user: SessionUser; templates: TemplateSet };
+
+export const getSettingsData = cache(async (): Promise<SettingsData> => {
+  const user = await requireUser(['admin']);
+  await seedPreview();
+  const settings = await getSettingsRow();
+  return { user, settings };
+});
+
+export const getSettingsTemplates = cache(async (): Promise<SettingsTemplatesData> => {
+  const user = await requireUser(['admin']);
+  await seedPreview();
+  const templates = await loadTemplates();
+  return { user, templates };
 });
 
 // --- Laporan CSV (ekspor penuh memang butuh seluruh baris) -------------------

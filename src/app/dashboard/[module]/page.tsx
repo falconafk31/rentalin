@@ -2,7 +2,6 @@ import { notFound } from 'next/navigation';
 import { getModulePage } from '@/lib/data';
 import { getFormOptions } from '@/app/actions';
 import { ModuleWorkspace } from '@/components/module-workspace';
-import { AccessDenied } from '@/components/admin-workspace';
 // O-A: halaman modul mengeksekusi query per modul (WHERE/LIMIT/OFFSET) dengan
 // filter dari URL — pencarian (?q), status (?status), kategori (?category),
 // sort (?sort), halaman (?page), banner dokumen (?filter=expiring), modal (?new=1).
@@ -20,11 +19,6 @@ export default async function ModulePage({params,searchParams}:{params:Promise<{
   };
   const data=await getModulePage(module,filters);
   if(!data)notFound();
-  // F2 (audit rute settings): halaman Pengaturan admin-only — role lain diarahkan
-  // ke AccessDenied di level halaman, pola yang sama dengan users/audit. Ini
-  // menutup exposure PII (NPWP, KTP signer, rekening bank) yang sebelumnya cuma
-  // di-disable input-nya (disabled) untuk non-admin.
-  if(module==='settings'&&data.user.role!=='admin')return <AccessDenied/>;
   // ?new=1 membuka modal langsung — opsi referensi form (select async) disiapkan
   // server saat ini agar modal tidak menggantung tanpa data.
   const initialOpen=search.new==='1';
