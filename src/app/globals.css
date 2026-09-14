@@ -281,3 +281,268 @@ th.col-no{text-transform:none}
     padding-top:76px;
   }
 }
+
+/* ============================================================================
+   Dashboard night mode — scoped to the workspace shell, never the auth pages.
+   ============================================================================ */
+.app-shell.dashboard-dark{
+  --bg:#14171c;
+  --surface:#1b1f26;
+  --surface-alt:#21262f;
+  --text:#e7e9ec;
+  --muted:#8b929c;
+  --border:#2b3038;
+  --orange:#f2874a;
+  --orange-light:#3a2a1c;
+  --green:#4caf82;
+  --status-amber:#e0a860;
+  --status-amber-bg:#2e2418;
+  --status-amber-bd:#4a3a22;
+  --status-green:#6fbd97;
+  --status-green-bg:#1c2c24;
+  --status-green-bd:#2c4436;
+  --status-red:#e08a83;
+  --status-red-bg:#2e1f1d;
+  --status-red-bd:#4a2e2a;
+  --status-blue:#8fb3dd;
+  --status-blue-bg:#1c2530;
+  --status-blue-bd:#2c3c50;
+  --status-purple:#b09fd0;
+  --status-purple-bg:#241f30;
+  --status-purple-bd:#382e4a;
+  color:var(--text);
+  background:var(--bg);
+  color-scheme:dark;
+}
+/* DM1: di latar gelap shadow hitam nyaris tak terlihat, jadi elemen mengambang
+   mengandalkan border lebih terang (campuran token, bukan warna baru) + shadow pekat. */
+.app-shell.dashboard-dark .modal-content,.app-shell.dashboard-dark .header-popover,.app-shell.dashboard-dark .search-results,.app-shell.dashboard-dark .toast{border-color:color-mix(in srgb,var(--border) 55%,var(--text));box-shadow:0 18px 60px #00000055}
+
+/* DM3: seleksi teks versi gelap (tint oranye gelap dari tabel audit). */
+.app-shell.dashboard-dark ::selection{background:#4a3320}
+
+/* DM4: thumbnail foto BAST memakai permukaan tema, bukan putih hardcode. */
+.app-shell.dashboard-dark .photo-thumb img{background:var(--surface)}
+
+/* DM5 (kontras dark ala Cloudflare): semua hex terang sisa dipetakan ke token
+   yang ada — tanpa warna baru, tanpa ubah mode terang. Elevasi gelap datang
+   dari surface-alt lebih terang di atas bg + border, bukan blok putih. */
+.app-shell.dashboard-dark tbody tr:hover,.app-shell.dashboard-dark .icon-button:hover,.app-shell.dashboard-dark .nav-item:hover,.app-shell.dashboard-dark .button-ghost:hover,.app-shell.dashboard-dark .pagination button:hover,.app-shell.dashboard-dark .search-results>a:hover,.app-shell.dashboard-dark .button-outline:hover,.app-shell.dashboard-dark .row-actions .icon-button:hover,.app-shell.dashboard-dark .inspection-checklist label:hover{background:var(--surface-alt);color:var(--text);border-color:var(--border)}
+.app-shell.dashboard-dark .nav-item.active,.app-shell.dashboard-dark .table-tabs>button.active span,.app-shell.dashboard-dark .pagination button.active,.app-shell.dashboard-dark .module-stats>button.selected,.app-shell.dashboard-dark .pipeline-cta{background:var(--orange-light);border-color:var(--orange);color:var(--orange)}
+.app-shell.dashboard-dark .nav-item.active svg{color:var(--orange)}
+.app-shell.dashboard-dark .pipeline-cta:hover{border-color:var(--orange)}
+.app-shell.dashboard-dark .nav-count.plain,.app-shell.dashboard-dark .table-tabs span{background:var(--surface-alt);color:var(--muted)}
+.app-shell.dashboard-dark .info-callout{background:var(--status-blue-bg);border-color:var(--status-blue-bd);color:var(--status-blue)}
+.app-shell.dashboard-dark .expiry-banner{background:var(--status-amber-bg);border-color:var(--status-amber-bd);color:var(--status-amber)}
+.app-shell.dashboard-dark .expiry-banner b,.app-shell.dashboard-dark .expiry-link,.app-shell.dashboard-dark .effective-hours strong{color:var(--status-amber)}
+.app-shell.dashboard-dark .expiry-banner>div>span{color:color-mix(in srgb,var(--status-amber) 70%,var(--text))}
+.app-shell.dashboard-dark .expiry-icon{background:color-mix(in srgb,var(--status-amber-bg) 60%,var(--text))}
+.app-shell.dashboard-dark .expiry-banner:hover{background:color-mix(in srgb,var(--status-amber-bg) 70%,var(--text))}
+.app-shell.dashboard-dark .preview-label{background:var(--status-amber-bg);color:var(--status-amber)}
+.app-shell.dashboard-dark .effective-hours{background:var(--status-amber-bg);border-color:var(--status-amber-bd);color:var(--status-amber)}
+.app-shell.dashboard-dark th,.app-shell.dashboard-dark td,.app-shell.dashboard-dark .table-footer,.app-shell.dashboard-dark .chart-footer,.app-shell.dashboard-dark .activity-footer,.app-shell.dashboard-dark .utilization,.app-shell.dashboard-dark .pipeline-card,.app-shell.dashboard-dark .inspection-checklist label,.app-shell.dashboard-dark .pipeline-steps li{border-color:var(--border)}
+.app-shell.dashboard-dark td,.app-shell.dashboard-dark td b,.app-shell.dashboard-dark .unit-cell b{color:var(--text)}
+.app-shell.dashboard-dark .unit-cell small,.app-shell.dashboard-dark .cell-sub{color:var(--muted)}
+.app-shell.dashboard-dark .unit-icon{background:var(--surface-alt);border-color:var(--border);color:var(--muted)}
+.app-shell.dashboard-dark .unit-icon.blue{background:var(--status-blue-bg);border-color:var(--status-blue-bd);color:var(--status-blue)}
+.app-shell.dashboard-dark .metric-icon.green,.app-shell.dashboard-dark .activity-icon.green{background:var(--status-green-bg);color:var(--status-green)}
+.app-shell.dashboard-dark .metric-icon.blue,.app-shell.dashboard-dark .activity-icon.blue{background:var(--status-blue-bg);color:var(--status-blue)}
+.app-shell.dashboard-dark .metric-icon.amber,.app-shell.dashboard-dark .activity-icon.amber{background:var(--status-amber-bg);color:var(--status-amber)}
+.app-shell.dashboard-dark .metric-icon.purple,.app-shell.dashboard-dark .activity-icon.purple{background:var(--status-purple-bg);color:var(--status-purple)}
+.app-shell.dashboard-dark .metric-icon.orange,.app-shell.dashboard-dark .activity-icon.orange{background:var(--orange-light);color:var(--orange)}
+.app-shell.dashboard-dark .approve-button,.app-shell.dashboard-dark .row-actions .approve-button{background:var(--status-green-bg);border-color:var(--status-green-bd);color:var(--status-green)}
+.app-shell.dashboard-dark .approve-button:hover,.app-shell.dashboard-dark .row-actions .approve-button:hover{background:color-mix(in srgb,var(--status-green-bg) 70%,var(--text))}
+.app-shell.dashboard-dark .reject-button,.app-shell.dashboard-dark .row-actions .reject-button{background:var(--status-red-bg);border-color:var(--status-red-bd);color:var(--status-red)}
+.app-shell.dashboard-dark .reject-button:hover,.app-shell.dashboard-dark .row-actions .reject-button:hover,.app-shell.dashboard-dark .danger-icon:hover,.app-shell.dashboard-dark .row-actions .danger-icon:hover,.app-shell.dashboard-dark .photo-thumb button:hover{background:var(--status-red-bg);color:var(--status-red)}
+.app-shell.dashboard-dark .form-footer,.app-shell.dashboard-dark .invoice-preview,.app-shell.dashboard-dark .summary-box,.app-shell.dashboard-dark .verify-details{background:var(--surface-alt)}
+.app-shell.dashboard-dark .inspection-checklist label:has(input:checked),.app-shell.dashboard-dark .pipeline-steps li.done{background:var(--status-green-bg);border-color:var(--status-green-bd)}
+.app-shell.dashboard-dark .pipeline-dot{color:var(--muted)}
+.app-shell.dashboard-dark .pipeline-steps li.done .pipeline-dot{color:var(--status-green)}
+.app-shell.dashboard-dark .account-shield,.app-shell.dashboard-dark .empty-state>span{background:var(--orange-light);color:var(--orange)}
+.app-shell.dashboard-dark .utilization>div,.app-shell.dashboard-dark .activity-item:not(:last-child):before{background:var(--border)}
+.app-shell.dashboard-dark .loading-bar,.app-shell.dashboard-dark .loading-cards>div,.app-shell.dashboard-dark .loading-chart,.app-shell.dashboard-dark .loading-rows>div{background:linear-gradient(90deg,var(--surface-alt),var(--border),var(--surface-alt))}
+.app-shell.dashboard-dark .module-stats>div,.app-shell.dashboard-dark .module-stats>button,.app-shell.dashboard-dark .invoice-stats>div{background:var(--surface)}
+.app-shell.dashboard-dark .module-stats strong,.app-shell.dashboard-dark .invoice-stats strong,.app-shell.dashboard-dark .summary-box b,.app-shell.dashboard-dark .summary-box .invoice-total b,.app-shell.dashboard-dark .invoice-preview b,.app-shell.dashboard-dark .invoice-preview .invoice-total b{color:var(--text)}
+.app-shell.dashboard-dark .summary-box>div,.app-shell.dashboard-dark .invoice-preview>div,.app-shell.dashboard-dark .summary-box .invoice-total,.app-shell.dashboard-dark .invoice-preview .invoice-total{color:var(--muted)}
+.app-shell.dashboard-dark .summary-box,.app-shell.dashboard-dark .invoice-preview{border-color:var(--border)}
+
+
+.app-shell.dashboard-dark .photo-empty{border-color:var(--border);color:var(--muted);background:var(--surface)}
+.app-shell.dashboard-dark .photo-thumb-fallback{color:var(--muted);background:var(--surface)}
+.app-shell.dashboard-dark .fleet-media-col>span:first-child{color:var(--muted)}
+
+
+/* Dashboard dark-mode surfaces that previously relied on light-only literals. */
+.app-shell.dashboard-dark .brand-copy small,
+.app-shell.dashboard-dark .workspace-label,
+.app-shell.dashboard-dark .nav-item,
+.app-shell.dashboard-dark .nav-item svg,
+.app-shell.dashboard-dark .breadcrumb,
+.app-shell.dashboard-dark .breadcrumb b,
+.app-shell.dashboard-dark .page-heading p,
+.app-shell.dashboard-dark .form-field,
+.app-shell.dashboard-dark .metric-top,
+.app-shell.dashboard-dark .table-footer,
+.app-shell.dashboard-dark .main-footer{
+  color:var(--muted);
+}
+.app-shell.dashboard-dark .nav-divider,
+.app-shell.dashboard-dark .main-footer{
+  border-color:var(--border);
+}
+.app-shell.dashboard-dark .global-search,
+.app-shell.dashboard-dark .table-search,
+.app-shell.dashboard-dark .date-select,
+.app-shell.dashboard-dark .small-select,
+.app-shell.dashboard-dark .button-outline{
+  border-color:var(--border);
+  background:var(--surface-alt);
+  color:var(--text);
+}
+.app-shell.dashboard-dark .global-search input,
+.app-shell.dashboard-dark .table-search input,
+.app-shell.dashboard-dark .date-select select,
+.app-shell.dashboard-dark .small-select select{
+  color:var(--text);
+}
+.app-shell.dashboard-dark .global-search input::placeholder,
+.app-shell.dashboard-dark .table-search input::placeholder{
+  color:var(--muted);
+  opacity:1;
+}
+.app-shell.dashboard-dark .global-search kbd{
+  border-color:var(--border);
+  color:var(--muted);
+}
+.app-shell.dashboard-dark .search-results>a,
+.app-shell.dashboard-dark .search-results p,
+.app-shell.dashboard-dark .profile-menu>p,
+.app-shell.dashboard-dark .notifications p{
+  color:var(--muted);
+}
+.app-shell.dashboard-dark .search-results>a:hover{
+  color:var(--text);
+}
+.app-shell.dashboard-dark .avatar{
+  background:var(--surface-alt);
+  border-color:var(--border);
+  color:var(--text);
+}
+.app-shell.dashboard-dark .icon-button:hover,
+.app-shell.dashboard-dark .button-outline:hover{
+  background:var(--surface-alt);
+  color:var(--text);
+  border-color:var(--border);
+}
+.app-shell.dashboard-dark .form-field input,
+.app-shell.dashboard-dark .form-field select,
+.app-shell.dashboard-dark .form-field textarea{
+  background:var(--surface-alt);
+  border-color:var(--border);
+  color:var(--text);
+  caret-color:var(--orange);
+  -webkit-text-fill-color:var(--text);
+}
+.app-shell.dashboard-dark .form-field input::placeholder,
+.app-shell.dashboard-dark .form-field textarea::placeholder{
+  color:var(--muted);
+  opacity:1;
+}
+.app-shell.dashboard-dark .form-field input:focus,
+.app-shell.dashboard-dark .form-field select:focus,
+.app-shell.dashboard-dark .form-field textarea:focus{
+  border-color:var(--orange)!important;
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--orange) 22%,transparent);
+}
+.app-shell.dashboard-dark .form-field input:-webkit-autofill,
+.app-shell.dashboard-dark .form-field input:-webkit-autofill:hover,
+.app-shell.dashboard-dark .form-field input:-webkit-autofill:focus{
+  -webkit-text-fill-color:var(--text);
+  -webkit-box-shadow:0 0 0 1000px var(--surface-alt) inset;
+  box-shadow:0 0 0 1000px var(--surface-alt) inset;
+}
+.app-shell.dashboard-dark td{
+  color:var(--muted);
+}
+.app-shell.dashboard-dark .document-number{
+  color:var(--orange)!important;
+}
+.app-shell.dashboard-dark .form-footer{
+  border-top-color:var(--border);
+}
+.app-shell.dashboard-dark .form-footer .button-outline{
+  background:transparent;
+}
+.app-shell.dashboard-dark .pipeline-steps li small,
+.app-shell.dashboard-dark .empty-state p,
+.app-shell.dashboard-dark .empty-inline,
+.app-shell.dashboard-dark .dashboard-bottom-note{
+  color:var(--muted);
+}
+.app-shell.dashboard-dark .pipeline-card,
+.app-shell.dashboard-dark .activity-footer,
+.app-shell.dashboard-dark .table-footer{
+  border-color:var(--border);
+}
+.app-shell.dashboard-dark .help-card,
+.app-shell.dashboard-dark .help-card button,
+.app-shell.dashboard-dark .help-icon{
+  border-color:var(--border);
+  background:var(--surface-alt);
+  color:var(--text);
+}
+.app-shell.dashboard-dark .help-card p{
+  color:var(--muted);
+}
+
+/* Same compact control language as the login page, placed directly in the
+   dashboard header instead of hiding a theme preference in the profile menu. */
+.dashboard-theme-toggle{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  min-height:36px;
+  padding:4px 11px 4px 5px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  background:var(--surface);
+  color:#69717b;
+  box-shadow:0 4px 16px #19212c0d;
+  font-size:12px;
+  font-weight:600;
+  white-space:nowrap;
+}
+.dashboard-theme-toggle:hover{
+  border-color:var(--orange);
+  color:var(--orange);
+}
+.dashboard-theme-toggle:focus-visible{
+  outline-offset:4px;
+}
+.dashboard-theme-toggle-track{
+  width:27px;
+  height:27px;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  background:#f1f2f4;
+  color:#777f88;
+}
+.app-shell.dashboard-dark .dashboard-theme-toggle{
+  border-color:var(--border);
+  background:var(--surface);
+  color:var(--text);
+  box-shadow:0 8px 24px #0000002b;
+}
+.app-shell.dashboard-dark .dashboard-theme-toggle:hover{
+  border-color:var(--orange);
+  color:var(--orange);
+}
+.app-shell.dashboard-dark .dashboard-theme-toggle-track{
+  background:var(--orange-light);
+  color:var(--orange);
+}
+@media(max-width:760px){
+  .dashboard-theme-toggle-label{display:none}
+  .dashboard-theme-toggle{padding:4px;min-width:36px;justify-content:center}
+}

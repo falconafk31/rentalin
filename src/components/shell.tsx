@@ -1,8 +1,8 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { LayoutDashboard, FileText, ClipboardList, ClipboardCheck, ReceiptText, Settings2, Search, Bell, ChevronDown, ChevronRight, ChevronsLeft, PanelLeftOpen, CircleHelp, ArrowUpRight, X, LogOut, Home, Menu, ScrollText, LoaderCircle, Building2, UsersRound } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from 'react';
+import { LayoutDashboard, FileText, ClipboardList, ClipboardCheck, ReceiptText, Settings2, Search, Bell, ChevronDown, ChevronRight, ChevronsLeft, PanelLeftOpen, CircleHelp, ArrowUpRight, X, LogOut, Home, Menu, ScrollText, LoaderCircle, Building2, UsersRound, Moon, Sun } from 'lucide-react';
 import { EquipmentIcon, BrandMark } from './icons';
 import { Modal } from './ui/dialog';
 import { signOut } from '@/app/actions';
@@ -24,6 +24,30 @@ export const navigation: NavEntry[] = [
   { path: '/dashboard/audit', label: 'Log Audit', icon: ScrollText, section: 'LAINNYA', adminOnly: true },
 ];
 const navSections = ['DATA POKOK', 'SEWA BERJALAN', 'KEUANGAN', 'LAINNYA'];
+const DASHBOARD_THEME_KEY = 'heavyops-dashboard-theme';
+const DASHBOARD_THEME_EVENT = 'heavyops-dashboard-theme-change';
+let dashboardThemeFallback = false;
+
+const subscribeDashboardTheme = (onChange: () => void) => {
+  const handleChange = () => onChange();
+  window.addEventListener(DASHBOARD_THEME_EVENT, handleChange);
+  window.addEventListener('storage', handleChange);
+  return () => {
+    window.removeEventListener(DASHBOARD_THEME_EVENT, handleChange);
+    window.removeEventListener('storage', handleChange);
+  };
+};
+
+const dashboardThemeSnapshot = () => {
+  try {
+    const stored = window.localStorage.getItem(DASHBOARD_THEME_KEY);
+    if (stored === 'dark') return true;
+    if (stored === 'light') return false;
+  } catch { /* localStorage dapat diblokir browser. */ }
+  return dashboardThemeFallback;
+};
+
+const dashboardThemeServerSnapshot = () => false;
 
 export function Shell({ data, children }: { data: ShellData; children: React.ReactNode }) {
   const pathname = usePathname();
@@ -32,6 +56,14 @@ export function Shell({ data, children }: { data: ShellData; children: React.Rea
   const [notifications, setNotifications] = useState(false);
   const [profile, setProfile] = useState(false);
   const [help, setHelp] = useState(false);
+  const dark = useSyncExternalStore(subscribeDashboardTheme, dashboardThemeSnapshot, dashboardThemeServerSnapshot);
+  const toggleTheme = () => {
+    const next = !dark;
+    dashboardThemeFallback = next;
+    try { window.localStorage.setItem(DASHBOARD_THEME_KEY, next ? 'dark' : 'light'); }
+    catch { /* Preferensi tema dapat diblokir browser. */ }
+    window.dispatchEvent(new Event(DASHBOARD_THEME_EVENT));
+  };
   // Zona waktu kalender perusahaan untuk label tanggal (WIB default).
   const tz = data.settings.timezone;
   // O-A: angka badge/pemberitahuan berasal dari count SQL (data.counts) —
@@ -53,7 +85,7 @@ export function Shell({ data, children }: { data: ShellData; children: React.Rea
   const visibleNav = useMemo(() => navigation.filter(n => !n.adminOnly || data.user.role === 'admin'), [data.user.role]);
 
   return (
-    <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
+    <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''} ${dark ? 'dashboard-dark' : ''}`}>
       {mobile && <div className="mobile-backdrop" onClick={() => setMobile(false)} />}
       <aside className={`sidebar ${mobile ? 'mobile-open' : ''}`}>
         <Link className="brand" href="/dashboard"><BrandMark /><div className="brand-copy"><div>HEAVY<span>OPS</span><span className="brand-dot">.</span></div><small>Sistem Manajemen Rental</small></div></Link>
@@ -99,6 +131,10 @@ export function Shell({ data, children }: { data: ShellData; children: React.Rea
           </div>
           <div className="header-actions">
             <GlobalSearch role={data.user.role} />
+            <button className="dashboard-theme-toggle" type="button" aria-pressed={dark} aria-label={dark ? 'Ganti ke mode terang' : 'Ganti ke mode malam'} onClick={toggleTheme}>
+              <span className="dashboard-theme-toggle-track" aria-hidden="true">{dark ? <Moon size={14} /> : <Sun size={14} />}</span>
+              <span className="dashboard-theme-toggle-label">{dark ? 'Malam' : 'Terang'}</span>
+            </button>
             <div className="header-popover-wrap">
               <button className={`notification-button icon-button ${notifications ? 'selected' : ''}`} aria-label="Lihat pemberitahuan" onClick={() => { setNotifications(!notifications); setProfile(false); }}>
                 <Bell size={20} />{(pending > 0 || expiringFleet > 0 || overdue > 0) && <i />}
