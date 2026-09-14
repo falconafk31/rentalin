@@ -475,7 +475,7 @@ export async function saveTemplateDraft(kind: string, title: string, contentJson
     const version = (latest?.version ?? 0) + 1;
     await db.insert(s.documentTemplates).values({ kind, version, status: 'draft', title: cleanTitle, content, variables: vars, updatedBy: user.id });
     await logAudit({ actorId: user.id, actorName: user.fullName, action: 'create', entity: 'document_templates', summary: `Draf template ${kind} v${version}` });
-    revalidatePath('/dashboard/settings', 'page');
+    revalidatePath('/dashboard', 'layout');
     return { success: true, message: `Draf template ${kind} v${version} tersimpan.` };
   } catch (e) { return fail(e); }
 }
@@ -493,7 +493,7 @@ export async function publishTemplate(templateId: string): Promise<ActionResult>
         .where(eq(s.documentTemplates.id, templateId));
     });
     await logAudit({ actorId: user.id, actorName: user.fullName, action: 'publish', entity: 'document_templates', entityId: templateId, summary: 'Menerbitkan template PDF' });
-    revalidatePath('/dashboard/settings', 'page');
+    revalidatePath('/dashboard', 'layout');
     return { success: true, message: 'Template diterbitkan.' };
   } catch (e) { return fail(e); }
 }
@@ -513,7 +513,7 @@ export async function rollbackTemplate(kind: string, version: number): Promise<A
         .where(eq(s.documentTemplates.id, row.id));
     });
     await logAudit({ actorId: user.id, actorName: user.fullName, action: 'rollback', entity: 'document_templates', summary: `Rollback template ${kind} ke v${version}` });
-    revalidatePath('/dashboard/settings', 'page');
+    revalidatePath('/dashboard', 'layout');
     return { success: true, message: `Template ${kind} dikembalikan ke v${version}.` };
   } catch (e) { return fail(e); }
 }
