@@ -2,7 +2,7 @@
 // Jalankan: node scripts/finance-check.ts   (Node 22.18+, tanpa flag/build)
 // Mengimpor util ASLI (bukan duplikat rumus) sehingga yang diuji adalah
 // kode produksi yang dipakai Server Actions dan pratinjau UI.
-import { calcInvoiceTotals, remainingBalance, resolveInvoiceStatus, normalizePaymentAmount } from '../src/lib/finance.ts';
+import { calcInvoiceTotals, calcOperatorCost, calcInvoiceTotalsWithOperator, remainingBalance, resolveInvoiceStatus, normalizePaymentAmount } from '../src/lib/finance.ts';
 
 let failures = 0;
 const check = (name: string, cond: boolean, detail = '') => {
@@ -58,6 +58,19 @@ check('40+30+30 → lunas, ledger = 100.000', ledgerOk && acc === 100000 && reso
 acc = 70000;
 const last = normalizePaymentAmount(30000.006, remainingBalance(100000, acc));
 check('40+30+30.000,006 → baris ketiga ditolak, ledger ≤ total', last.rejected && acc <= 100000);
+
+// Operator wet-hire (PR-4): dua mode tarif + dry hire = 0.
+const logs = [{ effectiveHours: 8, date: '2026-09-10' }, { effectiveHours: 7.5, date: '2026-09-11' }, { effectiveHours: 0, date: '2026-09-11' }];
+check('operator hourly = 15.5 x 150.000', calcOperatorCost({ includeOperator: true, rateType: 'hourly', rate: 150000 }, logs) === 2325000, String(calcOperatorCost({ includeOperator: true, rateType: 'hourly', rate: 150000 }, logs)));
+check('operator daily = 2 hari x 500.000 (duplikat tanggal tidak dihitung 2x)', calcOperatorCost({ includeOperator: true, rateType: 'daily', rate: 500000 }, logs) === 1000000);
+check('dry hire = 0', calcOperatorCost({ includeOperator: false, rateType: 'hourly', rate: 150000 }, logs) === 0);
+check('tanpa tarif = 0', calcOperatorCost({ includeOperator: true, rateType: 'hourly', rate: 0 }, logs) === 0);
+// Invoice wet-hire: subtotal 100 jt + operator 2.325.000, PPN 11% atas keduanya.
+const invOp = calcInvoiceTotalsWithOperator(250, 400000, 11, 2325000);
+check('wet-hire subtotal sewa tetap 100.000.000', invOp.subtotal === 100000000, String(invOp.subtotal));
+check('wet-hire operator_amount = 2.325.000', invOp.operatorAmount === 2325000, String(invOp.operatorAmount));
+check('wet-hire pajak 11% = 11.255.750', invOp.tax === 11255750, String(invOp.tax));
+check('wet-hire total = 113.580.750', invOp.total === 113580750, String(invOp.total));
 
 if (failures) {
   console.error(`\n${failures} check(s) FAILED`);

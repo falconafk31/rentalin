@@ -609,3 +609,17 @@ th.col-no{text-transform:none}
   background:var(--surface);
   color:var(--text);
 }
+
+/* ===== Operator & Driver (docs/plan-operator-dan-riwayat-armada.md) ===== */
+.form-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px 18px}
+.toggle-field{flex-direction:row!important;align-items:center;gap:10px;cursor:pointer}
+.toggle-field input{width:18px;height:18px;accent-color:var(--orange);cursor:pointer}
+.operator-picker{display:flex;flex-direction:column;gap:6px;max-height:180px;overflow:auto;border:1px solid #e2e6eb;border-radius:6px;padding:9px}
+.operator-option{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:5px;cursor:pointer}
+.operator-option:hover{background:#f6f7f9}
+.operator-option input{accent-color:var(--orange);width:16px;height:16px}
+.operator-option span{display:flex;flex-direction:column;gap:3px}
+.operator-option small{color:#949aa2;font-size:12px}
+.history-drawer{max-width:560px}
+.history-drawer h3{font-weight:650;color:#515964}
+@media(max-width:540px){.form-grid-2{grid-template-columns:1fr}}

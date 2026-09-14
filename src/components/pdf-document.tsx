@@ -167,8 +167,11 @@ export type PdfAgreement = {
   unit: { brand: string; category: string; year: string; code: string; bastNumber?: string };
   period: { start: string; end: string; days: number; daysWords: string };
   rate: { hourly: string; hourlyWords: string; ppn: string };
-  bank?: { name: string; accountName: string; accountNumber: string }; // rekening tujuan PASAL 3 — bila lengkap di Pengaturan
+  bank?: { name: string; accountName: string; accountNumber: string };
+  operatorInfo?: PdfOperatorInfo; // rekening tujuan PASAL 3 — bila lengkap di Pengaturan
 };
+export type PdfOperatorInfo = { includeOperator: boolean; rate: string | null; rateType: string | null; names: string[] };
+
 export type PdfData = {
   title: string;
   number: string;
@@ -196,6 +199,7 @@ export type PdfData = {
   dueDate?: string;
   parties?: PdfParties;
   agreement?: PdfAgreement;
+  operatorInfo?: PdfOperatorInfo;
   // Template dinamis (Pengaturan > Template PDF): teks kustom per dokumen,
   // variabel {{nama_klien}} dkk sudah diisi di route. Kosong → fallback
   // hardcoded di bawah tidak berubah. BAST boleh 2+ halaman bila panjang.
@@ -206,6 +210,48 @@ export type PdfData = {
   pasalText?: Record<string, string>;
 };
 
+// Tabel Jasa Operator (PR-5): selalu dirender utk dokumen kontrak - dry hire
+// menampilkan 1 baris keterangan (tabel tetap ada, sesuai permintaan).
+function OperatorTable({ info }: { info?: PdfOperatorInfo }) {
+  if (!info) return null;
+  const rateLabel = info.includeOperator && info.rate ? `${info.rate}${info.rateType === 'daily' ? '/hari' : '/jam'}` : null;
+  return (
+    <>
+      <Text style={styles.sectionTitle}>JASA OPERATOR</Text>
+      <View style={styles.table}>
+        <View style={styles.tableHead}>
+          <Text style={styles.colDescription}>URAIAN</Text>
+          <Text style={styles.colValue}>KETERANGAN / NILAI</Text>
+        </View>
+        {info.includeOperator ? (
+          <>
+            {info.names.map((n, i) => (
+              <View key={i} style={styles.tableRow} wrap={false}>
+                <Text style={styles.colDescription}>Nama operator {info.names.length > 1 ? i + 1 : ''}</Text>
+                <Text style={styles.colValue}>{n}</Text>
+              </View>
+            ))}
+            {info.names.length === 0 && (
+              <View style={styles.tableRow} wrap={false}>
+                <Text style={styles.colDescription}>Nama operator</Text>
+                <Text style={styles.colValue}>Sesuai kontrak</Text>
+              </View>
+            )}
+            <View style={styles.tableRow} wrap={false}>
+              <Text style={styles.colDescription}>Tarif operator</Text>
+              <Text style={styles.colValue}>{rateLabel || 'Sesuai kontrak'}</Text>
+            </View>
+          </>
+        ) : (
+          <View style={styles.tableRow} wrap={false}>
+            <Text style={styles.colDescription}>Status jasa operator</Text>
+            <Text style={styles.colValue}>TIDAK TERMASUK JASA OPERATOR (DRY HIRE) - pengoperasian unit menjadi tanggung jawab penyewa</Text>
+          </View>
+        )}
+      </View>
+    </>
+  );
+}
 export function BusinessDocument({ data }: { data: PdfData }) {
   const infoTitle = data.handover ? 'A. INFORMASI UNIT & SERAH TERIMA' : undefined;
   const parties = data.parties;
@@ -319,6 +365,7 @@ export function BusinessDocument({ data }: { data: PdfData }) {
             <View style={styles.specRow}><Text style={styles.specKey}>- Kondisi Alat</Text><Text style={styles.specVal}>: Baik dan siap dioperasikan{ag.unit.bastNumber ? `, sebagaimana didokumentasikan dalam BAST No. ${ag.unit.bastNumber}` : ''}.</Text></View>
             </>
             )}
+            {ag.operatorInfo && <OperatorTable info={ag.operatorInfo} />}
             <Text style={styles.pasalNumber}>PASAL 2</Text>
             <Text style={styles.pasalTitle}>JANGKA WAKTU SEWA</Text>
             <Text style={styles.pasalBody}>{data.pasalText?.pasal_2 || `Jangka waktu sewa adalah selama ${ag.period.days} (${ag.period.daysWords}) hari, terhitung sejak tanggal ${ag.period.start} sampai dengan tanggal ${ag.period.end}, kecuali diperpanjang atas kesepakatan tertulis PARA PIHAK melalui amandemen kontrak.`}</Text>
@@ -329,8 +376,9 @@ export function BusinessDocument({ data }: { data: PdfData }) {
             ) : (
             <>
             <Text style={styles.pasalItem}>1. Tarif sewa alat berat sebagaimana disebut dalam Pasal 1 adalah sebesar {ag.rate.hourly}/jam ({ag.rate.hourlyWords} per jam), belum termasuk PPN {ag.rate.ppn}% yang dibebankan pada saat penagihan.</Text>
-            <Text style={styles.pasalItem}>2. Penagihan dilakukan berdasarkan jam kerja efektif yang tercatat pada timesheet harian dan telah disetujui PIHAK PERTAMA, dengan durasi kerusakan/penundaan yang bukan tanggung jawab PIHAK KEDUA tidak ditagihkan.</Text>
-            <Text style={styles.pasalItem}>3. Pembayaran dilakukan oleh PIHAK KEDUA kepada PIHAK PERTAMA melalui transfer ke {ag.bank ? `rekening ${ag.bank.name} a.n. ${ag.bank.accountName} nomor ${ag.bank.accountNumber}` : 'rekening yang ditunjuk secara tertulis oleh PIHAK PERTAMA'}, paling lambat pada tanggal jatuh tempo tercantum pada setiap faktur tagihan.</Text>
+            <Text style={styles.pasalItem}>2. {(ag.operatorInfo?.includeOperator) ? `Jasa operator disediakan PIHAK PERTAMA sebagaimana daftar pada Tabel Jasa Operator, dengan tarif ${ag.operatorInfo?.rate ?? ''}, ditagihkan berdasarkan ${ag.operatorInfo?.rateType === 'daily' ? `hari kerja` : `jam kerja efektif`} operator yang tercatat pada timesheet harian yang disetujui PIHAK PERTAMA.` : `Jasa operator TIDAK termasuk dalam Perjanjian ini (dry hire); pengoperasian unit menjadi tanggung jawab PIHAK KEDUA.`}</Text>
+            <Text style={styles.pasalItem}>3. Penagihan dilakukan berdasarkan jam kerja efektif yang tercatat pada timesheet harian dan telah disetujui PIHAK PERTAMA, dengan durasi kerusakan/penundaan yang bukan tanggung jawab PIHAK KEDUA tidak ditagihkan.</Text>
+            <Text style={styles.pasalItem}>4. Pembayaran dilakukan oleh PIHAK KEDUA kepada PIHAK PERTAMA melalui transfer ke {ag.bank ? `rekening ${ag.bank.name} a.n. ${ag.bank.accountName} nomor ${ag.bank.accountNumber}` : 'rekening yang ditunjuk secara tertulis oleh PIHAK PERTAMA'}, paling lambat pada tanggal jatuh tempo tercantum pada setiap faktur tagihan.</Text>
             </>
             )}
             <Text style={styles.pasalNumber}>PASAL 4</Text>
@@ -401,6 +449,7 @@ export function BusinessDocument({ data }: { data: PdfData }) {
             </View>
           </>
         )}
+        {!ag && <OperatorTable info={data.operatorInfo} />}
         {data.checklist && data.checklist.length > 0 && (
           <>
             <Text style={styles.sectionTitle}>B. DAFTAR PEMERIKSAAN UNIT ({data.checklist.length} TITIK)</Text>

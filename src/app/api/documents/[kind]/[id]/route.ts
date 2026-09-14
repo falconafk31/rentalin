@@ -50,6 +50,7 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
    unit:{brand:unit.brandModel,category:unit.category,year:unit.year?String(unit.year):'—',code:unit.unitCode,bastNumber:bundle.bastNumber},
    period:{start:dateLabel(contract.startDate,tz),end:dateLabel(contract.endDate,tz),days,daysWords:angkaKeKata(days)},
    rate:{hourly:money(contract.ratePerHour),hourlyWords:rupiahKeKata(contract.ratePerHour),ppn:Number(settings.ppnRate??11).toString()},
+ operatorInfo:bundle.operatorInfo,
   };
  })():undefined;
  // BAST mengikuti format berita acara resmi: pembuka "Pada hari ini…", blok
@@ -64,7 +65,7 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
   type:handover.type==='demobilization'?'demobilization' as const:'mobilization' as const,
   contractNumber:contract.contractNumber,
  }:undefined;
-  const data:PdfData={title:invoice?'FAKTUR TAGIHAN':handover?'BERITA ACARA SERAH TERIMA':agreement?'SURAT PERJANJIAN SEWA MENYEWA ALAT BERAT':'SURAT PENAWARAN HARGA',number:invoice?.invoiceNumber||handover?.documentNumber||agreement?.number||contract.contractNumber.replace('KTR','SPH'),company:settings,clientName:client.companyName,clientAddress:client.address||'',clientPic:client.picName,date:dateLabel(invoice?.issueDate||handover?.date||contract.createdAt,tz),reference:contract.contractNumber,qrPath,qrSize:size+margin*2,verifyUrl,rows:[{label:'Kode unit alat berat',value:unit.unitCode},{label:'Merek / model',value:unit.brandModel},{label:'Kategori',value:unit.category}],notes:'',parties,agreement};
+  const data:PdfData={title:invoice?'FAKTUR TAGIHAN':handover?'BERITA ACARA SERAH TERIMA':agreement?'SURAT PERJANJIAN SEWA MENYEWA ALAT BERAT':'SURAT PENAWARAN HARGA',number:invoice?.invoiceNumber||handover?.documentNumber||agreement?.number||contract.contractNumber.replace('KTR','SPH'),company:settings,clientName:client.companyName,clientAddress:client.address||'',clientPic:client.picName,date:dateLabel(invoice?.issueDate||handover?.date||contract.createdAt,tz),reference:contract.contractNumber,qrPath,qrSize:size+margin*2,verifyUrl,rows:[{label:'Kode unit alat berat',value:unit.unitCode},{label:'Merek / model',value:unit.brandModel},{label:'Kategori',value:unit.category}],notes:'',parties,agreement,operatorInfo:bundle.operatorInfo};
  // Template dinamis (Pengaturan > Template PDF): nilai {{variabel}} diisi
  // dari dokumen aktif; kosong → fallback hardcoded di bawah tidak berubah.
  const vars=templateVars(bundle,data.date,data.number);
@@ -74,6 +75,7 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
   const history=bundle.payments??[];
   const paidTotal=history.reduce((a,p)=>a+Number(p.amount),0);
   data.rows.push({label:'Tarif sewa per jam',value:money(contract.ratePerHour)});
+if(Number(invoice.operatorAmount??0)>0)data.rows.push({label:'Jasa operator (wet hire)',value:money(invoice.operatorAmount)});
   if(hours)data.rows.push({label:'Jumlah jam kerja efektif yang disetujui',value:`${hours.toLocaleString('id-ID')} jam`});
   else data.rows.push({label:'Dasar penagihan',value:'Sewa alat berat sesuai kontrak'});
   data.rows.push({label:'Status pembayaran',value:labels[invoice.status]});

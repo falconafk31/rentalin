@@ -39,11 +39,12 @@ export type TimesheetRow = typeof s.timesheets.$inferSelect & { contractNumber: 
 export type HandoverRow = typeof s.handovers.$inferSelect & { contractNumber: string | null; clientName: string | null };
 export type InvoiceRow = typeof s.invoices.$inferSelect & { contractNumber: string | null; clientName: string | null; paidAmount: number };
 // Baris hasil getModulePage: record utuh (untuk form Ubah) + label hasil JOIN.
-export type ModuleRow = FleetRow | ClientRow | ContractRow | TimesheetRow | HandoverRow | InvoiceRow;
+export type OperatorRow = typeof s.operators.$inferSelect & { logCount: number };
+export type ModuleRow = FleetRow | ClientRow | OperatorRow | ContractRow | TimesheetRow | HandoverRow | InvoiceRow;
 
 const fallbackSettings: CompanySettings = { id: 'main', companyName: 'PT Penyewaan Alat Berat', address: 'Jakarta, Indonesia', email: '', phone: '', signerName: '', signerTitle: '', ppnRate: '11', expiryWarningDays: 30, city: 'Jakarta', timezone: 'WIB', npwp: '', signerKtp: '', bankName: '', bankAccountName: '', bankAccountNumber: '' };
 
-export const MODULE_SLUGS = ['fleet', 'clients', 'contracts', 'timesheets', 'bast', 'invoices'] as const;
+export const MODULE_SLUGS = ['fleet', 'clients', 'operators', 'contracts', 'timesheets', 'bast', 'invoices'] as const;
 export type ModuleSlug = (typeof MODULE_SLUGS)[number];
 // P4 (audit 01): 8 terlalu kecil — makin sering klik pager. 15 baris masih
 // ringan untuk payload RSC per halaman. Konstanta tinggal di lib/pagination.ts
@@ -340,6 +341,26 @@ export async function getModulePage(module: string, filters: ModuleFilters): Pro
       expiringCount: Number(expiringRes[0]?.n ?? 0),
       categoryOptions: catRes.map(r => r.category),
     };
+  }
+
+  if (module === 'operators') {
+    const qCond = hasQ ? or(ilike(s.operators.fullName, like), ilike(s.operators.employeeNo, like), ilike(s.operators.sioNumber, like), ilike(s.operators.phone, like)) : undefined;
+    const statusCond = filters.status !== 'all' ? eq(s.operators.status, filters.status) : undefined;
+    const rowsWhere = and(qCond, statusCond);
+    const rowsQuery = (pg: number) => db.select({
+      ...getTableColumns(s.operators),
+      logCount: sql<number>`(select count(*) from ${s.timesheets} where ${s.timesheets.operatorDriverId} = ${s.operators.id})`.mapWith(Number),
+    }).from(s.operators).where(rowsWhere)
+      .orderBy(...orderFor(filters.sort, s.operators.fullName, [desc(s.operators.createdAt)]))
+      .limit(MODULE_PAGE_SIZE).offset((pg - 1) * MODULE_PAGE_SIZE);
+    const [rowsRes, totalRes, statusRes, datasetRes] = await Promise.all([
+      rowsQuery(requestedPage),
+      db.select({ n: count() }).from(s.operators).where(rowsWhere),
+      db.select({ status: s.operators.status, n: count() }).from(s.operators).groupBy(s.operators.status),
+      db.select({ n: count() }).from(s.operators),
+    ]);
+    const { rows, page, pageCount } = await resolvePage(rowsQuery, Number(totalRes[0]?.n ?? 0), rowsRes);
+    return { ...base, filters: { ...filters, page }, rows, total: Number(totalRes[0]?.n ?? 0), page, pageCount, statusCounts: { all: Number(datasetRes[0]?.n ?? 0), ...asStatusMap(statusRes) } };
   }
 
   if (module === 'clients') {
@@ -681,9 +702,17 @@ export const getReportData = cache(async () => {
 
 // --- Bundle dokumen PDF (query titik, bukan seluruh workspace) ---------------
 export type DocumentBundle =
-  | { ok: true; settings: CompanySettings; contract: typeof s.contracts.$inferSelect; client: typeof s.clients.$inferSelect; unit: typeof s.fleet.$inferSelect; invoice?: typeof s.invoices.$inferSelect; handover?: typeof s.handovers.$inferSelect; hours?: number; payments?: PaymentRow[]; bastNumber?: string }
+  | { ok: true; settings: CompanySettings; contract: typeof s.contracts.$inferSelect; client: typeof s.clients.$inferSelect; unit: typeof s.fleet.$inferSelect; invoice?: typeof s.invoices.$inferSelect; handover?: typeof s.handovers.$inferSelect; hours?: number; payments?: PaymentRow[]; bastNumber?: string; operatorInfo?: { includeOperator: boolean; rate: string | null; rateType: string | null; names: string[] } }
   | { ok: false; reason: 'not_found' | 'incomplete' };
 
+async function loadOperatorInfo(contract: typeof s.contracts.$inferSelect): Promise<{ includeOperator: boolean; rate: string | null; rateType: string | null; names: string[] }> {
+  const names = contract.includeOperator
+    ? (await db.select({ name: s.operators.fullName }).from(s.contractOperators)
+        .innerJoin(s.operators, eq(s.operators.id, s.contractOperators.operatorId))
+        .where(eq(s.contractOperators.contractId, contract.id)).orderBy(s.operators.fullName)).map(n => n.name)
+    : [];
+  return { includeOperator: contract.includeOperator, rate: contract.operatorRate, rateType: contract.operatorRateType, names };
+}
 export async function getDocumentBundle(kind: 'invoice' | 'bast' | 'sph' | 'perjanjian', id: string): Promise<DocumentBundle> {
   const settings = await getSettingsRow();
   const loadContract = async (contractId: string): Promise<{ contract: typeof s.contracts.$inferSelect; client: typeof s.clients.$inferSelect; unit: typeof s.fleet.$inferSelect } | 'not_found' | 'incomplete'> => {
@@ -705,14 +734,14 @@ export async function getDocumentBundle(kind: 'invoice' | 'bast' | 'sph' | 'perj
         .orderBy(desc(s.handovers.date), desc(s.handovers.createdAt)).limit(1);
       bastNumber = h?.documentNumber;
     }
-    return { ok: true, settings, ...found, bastNumber };
+    return { ok: true, settings, ...found, bastNumber, operatorInfo: await loadOperatorInfo(found.contract) };
   }
   if (kind === 'bast') {
     const [handover] = await db.select().from(s.handovers).where(eq(s.handovers.id, id));
     if (!handover) return { ok: false, reason: 'not_found' };
     const found = await loadContract(handover.contractId);
     if (found === 'not_found' || found === 'incomplete') return { ok: false, reason: found };
-    return { ok: true, settings, ...found, handover };
+    return { ok: true, settings, ...found, handover, operatorInfo: await loadOperatorInfo(found.contract) };
   }
   const [invoice] = await db.select().from(s.invoices).where(eq(s.invoices.id, id));
   if (!invoice) return { ok: false, reason: 'not_found' };
@@ -722,7 +751,7 @@ export async function getDocumentBundle(kind: 'invoice' | 'bast' | 'sph' | 'perj
     db.select({ h: s.timesheets.effectiveHours }).from(s.timesheets).where(eq(s.timesheets.invoiceId, invoice.id)),
     db.select().from(s.payments).where(eq(s.payments.invoiceId, invoice.id)).orderBy(desc(s.payments.paidAt), desc(s.payments.createdAt)),
   ]);
-  return { ok: true, settings, ...found, invoice, hours: hourRows.reduce((a, r) => a + Number(r.h ?? 0), 0), payments };
+  return { ok: true, settings, ...found, invoice, hours: hourRows.reduce((a, r) => a + Number(r.h ?? 0), 0), payments, operatorInfo: await loadOperatorInfo(found.contract) };
 }
 
 // Peta akun banned untuk halaman Pengguna (A-4). Service-role, server-only;

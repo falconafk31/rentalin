@@ -13,6 +13,35 @@ export function calcInvoiceTotals(hours: number, ratePerHour: number, ppnRate: n
   const tax = round2((subtotal * ppnRate) / 100);
   return { hours, subtotal, tax, total: round2(subtotal + tax) };
 }
+/**
+ * Biaya jasa operator wet-hire (PR-4, docs/plan-operator-dan-riwayat-armada.md
+ * 3.5). Dua mode tarif kontrak:
+ *  - hourly: total jam efektif x tarif per jam;
+ *  - daily : jumlah hari kerja (distinct tanggal log disetujui) x tarif/hari.
+ * Dry hire (includeOperator=false / tanpa tarif) => 0.
+ */
+export function calcOperatorCost(
+  opts: { includeOperator: boolean; rateType: 'hourly' | 'daily' | null; rate: number | string | null },
+  logs: { effectiveHours: number | string; date: string }[],
+): number {
+  if (!opts.includeOperator) return 0;
+  const rate = Number(opts.rate);
+  if (!Number.isFinite(rate) || rate <= 0) return 0;
+  if (opts.rateType === 'daily') {
+    return round2(new Set(logs.map(l => l.date)).size * rate);
+  }
+  return round2(logs.reduce((a, l) => a + Number(l.effectiveHours), 0) * rate);
+}
+
+/** Total invoice wet-hire: subtotal sewa + jasa operator (kena PPN) + pajak. */
+export function calcInvoiceTotalsWithOperator(
+  hours: number, ratePerHour: number, ppnRate: number, operatorAmount: number,
+): InvoiceTotals & { operatorAmount: number } {
+  const base = calcInvoiceTotals(hours, ratePerHour, ppnRate);
+  const op = round2(Math.max(0, operatorAmount));
+  const tax = round2(((base.subtotal + op) * ppnRate) / 100);
+  return { ...base, operatorAmount: op, tax, total: round2(base.subtotal + op + tax) };
+}
 
 /** Toleransi pembulatan pembayaran: setengah sen (0,005). */
 export const PAYMENT_TOLERANCE = 0.005;
