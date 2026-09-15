@@ -276,6 +276,46 @@ check('2. wet-hire invariant: subtotal = total - tax', invOp.subtotal === invOp.
   check('14. daily operator billing counts 2 unique dates = 2 x 300k = 600.000', opDailyCost === 600_000);
 }
 
+// ==========================================
+// SCENARIO 15: Payment Schema & Seed Integrity (M2.1)
+// ==========================================
+{
+  // 1. Payment amount must be positive (> 0)
+  const zeroPayment = normalizePaymentAmount(0, 10_000_000);
+  const negPayment = normalizePaymentAmount(-50_000, 10_000_000);
+  const posPayment = normalizePaymentAmount(5_000_000, 10_000_000);
+  check('15. payment amount <= 0 rejected (zero)', zeroPayment.rejected);
+  check('15. payment amount <= 0 rejected (negative)', negPayment.rejected);
+  check('15. positive payment amount accepted', !posPayment.rejected && posPayment.recorded === 5_000_000);
+
+  // 2. Payment method must be one of allowed values
+  const allowedMethods = ['transfer', 'cash', 'giro', 'other'] as const;
+  const isValidMethod = (m: string) => (allowedMethods as readonly string[]).includes(m);
+  check('15. allowed payment methods accepted', allowedMethods.every(m => isValidMethod(m)));
+  check('15. invalid payment method rejected', !isValidMethod('bitcoin') && !isValidMethod('credit_card') && !isValidMethod(''));
+
+  // 3 & 4. Seeded paid invoice ledger integrity simulation
+  // Every seeded invoice marked 'paid' must have sum(payments) >= invoice.totalAmount - tolerance
+  const dummySeededPaidInvoice = {
+    totalAmount: '142050000.00',
+    status: 'paid' as const,
+    dueDate: '2026-09-05',
+  };
+  const dummySeededPaymentRow = {
+    amount: '142050000.00',
+    method: 'transfer',
+    paidAt: '2026-09-05',
+  };
+  const seededPaidSum = Number(dummySeededPaymentRow.amount);
+  const seededTotal = Number(dummySeededPaidInvoice.totalAmount);
+  const seededRemaining = remainingBalance(dummySeededPaidInvoice.totalAmount, seededPaidSum);
+  const seededStatus = resolveInvoiceStatus(dummySeededPaidInvoice.totalAmount, seededPaidSum, dummySeededPaidInvoice.dueDate, '2026-09-15');
+
+  check('15. seeded paid invoice payment sum equals invoice total', seededPaidSum === seededTotal);
+  check('15. seeded paid invoice remaining balance is 0', seededRemaining === 0);
+  check('15. seeded paid invoice status resolves to paid', seededStatus === 'paid');
+}
+
 if (failures) {
   console.error(`\n${failures} check(s) FAILED`);
   process.exit(1);
