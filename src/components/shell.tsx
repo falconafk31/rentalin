@@ -25,8 +25,8 @@ export const navigation: NavEntry[] = [
   { path: '/dashboard/audit', label: 'Log Audit', icon: ScrollText, section: 'LAINNYA', adminOnly: true },
 ];
 const navSections = ['DATA POKOK', 'SEWA BERJALAN', 'KEUANGAN', 'LAINNYA'];
-const DASHBOARD_THEME_KEY = 'heavyops-dashboard-theme';
-const DASHBOARD_THEME_EVENT = 'heavyops-dashboard-theme-change';
+export const DASHBOARD_THEME_KEY = 'heavyops-dashboard-theme';
+export const DASHBOARD_THEME_EVENT = 'heavyops-dashboard-theme-change';
 let dashboardThemeFallback = false;
 
 const subscribeDashboardTheme = (onChange: () => void) => {
@@ -49,15 +49,6 @@ const dashboardThemeSnapshot = () => {
 };
 
 const dashboardThemeServerSnapshot = () => false;
-const dashboardThemeBootScript = `(() => {
-  try {
-    const script = document.currentScript;
-    const shell = script && script.parentElement;
-    if (shell && window.localStorage.getItem('${DASHBOARD_THEME_KEY}') === 'dark') {
-      shell.classList.add('dashboard-dark');
-    }
-  } catch {}
-})();`;
 
 export function Shell({ data, children }: { data: ShellData; children: React.ReactNode }) {
   const pathname = usePathname();
@@ -96,7 +87,6 @@ export function Shell({ data, children }: { data: ShellData; children: React.Rea
 
   return (
     <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''} ${dark ? 'dashboard-dark' : ''}`} suppressHydrationWarning>
-      <script dangerouslySetInnerHTML={{ __html: dashboardThemeBootScript }} />
       {mobile && <div className="mobile-backdrop" onClick={() => setMobile(false)} />}
       <aside className={`sidebar ${mobile ? 'mobile-open' : ''}`}>
         <Link className="brand" href="/dashboard"><BrandMark /><div className="brand-copy"><div>HEAVY<span>OPS</span><span className="brand-dot">.</span></div><small>Sistem Manajemen Rental</small></div></Link>
