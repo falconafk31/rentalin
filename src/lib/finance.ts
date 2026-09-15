@@ -5,7 +5,7 @@
 
 export type InvoiceTotals = { hours: number; subtotal: number; tax: number; total: number };
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
+export const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** Subtotal = jam × tarif; pajak = subtotal × tarif%; total = subtotal + pajak. */
 export function calcInvoiceTotals(hours: number, ratePerHour: number, ppnRate: number): InvoiceTotals {
@@ -89,4 +89,166 @@ export function resolveInvoiceStatus(
   if (dueDateISO < todayISOv) return 'overdue';
   if (paidTotal > 0.005) return 'partial';
   return 'unpaid';
+}
+
+/**
+ * Calculate equipment amount from timesheet billing rate snapshots.
+ * M1.3: Invoice billing uses frozen snapshots, never current contract rates.
+ * Fails closed if any snapshot is missing or malformed.
+ */
+export function calcEquipmentAmountFromSnapshots(
+  logs: { effectiveHours: number | string | null; billingRateSnapshot: number | string | null }[]
+): number {
+  let total = 0;
+  for (const log of logs) {
+    if (log.billingRateSnapshot == null || log.billingRateSnapshot === '') {
+      throw new Error('Catatan kerja tanpa snapshot tarif sewa.');
+    }
+    const hours = Number(log.effectiveHours ?? 0);
+    const rate = Number(log.billingRateSnapshot);
+    if (!Number.isFinite(hours) || !Number.isFinite(rate) || rate <= 0) {
+      throw new Error('Snapshot tarif sewa tidak valid.');
+    }
+    total += hours * rate;
+  }
+  return round2(total);
+}
+
+/**
+ * Calculate operator cost from timesheet snapshots.
+ * Handles mixed rate types (hourly + daily) within single invoice.
+ * M1.3: Uses frozen snapshots from approval, never current contract/master rates.
+ * Fails closed if wet-hire snapshot is incomplete or malformed.
+ */
+export function calcOperatorCostFromSnapshots(
+  logs: { 
+    effectiveHours: number | string | null; 
+    date: string;
+    operatorRateSnapshot: number | string | null;
+    operatorRateTypeSnapshot: string | null;
+  }[]
+): number {
+  let hourlyTotal = 0;
+  const dailyRateGroups = new Map<number, Set<string>>();
+
+  for (const log of logs) {
+    const hasRate = log.operatorRateSnapshot != null && log.operatorRateSnapshot !== '';
+    const hasType = log.operatorRateTypeSnapshot != null && log.operatorRateTypeSnapshot !== '';
+
+    // Dry hire log: neither rate nor type
+    if (!hasRate && !hasType) {
+      continue;
+    }
+
+    // Incomplete wet-hire snapshot: fail closed
+    if (!hasRate || !hasType) {
+      throw new Error('Snapshot operator tidak lengkap: tarif atau tipe hilang.');
+    }
+
+    const rateType = log.operatorRateTypeSnapshot;
+    if (rateType !== 'hourly' && rateType !== 'daily') {
+      throw new Error(`Tipe tarif operator snapshot tidak valid: ${rateType}`);
+    }
+
+    const rate = Number(log.operatorRateSnapshot);
+    if (!Number.isFinite(rate) || rate < 0) {
+      throw new Error('Nilai tarif operator snapshot tidak valid.');
+    }
+
+    if (rateType === 'hourly') {
+      const hours = Number(log.effectiveHours ?? 0);
+      if (!Number.isFinite(hours)) {
+        throw new Error('Jam efektif operator tidak valid.');
+      }
+      hourlyTotal += hours * rate;
+    } else if (rateType === 'daily') {
+      if (!dailyRateGroups.has(rate)) {
+        dailyRateGroups.set(rate, new Set());
+      }
+      dailyRateGroups.get(rate)!.add(log.date);
+    }
+  }
+
+  let dailyTotal = 0;
+  for (const [rate, dates] of dailyRateGroups) {
+    dailyTotal += dates.size * rate;
+  }
+
+  return round2(hourlyTotal + dailyTotal);
+}
+
+export type BillableTimesheetSnapshotLog = {
+  effectiveHours: number | string | null;
+  date: string;
+  billingRateSnapshot: number | string | null;
+  operatorRateSnapshot: number | string | null;
+  operatorRateTypeSnapshot: string | null;
+};
+
+export type InvoiceSnapshotTotals = {
+  hours: number;
+  equipmentAmount: number;
+  operatorAmount: number;
+  subtotal: number;
+  tax: number;
+  total: number;
+  uniqueRates: number[];
+  rateBreakdown: string;
+};
+
+/**
+ * Single source of truth for snapshot-based invoice calculation (preview & persistence).
+ */
+export function calcInvoiceTotalsFromSnapshots(
+  logs: BillableTimesheetSnapshotLog[],
+  ppnRate: number
+): InvoiceSnapshotTotals {
+  if (!logs.length) {
+    return {
+      hours: 0,
+      equipmentAmount: 0,
+      operatorAmount: 0,
+      subtotal: 0,
+      tax: 0,
+      total: 0,
+      uniqueRates: [],
+      rateBreakdown: '-',
+    };
+  }
+
+  const hours = round2(logs.reduce((sum, l) => sum + Number(l.effectiveHours ?? 0), 0));
+  const equipmentAmount = calcEquipmentAmountFromSnapshots(logs);
+  const operatorAmount = calcOperatorCostFromSnapshots(logs);
+  const subtotal = round2(equipmentAmount + operatorAmount);
+  const tax = round2((subtotal * ppnRate) / 100);
+  const total = round2(subtotal + tax);
+
+  const uniqueRates = Array.from(new Set(
+    logs.map(l => Number(l.billingRateSnapshot)).filter(r => Number.isFinite(r) && r > 0)
+  )).sort((a, b) => b - a);
+
+  let rateBreakdown = '-';
+  if (uniqueRates.length === 1) {
+    rateBreakdown = String(uniqueRates[0]);
+  } else if (uniqueRates.length > 1) {
+    rateBreakdown = uniqueRates
+      .map(rate => {
+        const rateHours = logs
+          .filter(l => Number(l.billingRateSnapshot) === rate)
+          .reduce((sum, l) => sum + Number(l.effectiveHours ?? 0), 0);
+        return `${rateHours.toLocaleString('id-ID')} jam × ${rate}`;
+      })
+      .join(' + ');
+  }
+
+  return {
+    hours,
+    equipmentAmount,
+    operatorAmount,
+    subtotal,
+    tax,
+    total,
+    uniqueRates,
+    rateBreakdown,
+  };
 }

@@ -6,13 +6,13 @@ import { EquipmentIcon } from './icons';
 import { Button } from './ui/button';
 import { Modal } from './ui/dialog';
 import { Badge } from './overview';
-import { saveRecord, bulkCreateFleet, changeStatus, deleteClient, reviseContract, recordPayment, getFormOptions, getRevisionHistory, getBillableHours, getInvoicePayments, getFleetMedia, requestFleetPhotoUpload, completeFleetPhotoUpload, deleteFleetPhoto, deleteOperator, getFleetUnitHistory, type FleetUnitHistory } from '@/app/actions';
+import { saveRecord, bulkCreateFleet, changeStatus, deleteClient, reviseContract, recordPayment, getFormOptions, getRevisionHistory, getBillableHours, getInvoicePayments, getFleetMedia, requestFleetPhotoUpload, completeFleetPhotoUpload, deleteFleetPhoto, deleteOperator, getFleetUnitHistory, type FleetUnitHistory, type BillablePreviewData } from '@/app/actions';
 import type { FormOptionsData, FleetMediaData } from '@/app/actions';
 import { compressImage, putToPresignedUrl } from '@/lib/image-compress';
 import { money, dateLabel, dateTimeLabel, timeLabel, labels, todayISO, isPastDue, isExpiringSoon } from '@/lib/format';
 import type { ModulePageData, ModuleRow, FleetRow, ClientRow, OperatorRow, ContractRow, TimesheetRow, HandoverRow, InvoiceRow, PaymentRow, CompanySettings, ModuleFilters } from '@/lib/data';
 import { MODULE_PAGE_SIZE } from '@/lib/pagination';
-import { calcInvoiceTotalsWithOperator, remainingBalance } from '@/lib/finance';
+import { remainingBalance } from '@/lib/finance';
 
 // G6 (audit 02): label tombol submit hidup di config — modul baru cukup
 // tambah 1 baris, bukan mengedit rantai ternary di form.
@@ -603,19 +603,16 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
   const [bPrefix, setBPrefix] = useState('EXC');
   const [bStart, setBStart] = useState(1);
   const [bCount, setBCount] = useState(5);
-  const [billable, setBillable] = useState<number | null>(null);
+  const [billablePreview, setBillablePreview] = useState<BillablePreviewData | null>(null);
   const [includeOperator, setIncludeOperator] = useState(false);
   const [selectedOperators, setSelectedOperators] = useState<string[]>([]);
   const [operatorRateType, setOperatorRateType] = useState('hourly');
-  const [billableOperator, setBillableOperator] = useState<number | null>(null);
 
   const contracts = useMemo(() => options?.contracts ?? [], [options]);
   const fleetOptions = useMemo(() => options?.fleet ?? [], [options]);
   const clientOptions = useMemo(() => options?.clients ?? [], [options]);
   const fleetCats = useMemo(() => Array.from(new Set([...fleetCategories, ...categoryOptions])), [categoryOptions]);
   const selectedContract = useMemo(() => contracts.find(x => x.id === contractId), [contracts, contractId]);
-  const totals = useMemo(() => calcInvoiceTotalsWithOperator(billable ?? 0, Number(selectedContract?.ratePerHour || 0), ppnRate, billableOperator ?? 0), [billable, selectedContract, ppnRate, billableOperator]);
-  const subtotal = totals.subtotal;
   const revisionHistory = useMemo(() => revising ? (revisions ?? []) : [], [revisions, revising]);
   const latestReason = useMemo(() => revisions?.[0]?.reason || '', [revisions]);
 
@@ -652,11 +649,15 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
   );
 
   // Pemilihan kontrak pada form invoice memicu pengambilan jam dapat ditagih
-  // (select async) — sebelumnya dihitung client dari seluruh tabel timesheets.
+  // (select async) — dihitung server menggunakan snapshot tarif historis.
   const pickContract = useCallback((value: string) => {
     setContractId(value);
-    setBillable(null);
-    if (module === 'invoices' && value) getBillableHours(value).then(r => { setBillable(r.hours); setBillableOperator(r.operatorAmount); }).catch(() => { setBillable(0); setBillableOperator(0); });
+    setBillablePreview(null);
+    if (module === 'invoices' && value) {
+      getBillableHours(value)
+        .then(r => setBillablePreview(r))
+        .catch(() => setBillablePreview({ hours: 0, equipmentAmount: 0, operatorAmount: 0, subtotal: 0, tax: 0, total: 0, rateDisplay: '-' }));
+    }
   }, [module]);
 
   const contractOptions = useMemo(() => contracts.map(x => <option key={x.id} value={x.id}>{x.contractNumber} — {x.clientName} ({x.unitCode})</option>), [contracts]);
@@ -850,15 +851,21 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
             <>
               {selectContract}
               {field('dueDate', 'Tanggal Jatuh Tempo', 'date', true, { min: todayISO(tz) })}
+              {billablePreview?.error && (
+                <div className="info-callout span-2 error">
+                  <TriangleAlert size={18} />
+                  <p>{billablePreview.error}</p>
+                </div>
+              )}
               <div className="summary-box span-2">
                 <h4>Ringkasan Tagihan</h4>
-                <div><span>Jam kerja disetujui, belum ditagihkan</span><b>{billable === null ? '…' : billable.toLocaleString('id-ID')} jam</b></div>
-                <div><span>Tarif sewa per jam</span><b>{money(selectedContract?.ratePerHour || 0)}</b></div>
-                {(billableOperator ?? 0) > 0 && <div><span>Jasa operator (wet hire)</span><b>{money(billableOperator ?? 0)}</b></div>}
+                <div><span>Jam kerja disetujui, belum ditagihkan</span><b>{billablePreview === null ? '…' : `${billablePreview.hours.toLocaleString('id-ID')} jam`}</b></div>
+                <div><span>Tarif sewa</span><b>{billablePreview === null ? '…' : billablePreview.rateDisplay}</b></div>
+                {(billablePreview?.operatorAmount ?? 0) > 0 && <div><span>Jasa operator (wet hire)</span><b>{money(billablePreview?.operatorAmount ?? 0)}</b></div>}
                 <hr />
-                <div><span>Subtotal</span><b>{money(subtotal)}</b></div>
-                <div><span>PPN {ppnRate}%</span><b>{money(totals.tax)}</b></div>
-                <div className="invoice-total"><span>Total Tagihan</span><b>{money(totals.total)}</b></div>
+                <div><span>Subtotal</span><b>{money(billablePreview?.subtotal ?? 0)}</b></div>
+                <div><span>PPN {ppnRate}%</span><b>{money(billablePreview?.tax ?? 0)}</b></div>
+                <div className="invoice-total"><span>Total Tagihan</span><b>{money(billablePreview?.total ?? 0)}</b></div>
               </div>
               <div className="info-callout span-2"><ShieldCheck size={18} /><p>Jam kerja yang sudah ditagihkan tidak akan ditagihkan kembali. Dokumen PDF tersedia setelah tagihan berhasil dibuat.</p></div>
             </>
@@ -866,7 +873,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
         </div>
         <div className="form-footer">
           <Button type="button" variant="outline" onClick={onCancel} disabled={pending}>Batal</Button>
-          <Button type="submit" disabled={pending || !canWrite || (module === 'invoices' && (billable === null || billable <= 0))}>
+          <Button type="submit" disabled={pending || !canWrite || (module === 'invoices' && (billablePreview === null || billablePreview.hours <= 0 || !!billablePreview.error))}>
             {pending ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}{' '}
             {pending ? 'Menyimpan...' : module === 'contracts' && revising ? 'Simpan Revisi' : module === 'fleet' && bulk && !editing ? `Tambah ${bCount} Unit` : c.submit}
           </Button>
