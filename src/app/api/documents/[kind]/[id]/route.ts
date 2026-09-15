@@ -85,31 +85,37 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
   }).from(s.timesheets).where(eq(s.timesheets.invoiceId, invoice.id));
 
   // Determine rate presentation
-  const uniqueRates: number[] = Array.from(new Set(
-    timesheetRates
-      .map(t => Number(t.billingRateSnapshot))
-      .filter(r => Number.isFinite(r) && r > 0)
-  ));
+  const validSnapshotRates: number[] = timesheetRates
+    .map(t => Number(t.billingRateSnapshot))
+    .filter(r => Number.isFinite(r) && r > 0);
 
-  if (uniqueRates.length === 0) {
+  const missingSnapshots = timesheetRates.filter(t => !t.billingRateSnapshot || Number(t.billingRateSnapshot) <= 0);
+
+  if (timesheetRates.length === 0 || validSnapshotRates.length === 0) {
     // Historical invoice pre-snapshot (legacy)
     data.rows.push({label:'Tarif sewa',value:'Data tarif historis tidak tersedia'});
-  } else if (uniqueRates.length === 1) {
-    // Single rate - clean display
-    const rate = uniqueRates[0];
-    data.rows.push({label:'Tarif sewa per jam',value:money(rate)});
+  } else if (missingSnapshots.length > 0) {
+    // Partial snapshot completeness
+    data.rows.push({label:'Tarif sewa',value:'Data tarif historis tidak lengkap'});
   } else {
-    // Multiple rates - show breakdown
-    const rateBreakdown = uniqueRates
-      .sort((a, b) => b - a)
-      .map(rate => {
-        const rateHours = timesheetRates
-          .filter(t => Number(t.billingRateSnapshot) === rate)
-          .reduce((sum, t) => sum + Number(t.effectiveHours ?? 0), 0);
-        return `${rateHours.toLocaleString('id-ID')} jam × ${money(rate)}`;
-      })
-      .join(' + ');
-    data.rows.push({label:'Tarif sewa',value:rateBreakdown});
+    const uniqueRates: number[] = Array.from(new Set(validSnapshotRates));
+    if (uniqueRates.length === 1) {
+      // Single rate - clean display
+      const rate = uniqueRates[0];
+      data.rows.push({label:'Tarif sewa per jam',value:money(rate)});
+    } else {
+      // Multiple rates - show breakdown
+      const rateBreakdown = uniqueRates
+        .sort((a, b) => b - a)
+        .map(rate => {
+          const rateHours = timesheetRates
+            .filter(t => Number(t.billingRateSnapshot) === rate)
+            .reduce((sum, t) => sum + Number(t.effectiveHours ?? 0), 0);
+          return `${rateHours.toLocaleString('id-ID')} jam × ${money(rate)}`;
+        })
+        .join(' + ');
+      data.rows.push({label:'Tarif sewa',value:rateBreakdown});
+    }
   }
 
   if(Number(invoice.operatorAmount??0)>0)data.rows.push({label:'Jasa operator (wet hire)',value:money(invoice.operatorAmount)});

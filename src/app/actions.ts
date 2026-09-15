@@ -9,7 +9,18 @@ import { isMediaConfigured, MediaApiError, requestMediaUploadUrl, completeMediaU
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { todayISO, money, resolveTz, type AppTimezone } from '@/lib/format';
-import { calcInvoiceTotals, calcOperatorCost, calcInvoiceTotalsWithOperator, remainingBalance, resolveInvoiceStatus, normalizePaymentAmount, calcEquipmentAmountFromSnapshots, calcOperatorCostFromSnapshots, round2 } from '@/lib/finance';
+import { 
+  calcInvoiceTotals, 
+  calcOperatorCost, 
+  calcInvoiceTotalsWithOperator, 
+  remainingBalance, 
+  resolveInvoiceStatus, 
+  normalizePaymentAmount, 
+  calcEquipmentAmountFromSnapshots, 
+  calcOperatorCostFromSnapshots, 
+  calcInvoiceTotalsFromSnapshots,
+  round2 
+} from '@/lib/finance';
 import { nextDocNumber } from '@/lib/docnum';
 
 export type ActionResult = { success: boolean; message: string; fieldErrors?: Record<string, string> };
@@ -211,36 +222,22 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
     
     if(!logs.length)throw new FieldError({contractId:'Tidak ada jam kerja disetujui yang belum ditagihkan.'});
 
-    // M1.3: Validate all timesheets have billing snapshots
-    const missingSnapshot = logs.filter(l => !l.billingRateSnapshot);
-    if (missingSnapshot.length > 0) {
-      throw new Error(`${missingSnapshot.length} catatan kerja tanpa snapshot tarif. Hubungi administrator.`);
-    }
-
-    // M1.3: Calculate from snapshots, NOT current contract rates
-    const equipmentAmount = calcEquipmentAmountFromSnapshots(logs);
-    const operatorAmount = calcOperatorCostFromSnapshots(logs);
-    const totalHours = logs.reduce((a,l)=>a+Number(l.effectiveHours),0);
-
-    // Calculate invoice totals
-    const subtotal = round2(equipmentAmount + operatorAmount);
-    const tax = round2((subtotal * ppnRate) / 100);
-    const total = round2(subtotal + tax);
-
-    if(totalHours<=0)throw new Error('Total jam efektif harus lebih dari nol.');
+    // M1.3: Calculate from snapshots using single-source-of-truth helper
+    const totals = calcInvoiceTotalsFromSnapshots(logs, ppnRate);
+    if(totals.hours<=0)throw new Error('Total jam efektif harus lebih dari nol.');
     
     invoiceNo = await nextDocNumber(tx,'INV',s.invoices.invoiceNumber,s.invoices,todayISO(tz).slice(0,4));
     const [invoice]=await tx.insert(s.invoices).values({
       invoiceNumber:invoiceNo,
       contractId,
-      subtotalAmount:subtotal.toFixed(2),
-      totalAmount:total.toFixed(2),
-      taxAmount:tax.toFixed(2),
+      subtotalAmount:totals.subtotal.toFixed(2),
+      totalAmount:totals.total.toFixed(2),
+      taxAmount:totals.tax.toFixed(2),
       taxRate:String(ppnRate),
       status:'unpaid',
       issueDate:todayISO(tz),
       dueDate,
-      operatorAmount:operatorAmount.toFixed(2)
+      operatorAmount:totals.operatorAmount.toFixed(2)
     }).returning();
     
     // Lock timesheets to invoice
@@ -807,14 +804,76 @@ export async function getFormOptions(module: string, editingUnitId?: string): Pr
   return empty;
 }
 
-export async function getBillableHours(contractId: string): Promise<{ hours: number; operatorAmount: number }> {
+export type BillablePreviewData = {
+  hours: number;
+  equipmentAmount: number;
+  operatorAmount: number;
+  subtotal: number;
+  tax: number;
+  total: number;
+  rateDisplay: string;
+  error?: string;
+};
+
+export async function getBillableHours(contractId: string): Promise<BillablePreviewData> {
   await requireUser();
-  if (!UUID_RE.test(contractId)) return { hours: 0, operatorAmount: 0 };
-  const rows = await db.select({ h: s.timesheets.effectiveHours, d: s.timesheets.date, op: s.contracts.includeOperator, rateType: s.contracts.operatorRateType, rate: s.contracts.operatorRate }).from(s.timesheets)
-    .innerJoin(s.contracts, eq(s.contracts.id, s.timesheets.contractId))
-    .where(and(eq(s.timesheets.contractId, contractId), eq(s.timesheets.status, 'approved'), isNull(s.timesheets.invoiceId)));
-  const operatorAmount = calcOperatorCost({ includeOperator: !!rows[0]?.op, rateType: (rows[0]?.rateType as 'hourly'|'daily'|null) ?? null, rate: rows[0]?.rate ?? null }, rows.map(r => ({ effectiveHours: r.h ?? 0, date: r.d })));
-  return { hours: rows.reduce((a, r) => a + Number(r.h ?? 0), 0), operatorAmount };
+  if (!UUID_RE.test(contractId)) {
+    return { hours: 0, equipmentAmount: 0, operatorAmount: 0, subtotal: 0, tax: 0, total: 0, rateDisplay: '-' };
+  }
+  const ppnRate = await currentPpnRate();
+  const logs = await db.select({
+    effectiveHours: s.timesheets.effectiveHours,
+    date: s.timesheets.date,
+    billingRateSnapshot: s.timesheets.billingRateSnapshot,
+    operatorRateSnapshot: s.timesheets.operatorRateSnapshot,
+    operatorRateTypeSnapshot: s.timesheets.operatorRateTypeSnapshot
+  }).from(s.timesheets)
+    .where(and(
+      eq(s.timesheets.contractId, contractId),
+      eq(s.timesheets.status, 'approved'),
+      isNull(s.timesheets.invoiceId)
+    ));
+
+  if (!logs.length) {
+    return { hours: 0, equipmentAmount: 0, operatorAmount: 0, subtotal: 0, tax: 0, total: 0, rateDisplay: '-' };
+  }
+
+  try {
+    const totals = calcInvoiceTotalsFromSnapshots(logs, ppnRate);
+    let rateDisplay = '-';
+    if (totals.uniqueRates.length === 1) {
+      rateDisplay = money(totals.uniqueRates[0]);
+    } else if (totals.uniqueRates.length > 1) {
+      rateDisplay = totals.uniqueRates
+        .map(rate => {
+          const rateHours = logs
+            .filter(l => Number(l.billingRateSnapshot) === rate)
+            .reduce((sum, l) => sum + Number(l.effectiveHours ?? 0), 0);
+          return `${rateHours.toLocaleString('id-ID')} jam × ${money(rate)}`;
+        })
+        .join(' + ');
+    }
+    return {
+      hours: totals.hours,
+      equipmentAmount: totals.equipmentAmount,
+      operatorAmount: totals.operatorAmount,
+      subtotal: totals.subtotal,
+      tax: totals.tax,
+      total: totals.total,
+      rateDisplay,
+    };
+  } catch (err) {
+    return {
+      hours: logs.reduce((a, r) => a + Number(r.effectiveHours ?? 0), 0),
+      equipmentAmount: 0,
+      operatorAmount: 0,
+      subtotal: 0,
+      tax: 0,
+      total: 0,
+      rateDisplay: 'Snapshot tidak valid',
+      error: (err as Error).message || 'Gagal menghitung pratinjau tagihan dari snapshot tarif.',
+    };
+  }
 }
 
 export async function getRevisionHistory(contractId: string): Promise<{ id: string; revisionNumber: number; createdAt: Date; prevRate: string; newRate: string; reason: string }[]> {
