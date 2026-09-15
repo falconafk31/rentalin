@@ -8,9 +8,12 @@ import {
   BAST_HISTORY_UNAVAILABLE, BAST_RATE_HISTORY_UNAVAILABLE,
   BAST_IMMUTABLE_FIELDS, BAST_CONTENT_FIELDS,
   BAST_FINAL_LOCK_MESSAGE, BAST_ALREADY_FINAL_MESSAGE,
+  BAST_DUPLICATE_NUMBER_MESSAGE, BAST_DUPLICATE_TYPE_MESSAGE, BAST_DUPLICATE_FALLBACK_MESSAGE,
   isBastType, isBastStatus, isBastEditable, canFinalizeBast, assertBastContentKeys,
   buildBastSnapshotValues, readBastSnapshot, bastSnapshotRows, bastClientName, validateBastDate,
+  isUniqueViolation, classifyBastUniqueError, bastDuplicateMessage,
 } from '../src/lib/bast.ts';
+import { isUserAuthorizedForBastPhoto } from '../src/lib/fleet-history-helpers.ts';
 
 let failures = 0;
 const check = (name: string, cond: boolean, detail = '') => {
@@ -174,12 +177,103 @@ check('13. edit: validasi tanggal memakai kontrak terkunci, bukan salinan sebelu
   editBlock.indexOf('const [contract]=await tx.select().from(s.contracts)') > -1
   && editBlock.indexOf('const dateErr=validateBastDate(') > -1);
 
-const createBlock = createAt > -1 ? actionsSource.slice(createAt, createAt + 1500) : '';
+const createEnd = createAt > -1 ? actionsSource.indexOf('\n    });', createAt) : -1;
+const createBlock = createAt > -1 ? actionsSource.slice(createAt, createEnd > createAt ? createEnd : createAt + 1500) : '';
 check('13. create: kontrak dikunci FOR UPDATE sebelum validasi tanggal',
   createBlock.indexOf('from(s.contracts)') > -1
   && createBlock.indexOf('from(s.contracts)') < createBlock.indexOf('validateBastDate('));
 check('13. create: hanya satu lock FOR UPDATE (baris BAST lama tidak dikunci -> tanpa siklus)',
   (createBlock.split(".for('update')").length - 1) === 1);
+
+// ==========================================
+// 14. F5: 23505 unique violation -> pesan bisnis Indonesia yang aman (M4.2)
+// ==========================================
+// CATATAN JUJUR: uji perilaku murni atas helper klasifikasi
+// (isUniqueViolation/classifyBastUniqueError/bastDuplicateMessage) —
+// otoritas final tetap constraint DB di produksi. Blok catch INSERT di
+// saveRecord('bast') dijaga invarian sumber pada §15.
+check('14. kode 23505 dikenali sebagai unique violation', isUniqueViolation({ code: '23505' }));
+check('14. kode 23505 via cause (driver postgres) dikenali', isUniqueViolation({ cause: { code: '23505' } }));
+check('14. kode non-unique bukan unique violation', !isUniqueViolation({ code: '23503' }) && !isUniqueViolation(null) && !isUniqueViolation({}));
+check('14. constraint nomor dokumen diklasifikasi documentNumber',
+  classifyBastUniqueError({ constraint: 'handovers_document_number_key' }) === 'documentNumber'
+  && classifyBastUniqueError({ detail: 'Key (document_number)=(BAST/2026/001) already exists.' }) === 'documentNumber');
+check('14. constraint (contract_id,type) diklasifikasi contractType',
+  classifyBastUniqueError({ constraint: 'handovers_contract_type_unique' }) === 'contractType'
+  && classifyBastUniqueError({ message: 'duplicate key value violates unique constraint "handovers_contract_type_unique"' }) === 'contractType');
+check('14. error tak dikenal jatuh ke kategori other', classifyBastUniqueError({ code: '23505' }) === 'other');
+check('14. pesan duplikat nomor sesuai UX yang disepakati',
+  bastDuplicateMessage('documentNumber') === BAST_DUPLICATE_NUMBER_MESSAGE
+  && bastDuplicateMessage('documentNumber').includes('Nomor BAST')
+  && !/duplicate|unique|constraint|23505/i.test(bastDuplicateMessage('documentNumber')));
+check('14. pesan duplikat jenis menunjuk kontrak, bukan teks PG mentah',
+  bastDuplicateMessage('contractType') === BAST_DUPLICATE_TYPE_MESSAGE
+  && !/duplicate|unique|constraint|23505/i.test(bastDuplicateMessage('contractType')));
+check('14. pesan fallback generik tetap tersedia', bastDuplicateMessage('other') === BAST_DUPLICATE_FALLBACK_MESSAGE);
+
+// ==========================================
+// 15. F5/F6/F8: invarian sumber jalur BAST (otorisasi + 23505 + foto) (M4.2)
+// ==========================================
+const PHOTO_GET_MARKER = '// M4.2/F6: hanya empat role internal menurut model peran (0004/0012).';
+const PHOTO_PATH_MARKER = '// M4.2/F6: tolak traversal/null-byte/non-string sebelum query DB.';
+const PHOTO_POST_MARKER = '// M4.2/F6: finance tidak boleh mengunggah foto (selaras 0012: tulis hanya';
+const BAST_CATCH_MARKER = '// M4.2/F5: bila INSERT ditolak constraint unique (TOCTOU dua create';
+const apiPhotosSource = readFileSync(new URL('../src/app/api/bast-photos/route.ts', import.meta.url), 'utf8');
+const docPdfSource = readFileSync(new URL('../src/app/api/documents/[kind]/[id]/route.ts', import.meta.url), 'utf8');
+
+check('15. blok catch 23505 INSERT BAST ada di saveRecord',
+  actionsSource.indexOf(BAST_CATCH_MARKER) > -1
+  && actionsSource.indexOf('isUniqueViolation(insertError)') > -1
+  && actionsSource.indexOf('bastDuplicateMessage(classifyBastUniqueError(insertError))') > -1);
+check('15. pre-check duplikat tetap UX-only (komentar otoritas constraint)',
+  actionsSource.indexOf('otoritas final tetap constraint DB') > -1
+  && actionsSource.indexOf('handovers_contract_type_unique') > -1);
+check('15. jalur finalize BAST terkunci role operationRoles (admin/operations)',
+  actionsSource.indexOf("module==='bast'&&status==='final'") > -1);
+check('15. GET foto BAST memakai daftar role eksplisit (tanpa allow-all)',
+  apiPhotosSource.indexOf(PHOTO_GET_MARKER) > -1
+  && apiPhotosSource.indexOf("requireUser(['admin', 'operations', 'operator', 'finance'])") > -1);
+check('15. GET foto BAST menolak traversal & null-byte sebelum query DB',
+  apiPhotosSource.indexOf(PHOTO_PATH_MARKER) > -1
+  && apiPhotosSource.indexOf("path.includes('..')") > -1);
+check('15. GET foto BAST resolve BAST lewat photoUrls terdaftar + otorisasi entitas',
+  apiPhotosSource.indexOf('= ANY(') > -1
+  && apiPhotosSource.indexOf('isUserAuthorizedForBastPhoto(') > -1
+  && apiPhotosSource.indexOf('createSignedUrl(path, 3600)') > -1);
+check('15. POST foto BAST tetap admin/operations/operator (finance ditolak)',
+  apiPhotosSource.indexOf(PHOTO_POST_MARKER) > -1
+  && apiPhotosSource.indexOf("requireUser(['admin', 'operations', 'operator'])") > -1);
+check('15. PDF BAST mensyaratkan login internal (tanpa akses publik)',
+  docPdfSource.indexOf('await requireUser()') > -1);
+check('15. bucket foto BAST tetap privat (tanpa jalur publik baru)',
+  apiPhotosSource.indexOf("from('bast-photos')") > -1
+  && apiPhotosSource.indexOf('createSignedUrl') > -1
+  && !/makePublic|publicUrl|getPublicUrl/.test(apiPhotosSource));
+
+// ==========================================
+// 16. F6/F8: matriks otorisasi foto BAST per role (helper murni)
+// ==========================================
+const bastCtx = (role: string, assigned: string[]) => ({
+  user: { id: 'profil-1', role },
+  handover: { id: 'bast-1', contractId: 'ktr-1', photoUrls: ['handovers/foto-a.jpg'], assignedOperatorProfileIds: assigned },
+});
+check('16. admin/operations/finance boleh membaca foto BAST kontrak mana pun',
+  isUserAuthorizedForBastPhoto('handovers/foto-a.jpg', bastCtx('admin', []).user, bastCtx('admin', []).handover)
+  && isUserAuthorizedForBastPhoto('handovers/foto-a.jpg', bastCtx('operations', []).user, bastCtx('operations', []).handover)
+  && isUserAuthorizedForBastPhoto('handovers/foto-a.jpg', bastCtx('finance', []).user, bastCtx('finance', []).handover));
+check('16. operator yang ditugaskan boleh membaca foto kontraknya',
+  isUserAuthorizedForBastPhoto('handovers/foto-a.jpg', bastCtx('operator', ['profil-1']).user, bastCtx('operator', ['profil-1']).handover));
+check('16. operator tak-tertugas DITOLAK membaca foto kontrak lain',
+  !isUserAuthorizedForBastPhoto('handovers/foto-a.jpg', bastCtx('operator', ['profil-9']).user, bastCtx('operator', ['profil-9']).handover)
+  && !isUserAuthorizedForBastPhoto('handovers/foto-a.jpg', bastCtx('operator', []).user, bastCtx('operator', []).handover));
+check('16. peran di luar model (viewer/tamu) DITOLAK',
+  !isUserAuthorizedForBastPhoto('handovers/foto-a.jpg', bastCtx('viewer', ['profil-1']).user, bastCtx('viewer', ['profil-1']).handover)
+  && !isUserAuthorizedForBastPhoto('handovers/foto-a.jpg', bastCtx('guest', []).user, bastCtx('guest', []).handover));
+check('16. path traversal / prefix salah / foto tak terdaftar DITOLAK',
+  !isUserAuthorizedForBastPhoto('handovers/../rahasia.jpg', bastCtx('admin', []).user, bastCtx('admin', []).handover)
+  && !isUserAuthorizedForBastPhoto('fleet/foto-a.jpg', bastCtx('admin', []).user, bastCtx('admin', []).handover)
+  && !isUserAuthorizedForBastPhoto('handovers/foto-lain.jpg', bastCtx('admin', []).user, bastCtx('admin', []).handover)
+  && !isUserAuthorizedForBastPhoto('', bastCtx('admin', []).user, bastCtx('admin', []).handover));
 if (failures) {
   console.error(`\n${failures} check(s) FAILED`);
   process.exit(1);

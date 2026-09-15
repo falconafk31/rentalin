@@ -20,6 +20,8 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   let user: { id: string; role: string };
   try {
+    // M4.2/F6: hanya empat role internal menurut model peran (0004/0012).
+    // Peran lain (viewer dsb.) tetap ditolak — daftar eksplisit, bukan allow-all.
     user = await requireUser(['admin', 'operations', 'operator', 'finance']);
   } catch (error) {
     if (((error as Error).message || '').includes('NEXT_REDIRECT')) throw error;
@@ -28,7 +30,8 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const path = searchParams.get('path');
-  if (!path || !path.startsWith('handovers/')) {
+  // M4.2/F6: tolak traversal/null-byte/non-string sebelum query DB.
+  if (!path || typeof path !== 'string' || !path.startsWith('handovers/') || path.includes('..') || path.includes('\0')) {
     return Response.json({ message: 'Path foto tidak valid.' }, { status: 400 });
   }
 
@@ -99,6 +102,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   let user: { id: string; fullName: string };
   try {
+    // M4.2/F6: finance tidak boleh mengunggah foto (selaras 0012: tulis hanya
+    // admin/operations/operator). Peran lain tetap ditolak.
     user = await requireUser(['admin', 'operations', 'operator']);
   } catch (error) {
     if (((error as Error).message || '').includes('NEXT_REDIRECT')) throw error;

@@ -29,6 +29,48 @@ export const BAST_FINAL_LOCK_MESSAGE = 'BAST yang sudah difinalkan tidak dapat d
 /** Ditolak saat finalisasi diulang atau dari status selain `draft`. */
 export const BAST_ALREADY_FINAL_MESSAGE = 'BAST ini sudah difinalkan.';
 
+// Pesan bisnis untuk pelanggaran unique BAST (M4.2 / F5). Constraint DB
+// (`handovers_document_number_key`, `handovers_contract_type_unique`) tetap
+// otoritas final; pesan ini hanya UX aman tanpa teks mentah PostgreSQL.
+export const BAST_DUPLICATE_NUMBER_MESSAGE = 'Nomor BAST untuk jenis dokumen tersebut sudah digunakan. Gunakan nomor yang berbeda.';
+export const BAST_DUPLICATE_TYPE_MESSAGE = 'BAST untuk jenis serah terima ini sudah ada pada kontrak tersebut.';
+export const BAST_DUPLICATE_FALLBACK_MESSAGE = 'Data serah terima sudah terdaftar. Periksa kembali isian Anda.';
+
+export type BastUniqueKind = 'documentNumber' | 'contractType' | 'other';
+
+/**
+ * Klasifikasikan error PostgreSQL unique violation (23505) ke pesan bisnis.
+ * Selalu dipanggil dari Server Action setelah constraint menolak INSERT —
+ * pre-check SELECT tetap ada hanya sebagai UX awal, BUKAN mekanisme koreksi
+ * (TOCTOU tetap dimenangkan constraint DB).
+ */
+export function isUniqueViolation(error: unknown): boolean {
+  const e = error as null | { code?: string; cause?: { code?: string } };
+  if (!e || typeof e !== 'object') return false;
+  return e.code === '23505' || e.cause?.code === '23505';
+}
+
+export function classifyBastUniqueError(error: unknown): BastUniqueKind {
+  const pick = (obj: unknown): string => {
+    if (!obj || typeof obj !== 'object') return '';
+    const o = obj as { constraint?: unknown; constraintName?: unknown; detail?: unknown; message?: unknown };
+    return [o.constraint, o.constraintName, o.detail, o.message].filter((v) => typeof v === 'string').join(' ').toLowerCase();
+  };
+  const e = error as { cause?: unknown };
+  const hay = `${pick(error)} ${pick(e?.cause)}`;
+  if (hay.includes('document_number')) return 'documentNumber';
+  if (hay.includes('contract_id') && hay.includes('type')) return 'contractType';
+  if (hay.includes('handovers_contract_type_unique')) return 'contractType';
+  if (hay.includes('handovers_document_number_key') || hay.includes('document_number_key')) return 'documentNumber';
+  return 'other';
+}
+
+export function bastDuplicateMessage(kind: BastUniqueKind): string {
+  if (kind === 'documentNumber') return BAST_DUPLICATE_NUMBER_MESSAGE;
+  if (kind === 'contractType') return BAST_DUPLICATE_TYPE_MESSAGE;
+  return BAST_DUPLICATE_FALLBACK_MESSAGE;
+}
+
 // ---------------------------------------------------------------------------
 // Field immutable vs field isi (M4.1 §6)
 // ---------------------------------------------------------------------------
