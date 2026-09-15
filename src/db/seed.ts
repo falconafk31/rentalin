@@ -42,6 +42,9 @@ export const seedPreview = cache(async () => {
       }))
     );
   }
-  await tx.insert(s.handovers).values({documentNumber:`BAST/${now.getFullYear()}/001`,contractId:agreements[0].id,type:'mobilization',date:date(-5),engine:true,hydraulics:true,tracks:true,notes:'Unit diterima dalam kondisi baik dan siap beroperasi.'});
+  // BAST demo dibuat sudah final + snapshot historis terisi dari record demo
+  // itu sendiri (bukan tebakan) agar PDF contoh menampilkan nilai historis
+  // nyata, bukan pesan "Data historis tidak tersedia" (M4.1 / migrasi 0027).
+  await tx.insert(s.handovers).values({documentNumber:`BAST/${now.getFullYear()}/001`,contractId:agreements[0].id,type:'mobilization',date:date(-5),engine:true,hydraulics:true,tracks:true,notes:'Unit diterima dalam kondisi baik dan siap beroperasi.',status:'final',clientNameSnapshot:customers[0].companyName,unitCodeSnapshot:rented[0].unitCode,unitModelSnapshot:rented[0].brandModel,rateAtHandover:rented[0].hourlyRate});
  });
 });

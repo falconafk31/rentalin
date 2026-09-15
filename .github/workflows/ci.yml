@@ -18,7 +18,8 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
-      - run: node scripts/finance-check.ts # regresi finansial TASK-1 §19
+      - run: node scripts/finance-check.ts # regresi finansial TASK-1 & M1.3
+      - run: node scripts/bast-check.ts # regresi siklus hidup & snapshot BAST M4.1
       - run: node scripts/task1b-check.ts # uji temuan PM TASK-1B
       - run: npm run build
       - run: npm audit --omit=dev

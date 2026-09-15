@@ -24,6 +24,7 @@
 | Ubah record | `Pencil` | `module-workspace.tsx` |
 | Hapus record | `Trash2` | `module-workspace.tsx` |
 | Unduh PDF | `FileDown` | `PdfLink` (`module-workspace.tsx`) |
+| Finalisasi BAST (draft -> final, satu arah) | `Check` | baris tabel BAST (`module-workspace.tsx`) |
 | Setujui / konfirmasi sukses | `Check` / `CircleCheck` | `module-workspace.tsx`, toast |
 | Tolak | `X` (juga: tutup) | `module-workspace.tsx` |
 | Peringatan dokumen kedaluwarsa | `TriangleAlert` | `module-workspace.tsx`, toast, panel admin |
