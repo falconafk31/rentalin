@@ -260,7 +260,7 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
           )}<span><b>{f.brandModel}</b><small>{f.unitCode}{isExpiringFleet(f, warnDays, tz) && <TriangleAlert size={12} className="amber-text" />}</small></span></div>,
           <div key="category">{f.category}<small className="cell-sub">Tahun {f.year}</small></div>,
           f.currentLocation || '—', money(f.hourlyRate), <Badge status={f.status} key="status" />,
-          <div className="row-actions" key="hist"><button className="icon-button" aria-label={`Riwayat ${f.unitCode}`} title="Lihat detail riwayat unit" onClick={() => openHistory(f.id)}><History size={15} />Riwayat</button></div>,
+          <div className="row-actions" key="hist"><a className="icon-button" aria-label={`Riwayat ${f.unitCode}`} title="Lihat detail riwayat unit (tab baru)" href={`/dashboard/fleet/${f.id}/history`} target="_blank" rel="noopener noreferrer"><History size={15} />Riwayat</a></div>,
           canWrite ? <div className="row-actions" key="edit"><button className="icon-button" aria-label={`Ubah ${f.unitCode}`} title="Ubah unit" onClick={() => edit(f)}><Pencil size={15} />Ubah</button></div> : <span key="read">—</span>,
         ],
       }));
@@ -462,6 +462,11 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
                 </label>
               )}
               <Button variant="outline" size="sm" onClick={() => navigate({ sort: filters.sort === 0 ? '1' : filters.sort === 1 ? '-1' : null, page: null })} onMouseEnter={() => prefetch({ sort: filters.sort === 0 ? '1' : filters.sort === 1 ? '-1' : null, page: null })} onFocus={() => prefetch({ sort: filters.sort === 0 ? '1' : filters.sort === 1 ? '-1' : null, page: null })} title={filters.sort === 0 ? 'Urutkan A–Z' : filters.sort === 1 ? 'Urutkan Z–A' : 'Kembalikan urutan awal'}><ArrowUpDown size={14} />{sortLabel}</Button>
+              {module === 'fleet' && (
+                <a href="/api/documents/fleet-history" target="_blank" rel="noopener noreferrer" className="button button-outline button-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title="Unduh laporan riwayat untuk semua unit armada (PDF)">
+                  <FileDown size={14} /> Unduh Riwayat Armada
+                </a>
+              )}
             </div>
           </div>
           <div className="table-scroll" style={pending && !bigNav ? { opacity: 0.55 } : undefined}>
