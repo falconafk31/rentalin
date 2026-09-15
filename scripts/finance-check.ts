@@ -316,6 +316,79 @@ check('2. wet-hire invariant: subtotal = total - tax', invOp.subtotal === invOp.
   check('15. seeded paid invoice status resolves to paid', seededStatus === 'paid');
 }
 
+// ==========================================
+// SCENARIO 16: Contract & Timesheet Hardening Validation (M3.1)
+// ==========================================
+{
+  // 1. Contract date boundary validation rule
+  const isContractDateValid = (start: string, end: string) => end >= start;
+  check('16. contract endDate >= startDate valid', isContractDateValid('2026-09-01', '2026-09-30'));
+  check('16. contract endDate < startDate rejected', !isContractDateValid('2026-09-30', '2026-09-01'));
+
+  // 2. Timesheet date boundary against contract period & future date
+  const isTimesheetDateValid = (date: string, contractStart: string, contractEnd: string, today: string) =>
+    date >= contractStart && date <= contractEnd && date <= today;
+  check('16. timesheet date inside contract period and not future valid', isTimesheetDateValid('2026-09-10', '2026-09-01', '2026-09-30', '2026-09-15'));
+  check('16. timesheet date before contract start rejected', !isTimesheetDateValid('2026-08-31', '2026-09-01', '2026-09-30', '2026-09-15'));
+  check('16. timesheet date after contract end rejected', !isTimesheetDateValid('2026-10-01', '2026-09-01', '2026-09-30', '2026-10-15'));
+  check('16. timesheet date in future rejected', !isTimesheetDateValid('2026-09-20', '2026-09-01', '2026-09-30', '2026-09-15'));
+
+  // 3. HM meter & effective hours maximum 24h validation rule
+  const isHmValid = (startHm: number, endHm: number, breakdown: number) =>
+    startHm >= 0 && endHm >= startHm && breakdown >= 0 && breakdown <= (endHm - startHm) && (endHm - startHm) <= 24;
+  check('16. valid HM 8h with 1h breakdown valid', isHmValid(100, 108, 1));
+  check('16. endHm < startHm rejected', !isHmValid(108, 100, 0));
+  check('16. negative startHm rejected', !isHmValid(-10, 100, 0));
+  check('16. breakdown > totalHours rejected', !isHmValid(100, 108, 10));
+  check('16. duration > 24 hours rejected', !isHmValid(100, 126, 0));
+
+  // 4. Contract/unit availability transition state rules
+  // Creation: available -> renting; Completion: renting -> available
+  const canRentUnit = (unitStatus: string) => unitStatus === 'available';
+  const getNextUnitStatusOnContract = (action: 'create' | 'complete', currentUnitStatus: string) => {
+    if (action === 'create' && currentUnitStatus === 'available') return 'renting';
+    if (action === 'complete' && currentUnitStatus === 'renting') return 'available';
+    return null;
+  };
+  check('16. available unit can be rented', canRentUnit('available'));
+  check('16. renting/maintenance unit cannot be rented', !canRentUnit('renting') && !canRentUnit('maintenance'));
+  check('16. contract create sets unit to renting', getNextUnitStatusOnContract('create', 'available') === 'renting');
+  check('16. contract complete sets unit to available', getNextUnitStatusOnContract('complete', 'renting') === 'available');
+
+  // 5. Operator snapshot consistency constraint rules
+  // a) Dry hire: both NULL = valid
+  const dryHireLog = { effectiveHours: 8, date: '2026-09-01', operatorRateSnapshot: null, operatorRateTypeSnapshot: null };
+  const dryHireCost = calcOperatorCostFromSnapshots([dryHireLog]);
+  check('16. dry hire operator snapshot (both null) is valid with cost 0', dryHireCost === 0);
+
+  // b) Wet hire hourly: rate + 'hourly' = valid
+  const wetHourlyLog = { effectiveHours: 8, date: '2026-09-01', operatorRateSnapshot: 75_000, operatorRateTypeSnapshot: 'hourly' };
+  const wetHourlyCost = calcOperatorCostFromSnapshots([wetHourlyLog]);
+  check('16. wet hire hourly operator snapshot is valid', wetHourlyCost === 600_000);
+
+  // c) Wet hire daily: rate + 'daily' = valid
+  const wetDailyLog = { effectiveHours: 8, date: '2026-09-01', operatorRateSnapshot: 500_000, operatorRateTypeSnapshot: 'daily' };
+  const wetDailyCost = calcOperatorCostFromSnapshots([wetDailyLog]);
+  check('16. wet hire daily operator snapshot is valid', wetDailyCost === 500_000);
+
+  // d) Incomplete or invalid operator snapshot = throws / rejected
+  let incompleteSnapshotRejected = false;
+  try {
+    calcOperatorCostFromSnapshots([{ effectiveHours: 8, date: '2026-09-01', operatorRateSnapshot: 75_000, operatorRateTypeSnapshot: null }]);
+  } catch {
+    incompleteSnapshotRejected = true;
+  }
+  check('16. operator rate present with missing type is rejected', incompleteSnapshotRejected);
+
+  let invalidSnapshotTypeRejected = false;
+  try {
+    calcOperatorCostFromSnapshots([{ effectiveHours: 8, date: '2026-09-01', operatorRateSnapshot: 75_000, operatorRateTypeSnapshot: 'weekly' }]);
+  } catch {
+    invalidSnapshotTypeRejected = true;
+  }
+  check('16. operator rate present with invalid type is rejected', invalidSnapshotTypeRejected);
+}
+
 if (failures) {
   console.error(`\n${failures} check(s) FAILED`);
   process.exit(1);
