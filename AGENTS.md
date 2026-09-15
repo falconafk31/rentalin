@@ -41,6 +41,8 @@ npm run lint                    # eslint — HARIS bersih (0 error, 0 warning)
 npx tsc --noEmit                # typecheck — HARIS lolos
 npm run build                   # SUDAH lolos tanpa DATABASE_URL (lazy-init) — verifikasi tetap dengan env -u DATABASE_URL
 npm audit                       # tidak boleh ada severity HIGH
+node scripts/finance-check.ts   # regresi finansial & M1.3 — HARUS lolos (0 FAIL)
+node scripts/bast-check.ts      # regresi siklus hidup & snapshot BAST (M4.1) — HARUS lolos (0 FAIL)
 ```
 
 ## 5. Aturan main (WAJIB — pelanggaran = PR ditolak)
@@ -56,7 +58,17 @@ npm audit                       # tidak boleh ada severity HIGH
 6. **UI & pesan error Bahasa Indonesia**; format uang/tanggal lewat `src/lib/format.ts`; jangan membuat landing page (`/` redirect ke dashboard, by design).
 7. **Definition of done:** lint + typecheck + build (tanpa env) + `npm audit` tanpa HIGH semuanya hijau, **lalu** perbarui status item terkait di `audit.md`/`roadmap.md` pada commit yang sama.
 8. **Gaya commit:** satu topik per commit, subjek ringkas Bahasa Indonesia (lihat `git log` untuk contoh).
-9. **Sebelum `import` ikon baru dari `lucide-react`, cek `docs/icon-map.md`** — satu konsep = satu ikon, jangan pakai ulang ikon yang sudah dipetakan ke konsep lain.h).
+9. **Sebelum `import` ikon baru dari `lucide-react`, cek `docs/icon-map.md`** — satu konsep = satu ikon, jangan pakai ulang ikon yang sudah dipetakan ke konsep lain.
+10. **BAST (`handovers`) — siklus hidup & snapshot historis (M4.1, migrasi 0027). Jangan dilanggar fitur berikutnya:**
+    - Status **satu arah `draft` → `final`**. Finalisasi hanya `admin`/`operations`, via `changeStatus('bast', id, 'final')` (transaksi + `SELECT … FOR UPDATE`, audit before/after). Jangan membuat setter status bebas.
+    - BAST `final` **beku**: seluruh isi & snapshot immutable. Hanya `draft` yang boleh diubah melalui `saveRecord('bast', …)`.
+    - `contractId`, `type`, `documentNumber` **immutable sejak pembuatan**, dijaga runtime `assertBastContentKeys()` (`src/lib/bast.ts`) — input UI yang di-disable bukan jaminan.
+    - BAST baru **WAJIB menulis snapshot historis** dari baris DB yang sudah divalidasi: `client_name_snapshot`, `unit_code_snapshot`, `unit_model_snapshot`, `rate_at_handover`. Snapshot **tidak pernah** berasal dari input klien; baris warisan NULL **tidak pernah** di-backfill dari nilai live.
+    - **PDF BAST memakai snapshot.** Snapshot NULL → tampilkan `Data historis tidak tersedia` / `Data tarif historis tidak tersedia` (fail-closed, pola M1.3). **Dilarang** menambahkan fallback ke kontrak/klien/unit/tarif yang berlaku sekarang, termasuk lewat variabel template (`{{nama_klien}}`, `{{tarif_per_jam}}`, `{{nama_pic_klien}}`).
+    - Validasi tanggal: BAST wajib berada di dalam periode kontrak, dan `mobilisasi ≤ demobilisasi` (divalidasi server-side di dalam transaksi; pembuatan BAST mengunci baris kontrak `FOR UPDATE`).
+    - **BAST = bukti operasional saja.** BAST tidak boleh mengubah total invoice, snapshot tarif timesheet, atau tarif kontrak, dan tidak boleh menjadi sumber tagihan tersembunyi — sumber finansial tetap M1.3 (Contract → Approved Timesheet Snapshot → Invoice → PDF).
+    - Foto BAST tetap di Supabase Storage bucket `bast-photos` (migrasi 0012); jangan pindahkan ke R2 tanpa migrasi baru.
+    - Uji wajib: `node scripts/bast-check.ts` (dijalankan CI bersama `finance-check.ts`).
 
 ## 6. Status terakhir (per 15 September 2026)
 
@@ -77,6 +89,15 @@ npm audit                       # tidak boleh ada severity HIGH
 - ✅ **M3 / M3.1 · Penguatan Skema & Validasi Kontrak/Timesheet (PR #30)** —
   - Check constraint Drizzle di `src/db/schema.ts` disinkronkan penuh untuk `contracts` (`rate_per_hour > 0`, `operator_rate_type IN ('hourly', 'daily')`), `timesheets` (`timesheets_operator_snapshot_consistent`), dan `operators` (`rate_per_hour >= 0`, `rate_per_day >= 0`, `default_rate_type IN ('hourly', 'daily')`, `status IN ('active', 'inactive')`).
   - Uji regresi finansial & batas operasional di `scripts/finance-check.ts` diperluas menjadi **86/86 assertions PASS** across 16 skenario.
+- ✅ **M4 / M4.1 · Siklus Hidup & Snapshot Historis BAST (migrasi 0027)** —
+  - Audit read-only M4 (tanpa perubahan kode) menemukan F1 (BAST dapat diubah setelah dibuat) & F2 (PDF BAST membaca kontrak/klien/unit live) sebagai P1.
+  - `handovers.status` (`draft`/`final`, CHECK) + snapshot historis `client_name_snapshot`, `unit_code_snapshot`, `unit_model_snapshot`, `rate_at_handover` (nullable, CHECK tarif > 0).
+  - `contractId`/`type`/`documentNumber` immutable sejak pembuatan (guard runtime `assertBastContentKeys`); BAST `final` beku seluruhnya.
+  - Validasi tanggal: BAST wajib di dalam periode kontrak (`mobilisasi ≤ demobilisasi`), divalidasi di dalam transaksi yang mengunci baris kontrak `FOR UPDATE`.
+  - Finalisasi eksplisit `draft → final` lewat `changeStatus('bast', …)`: transaksi, `SELECT … FOR UPDATE`, audit before/after, finalisasi ulang ditolak, bukan setter status generik.
+  - PDF BAST (termasuk variabel template) memakai snapshot historis dengan fail-closed "Data historis tidak tersedia" / "Data tarif historis tidak tersedia" — tidak pernah jatuh ke data live.
+  - Regresi baru `scripts/bast-check.ts` (**45 assertion**, dijalankan CI) di samping `finance-check.ts` yang tetap 0 FAIL.
+  - Migrasi 0027 **belum dijalankan di produksi** (review terpisah). Baris lama tetap `draft` dengan snapshot NULL dan difinalkan secara eksplisit oleh admin/operations.
 - ⏭️ **Berikutnya**:
   - Deploy bucket R2 + Cloudflare Worker Media API (operator, panduan di `media-worker/README.md`) + set `MEDIA_API_URL`.
   - Lanjutkan isu Fase 0 & Fase 2 sesuai prioritas di `roadmap.md` (mis. audit log viewer per-record, notifikasi jatuh tempo otomatis).

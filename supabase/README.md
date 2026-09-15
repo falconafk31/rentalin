@@ -72,7 +72,8 @@ supabase/
 │   ├── 0023_media_files.sql               tabel media_files + RLS (dependen 0001/0003/0004)
 │   ├── 0024_operators.sql                 tabel operators + contract_operators + RLS (dependen 0001/0003)
 │   ├── 0025_invoice_operator_amount.sql   kolom operator_amount di invoices (dependen 0002)
-│   └── 0026_timesheet_billing_snapshots.sql kolom snapshot tarif pada timesheets (dependen 0002/0024)
+│   ├── 0026_timesheet_billing_snapshots.sql kolom snapshot tarif pada timesheets (dependen 0002/0024)
+│   └── 0027_bast_lifecycle_snapshots.sql status draft/final + snapshot historis BAST (dependen 0002/0006/0021)
 │
 ├── seed/
 │   └── bootstrap_settings.sql           baris awal company_settings (kop surat);
@@ -289,6 +290,7 @@ Lanjut ke §7 (change management) — alur ini yang dipakai selamanya setelah go
 | 24 | `0024_operators.sql` | Tabel `operators` (registri personel: SIO/SIM/tarif) + `contract_operators` (assignment M:N) + RLS + indeks | #1 (contracts, fleet, profiles) + #3 |
 | 25 | `0025_invoice_operator_amount.sql` | Kolom `operator_amount` di `invoices` (pecahan biaya operator dari total tagihan) | #2 (invoices) |
 | 26 | `0026_timesheet_billing_snapshots.sql` | Kolom snapshot tarif pada `timesheets` (`billing_rate_snapshot`, `operator_rate_snapshot`, `operator_rate_type_snapshot`) + backfill konservatif | #2 (timesheets) + #24 (operator fields) |
+| 27 | `0027_bast_lifecycle_snapshots.sql` | Kolom `status` (`draft`/`final`, CHECK) + snapshot historis BAST (`client_name_snapshot`, `unit_code_snapshot`, `unit_model_snapshot`, `rate_at_handover`, CHECK tarif > 0) + indeks status. **Tanpa backfill** (fail-closed pola 0026: baris lama tetap `draft` & snapshot NULL) | #2 (handovers) + #6 (checklist) + #21 (unique) |
 
 ```
 0001 ──► 0002 ──► 0004       0009, 0014 ──► 0016
@@ -304,6 +306,7 @@ Lanjut ke §7 (change management) — alur ini yang dipakai selamanya setelah go
        0024 (setelah 0001/0003)
        0025 (setelah 0002)
        0026 (setelah 0002/0024)
+       0027 (setelah 0002/0006/0021)
 ```
 
 Perbandingan dengan `schema.sql` lama: **isi SQL identik**, hanya dipecah berurutan + diberi header dependensi + file indeks tambahan. `schema.sql` di root kini berstatus *snapshot legacy* (§3).

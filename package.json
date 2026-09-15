@@ -6,7 +6,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:bast": "node scripts/bast-check.ts",
+    "test:finance": "node scripts/finance-check.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",

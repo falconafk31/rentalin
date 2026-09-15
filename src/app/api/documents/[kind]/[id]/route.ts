@@ -4,6 +4,8 @@ import { db } from '@/db';
 import * as s from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { getDocumentBundle, getTemplate, templateContent, templateVars, applyTemplateVars, type TemplateKind } from '@/lib/data';
+// M4.1 (migrasi 0027): PDF BAST dibangun dari snapshot historis, bukan data live.
+import { bastSnapshotRows, bastClientName, readBastSnapshot, BAST_RATE_HISTORY_UNAVAILABLE } from '@/lib/bast';
 import { BusinessDocument, type PdfData } from '@/components/pdf-document';
 import { dateLabel, fullDateLabel, money, labels } from '@/lib/format';
 import { angkaKeKata, rupiahKeKata } from '@/lib/terbilang';
@@ -60,18 +62,37 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
  // identitas PIHAK PERTAMA (penyedia — wakil: penandatangan perusahaan) dan
  // PIHAK KEDUA (penyewa — wakil: PIC klien), klausul rangkap 2, serta 3 blok
  // tanda tangan (menyerahkan/menerima/mengetahui).
+ // M4.1 §7: dokumen BAST memakai SNAPSHOT HISTORIS, bukan data live.
+ // FAIL-CLOSED: snapshot NULL (baris warisan pra-0027) tidak pernah diganti
+ // nama klien/kode unit/model/tarif yang berlaku sekarang — pola M1.3.
+ const bastSnapshot=handover?readBastSnapshot(handover):null;
+ const bastName=handover?bastClientName(handover):client.companyName;
+ // Alamat/PIC klien bukan bagian dari snapshot (M4.1 §1): hanya ditampilkan
+ // bila nama klien historis terbukti ada, agar dokumen lama tidak mencampur
+ // data live dengan klaim historis.
+ const bastHasHistoricalClient=Boolean(bastSnapshot?.clientName);
+ const bastAddress=handover?(bastHasHistoricalClient?client.address||'':''):client.address||'';
+ const bastPic=handover?(bastHasHistoricalClient?client.picName:undefined):client.picName;
  const parties=handover?{
   openingDate:fullDateLabel(handover.date,tz),
   city:settings.city,
   first:{name:settings.companyName,address:settings.address,representative:settings.signerName||undefined,title:settings.signerTitle||undefined},
-  second:{name:client.companyName,address:client.address||'',representative:client.picName||undefined},
+  second:{name:bastName,address:bastAddress,representative:bastPic||undefined},
   type:handover.type==='demobilization'?'demobilization' as const:'mobilization' as const,
   contractNumber:contract.contractNumber,
  }:undefined;
-  const data:PdfData={title:invoice?'FAKTUR TAGIHAN':handover?'BERITA ACARA SERAH TERIMA':agreement?'SURAT PERJANJIAN SEWA MENYEWA ALAT BERAT':'SURAT PENAWARAN HARGA',number:invoice?.invoiceNumber||handover?.documentNumber||agreement?.number||contract.contractNumber.replace('KTR','SPH'),company:settings,clientName:client.companyName,clientAddress:client.address||'',clientPic:client.picName,date:dateLabel(invoice?.issueDate||handover?.date||contract.createdAt,tz),reference:contract.contractNumber,qrPath,qrSize:size+margin*2,verifyUrl,rows:[{label:'Kode unit alat berat',value:unit.unitCode},{label:'Merek / model',value:unit.brandModel},{label:'Kategori',value:unit.category}],notes:'',parties,agreement,operatorInfo:bundle.operatorInfo};
+  const data:PdfData={title:invoice?'FAKTUR TAGIHAN':handover?'BERITA ACARA SERAH TERIMA':agreement?'SURAT PERJANJIAN SEWA MENYEWA ALAT BERAT':'SURAT PENAWARAN HARGA',number:invoice?.invoiceNumber||handover?.documentNumber||agreement?.number||contract.contractNumber.replace('KTR','SPH'),company:settings,clientName:bastName,clientAddress:bastAddress,clientPic:bastPic,date:dateLabel(invoice?.issueDate||handover?.date||contract.createdAt,tz),reference:contract.contractNumber,qrPath,qrSize:size+margin*2,verifyUrl,rows:handover?bastSnapshotRows(handover,money):[{label:'Kode unit alat berat',value:unit.unitCode},{label:'Merek / model',value:unit.brandModel},{label:'Kategori',value:unit.category}],notes:'',parties,agreement,operatorInfo:bundle.operatorInfo};
  // Template dinamis (Pengaturan > Template PDF): nilai {{variabel}} diisi
  // dari dokumen aktif; kosong → fallback hardcoded di bawah tidak berubah.
  const vars=templateVars(bundle,data.date,data.number);
+ // M4.1 §7: variabel template pada dokumen BAST juga wajib historis. Tanpa ini
+ // {{nama_klien}} / {{tarif_per_jam}} / {{nama_pic_klien}} pada template yang
+ // dipublikasikan akan menarik data kontrak/klien yang berlaku sekarang.
+ if(handover){
+  vars.nama_klien=bastName;
+  vars.tarif_per_jam=bastSnapshot&&bastSnapshot.rate!==null?money(bastSnapshot.rate):BAST_RATE_HISTORY_UNAVAILABLE;
+  vars.nama_pic_klien=bastHasHistoricalClient?(client.picName||''):'';
+ }
  const tv=(key:string)=>tpl?.[key]?applyTemplateVars(tpl[key],vars):undefined;
  if(invoice){
   const hours=bundle.hours??0;

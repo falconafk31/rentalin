@@ -22,6 +22,13 @@ import {
   round2 
 } from '@/lib/finance';
 import { nextDocNumber } from '@/lib/docnum';
+// M4.1 (migrasi 0027): aturan siklus hidup draft→final + snapshot historis BAST.
+// Seluruh guard bersifat server-side; helper diuji di scripts/bast-check.ts.
+import {
+  type BastType, isBastType, isBastEditable, canFinalizeBast, assertBastContentKeys,
+  buildBastSnapshotValues, validateBastDate,
+  BAST_DEFAULT_STATUS, BAST_FINAL_LOCK_MESSAGE, BAST_ALREADY_FINAL_MESSAGE,
+} from '@/lib/bast';
 
 export type ActionResult = { success: boolean; message: string; fieldErrors?: Record<string, string> };
 const operationRoles = ['admin','operations'];
@@ -165,10 +172,11 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
    const driverId=text(form,'operatorDriverId');if(driverId&&!UUID_RE.test(driverId))throw new FieldError({operatorDriverId:'Operator tidak valid.'});if(driverId){const [drv]=await db.select({id:s.operators.id,status:s.operators.status}).from(s.operators).where(eq(s.operators.id,driverId));if(!drv)throw new FieldError({operatorDriverId:'Operator tidak ditemukan.'});if(drv.status!=='active')throw new FieldError({operatorDriverId:'Operator tidak aktif.'});}await db.insert(s.timesheets).values({contractId,unitId:contract.unitId,operatorId:user.id,operatorDriverId:driverId||null,date,startHm:String(startHm),endHm:String(endHm),breakdownHours:String(breakdownHours),notes:text(form,'notes'),status:'pending'});
    await logAudit({ ...actor, action: 'create', entity: 'timesheets', summary: `Mencatat jam kerja ${date} untuk ${contract.contractNumber}` });
   } else if(module==='bast') {
-   const type=required(form,'type');if(!['mobilization','demobilization'].includes(type))throw new FieldError({type:'Jenis serah terima tidak valid.'});
+   const type=required(form,'type');if(!isBastType(type))throw new FieldError({type:'Jenis serah terima tidak valid.'});
    const contractId=text(form,'contractId');if(!contractId)throw new FieldError({contractId:'Kontrak wajib dipilih.'});
-   const [contract]=await db.select().from(s.contracts).where(eq(s.contracts.id,contractId));
-   if(!contract||contract.status!=='active')throw new FieldError({contractId:'Kontrak tidak aktif.'});
+   // M4.1: keberadaan kontrak, status aktif, periode kontrak, dan urutan
+   // mobilisasi/demobilisasi divalidasi DI DALAM transaksi setelah baris
+   // kontrak dikunci — bukan dari klaim client.
    const check=(k:string)=>form.get(k)==='on';
    let photoUrls: string[] = [];
    const rawPhotos = text(form,'photoUrls');
@@ -180,19 +188,44 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
     } catch { throw new FieldError({ photos: 'Lampiran foto tidak valid. Unggah ulang foto.' }); }
    }
    const values={date:validDate(form,'date'),engine:check('engine'),hydraulics:check('hydraulics'),tracks:check('tracks'),oil:check('oil'),fuel:check('fuel'),battery:check('battery'),lights:check('lights'),brakes:check('brakes'),bucket:check('bucket'),cabin:check('cabin'),safety:check('safety'),documents:check('documents'),notes:text(form,'notes'),photoUrls};
+   // M4.1 §6: contractId/type/documentNumber/status/snapshot TIDAK PERNAH
+   // berasal dari form — guard runtime, bukan sekadar UI disabled.
+   assertBastContentKeys(values);
    if(id){
-    const [existing]=await db.select({documentNumber:s.handovers.documentNumber}).from(s.handovers).where(eq(s.handovers.id,id));
-    if(!existing)throw new Error('BAST tidak ditemukan.');
-    await db.update(s.handovers).set(values).where(eq(s.handovers.id,id));
-    await logAudit({ ...actor, action: 'update', entity: 'bast', entityId: id, summary: `Mengubah BAST ${existing.documentNumber}${photoUrls.length ? ` (${photoUrls.length} foto)` : ''}` });
+    await db.transaction(async tx=>{
+     // Lock baris BAST: penyuntingan bersamaan tidak saling menimpa dan status
+     // final tidak dapat dibalik.
+     const [existing]=await tx.select().from(s.handovers).where(eq(s.handovers.id,id)).for('update');
+     if(!existing)throw new Error('BAST tidak ditemukan.');
+     if(!isBastEditable(existing.status))throw new FieldError({id:BAST_FINAL_LOCK_MESSAGE});
+     const [contract]=await tx.select().from(s.contracts).where(eq(s.contracts.id,existing.contractId));
+     if(!contract)throw new Error('Kontrak BAST tidak ditemukan.');
+     const siblings=await tx.select({type:s.handovers.type,date:s.handovers.date}).from(s.handovers).where(eq(s.handovers.contractId,existing.contractId));
+     const dateErr=validateBastDate({date:values.date,contractStart:contract.startDate,contractEnd:contract.endDate,type:existing.type as BastType,mobilizationDate:siblings.find(h=>h.type==='mobilization')?.date??null,demobilizationDate:siblings.find(h=>h.type==='demobilization')?.date??null});
+     if(dateErr)throw new FieldError({date:dateErr});
+     await tx.update(s.handovers).set(values).where(eq(s.handovers.id,id));
+     await logAudit({ ...actor, action: 'update', entity: 'bast', entityId: id, summary: `Mengubah BAST ${existing.documentNumber}${photoUrls.length ? ` (${photoUrls.length} foto)` : ''}` });
+    });
    }else{
-    // Satu jenis satu BAST per kontrak: tolak mobilisasi/demobilisasi ganda.
-    const existing=await db.select({type:s.handovers.type}).from(s.handovers).where(eq(s.handovers.contractId,contractId));
-    if(existing.some(h=>h.type===type))throw new FieldError({type:type==='mobilization'?'BAST mobilisasi kontrak ini sudah ada.':'BAST demobilisasi kontrak ini sudah ada.'});
-    if(type==='demobilization'&&!existing.some(h=>h.type==='mobilization'))throw new FieldError({type:'Buat BAST mobilisasi terlebih dahulu sebelum demobilisasi.'});
     const docNo=await db.transaction(async tx=>{
+     // Lock kontrak FOR UPDATE: menserialisasi pembuatan BAST per kontrak dan
+     // selaras dengan reviseContract (revisi juga mengunci baris kontrak).
+     const [contract]=await tx.select().from(s.contracts).where(eq(s.contracts.id,contractId)).for('update');
+     if(!contract)throw new FieldError({contractId:'Kontrak tidak ditemukan.'});
+     if(contract.status!=='active')throw new FieldError({contractId:'Kontrak tidak aktif.'});
+     // Satu jenis satu BAST per kontrak: tolak mobilisasi/demobilisasi ganda.
+     const siblings=await tx.select({type:s.handovers.type,date:s.handovers.date}).from(s.handovers).where(eq(s.handovers.contractId,contractId));
+     if(siblings.some(h=>h.type===type))throw new FieldError({type:type==='mobilization'?'BAST mobilisasi kontrak ini sudah ada.':'BAST demobilisasi kontrak ini sudah ada.'});
+     const mobilization=siblings.find(h=>h.type==='mobilization');
+     if(type==='demobilization'&&!mobilization)throw new FieldError({type:'Buat BAST mobilisasi terlebih dahulu sebelum demobilisasi.'});
+     const dateErr=validateBastDate({date:values.date,contractStart:contract.startDate,contractEnd:contract.endDate,type,mobilizationDate:mobilization?.date??null});
+     if(dateErr)throw new FieldError({date:dateErr});
+     // Snapshot historis diambil dari baris DB yang baru divalidasi (M4.1 §3).
+     const [client]=await tx.select({companyName:s.clients.companyName}).from(s.clients).where(eq(s.clients.id,contract.clientId));
+     const [unit]=await tx.select({unitCode:s.fleet.unitCode,brandModel:s.fleet.brandModel}).from(s.fleet).where(eq(s.fleet.id,contract.unitId));
+     const snapshot=buildBastSnapshotValues({clientName:client?.companyName,unitCode:unit?.unitCode,unitModel:unit?.brandModel,ratePerHour:contract.ratePerHour});
      const no=await nextDocNumber(tx,'BAST',s.handovers.documentNumber,s.handovers,todayISO(tz).slice(0,4));
-     await tx.insert(s.handovers).values({documentNumber:no,contractId,type,...values});
+     await tx.insert(s.handovers).values({documentNumber:no,contractId,type,status:BAST_DEFAULT_STATUS,...values,...snapshot});
      return no;
     });
     await logAudit({ ...actor, action: 'create', entity: 'bast', summary: `Membuat BAST ${docNo}${photoUrls.length ? ` (${photoUrls.length} foto)` : ''}` });
@@ -375,6 +408,23 @@ export async function changeStatus(module:string,id:string,status:string): Promi
   else if(module==='contracts'&&status==='completed')await db.transaction(async tx=>{const [c]=await tx.select().from(s.contracts).where(eq(s.contracts.id,id)).for('update');if(!c||c.status!=='active')throw new Error('Kontrak tidak aktif.');await tx.update(s.contracts).set({status}).where(eq(s.contracts.id,id));await tx.update(s.fleet).set({status:'available'}).where(eq(s.fleet.id,c.unitId));}).then(async ()=>{
    await logAudit({ ...actor, action: 'complete', entity: 'contracts', entityId: id, summary: 'Menyelesaikan kontrak; unit kembali tersedia' });
   });
+  else if(module==='bast'&&status==='final'){
+   // M4.1 §5: finalisasi eksplisit draft -> final (satu arah, bukan setter
+   // status generik). Role sudah dibatasi operationRoles (admin/operations)
+   // di atas. Atomik + SELECT ... FOR UPDATE; documentNumber, contractId,
+   // type, dan snapshot TIDAK disentuh — hanya status yang berubah.
+   let finalNumber='';
+   await db.transaction(async tx=>{
+    const [handover]=await tx.select().from(s.handovers).where(eq(s.handovers.id,id)).for('update');
+    if(!handover)throw new Error('BAST tidak ditemukan.');
+    if(!canFinalizeBast(handover.status))throw new Error(BAST_ALREADY_FINAL_MESSAGE);
+    finalNumber=handover.documentNumber;
+    await tx.update(s.handovers).set({status}).where(eq(s.handovers.id,id));
+    await logAudit({ ...actor, action: 'approve', entity: 'bast', entityId: id, summary: `Memfinalkan BAST ${finalNumber}`, before: { status: handover.status }, after: { status } });
+   });
+   revalidatePath('/dashboard','layout');
+   return {success:true,message:`BAST ${finalNumber} difinalkan dan terkunci.`};
+  }
   else throw new Error('Tindakan tidak diizinkan.');
   revalidatePath('/dashboard','layout');return {success:true,message:'Status berhasil diperbarui.'};
  }catch(e){const r=fail(e);return {success:r.success,message:r.message};}

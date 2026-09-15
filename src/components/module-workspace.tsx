@@ -13,6 +13,9 @@ import { money, dateLabel, dateTimeLabel, timeLabel, labels, todayISO, isPastDue
 import type { ModulePageData, ModuleRow, FleetRow, ClientRow, OperatorRow, ContractRow, TimesheetRow, HandoverRow, InvoiceRow, PaymentRow, CompanySettings, ModuleFilters } from '@/lib/data';
 import { MODULE_PAGE_SIZE } from '@/lib/pagination';
 import { remainingBalance } from '@/lib/finance';
+// M4.1: siklus hidup BAST (draft -> final). Guard sebenarnya ada di Server
+// Action; pemakaian di UI hanya agar tombol yang pasti ditolak tidak muncul.
+import { isBastEditable, canFinalizeBast } from '@/lib/bast';
 
 // G6 (audit 02): label tombol submit hidup di config — modul baru cukup
 // tambah 1 baris, bukan mengedit rantai ternary di form.
@@ -232,8 +235,8 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
     void loadOptions({ editingUnitId: String(contract.unitId || ''), contractId: String(contract.id || '') });
   }, [loadOptions]);
   const askStatus = useCallback((id: string, next: string) => setConfirm({
-    title: next === 'paid' ? 'Konfirmasi Pelunasan' : next === 'completed' ? 'Selesaikan Kontrak' : next === 'approved' ? 'Setujui Catatan Kerja' : 'Tolak Catatan Kerja',
-    text: next === 'paid' ? 'Pastikan pembayaran telah diterima sebelum menandai tagihan sebagai lunas.' : next === 'completed' ? 'Kontrak akan diselesaikan dan unit akan kembali tersedia untuk disewakan.' : 'Status catatan akan diperbarui. Pastikan jam kerja dan keterangan telah diperiksa.',
+    title: next === 'paid' ? 'Konfirmasi Pelunasan' : next === 'completed' ? 'Selesaikan Kontrak' : next === 'final' ? 'Finalkan BAST' : next === 'approved' ? 'Setujui Catatan Kerja' : 'Tolak Catatan Kerja',
+    text: next === 'paid' ? 'Pastikan pembayaran telah diterima sebelum menandai tagihan sebagai lunas.' : next === 'completed' ? 'Kontrak akan diselesaikan dan unit akan kembali tersedia untuk disewakan.' : next === 'final' ? 'BAST akan dikunci permanen: isi, nomor dokumen, dan data historis (klien, unit, tarif) tidak dapat diubah lagi. Lanjutkan hanya setelah dokumen diperiksa.' : 'Status catatan akan diperbarui. Pastikan jam kerja dan keterangan telah diperiksa.',
     action: () => changeStatus(module, id, next),
   }), [module]);
   const openPayments = useCallback((invoice: InvoiceRow) => {
@@ -330,9 +333,9 @@ export function ModuleWorkspace({ module, data, filters, initialOpen = false, in
           cells: [
             <div key="number"><b className="document-number">{h.documentNumber}</b><small className="cell-sub">Dicatat {dateTimeLabel(h.createdAt, tz)}{h.photoUrls.length > 0 && ` · ${h.photoUrls.length} foto`}</small></div>,
             <div key="contract">{h.contractNumber}<small className="cell-sub">{h.clientName}</small></div>,
-            dateLabel(h.date, tz), <Badge key="type" status={h.type} />,
+            dateLabel(h.date, tz), <div key="type" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><Badge status={h.type} /><Badge status={h.status} /></div>,
             <span key="condition" className={ok ? 'green' : 'amber-text'}>{ok ? 'Seluruh komponen baik' : 'Perlu perhatian'}</span>,
-            <div className="row-actions" key="doc"><PdfLink kind="bast" id={h.id} />{canWrite && <button className="icon-button" aria-label="Ubah BAST" title="Ubah BAST" onClick={() => edit(editableRecord)}><Pencil size={15} />Ubah</button>}</div>,
+            <div className="row-actions" key="doc"><PdfLink kind="bast" id={h.id} />{canWrite && isBastEditable(h.status) && <button className="icon-button" aria-label="Ubah BAST" title="Ubah BAST" onClick={() => edit(editableRecord)}><Pencil size={15} />Ubah</button>}{canWrite && canFinalizeBast(h.status) && <button className="icon-button green" aria-label="Finalkan BAST" title="Finalkan BAST — setelah final dokumen terkunci" onClick={() => askStatus(h.id, 'final')}><Check size={16} />Finalkan</button>}</div>,
           ],
         };
       });
