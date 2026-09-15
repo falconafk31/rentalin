@@ -199,7 +199,7 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
     const hours=logs.reduce((a,l)=>a+Number(l.effectiveHours),0);
     const operatorAmount=calcOperatorCost({includeOperator:!!contract.includeOperator,rateType:(contract.operatorRateType as 'hourly'|'daily'|null),rate:contract.operatorRate},logs.map(l=>({effectiveHours:l.effectiveHours??0,date:l.date})));
     const totals=calcInvoiceTotalsWithOperator(hours,Number(contract.ratePerHour),ppnRate,operatorAmount);
-    if(totals.subtotal<=0)throw new Error('Total jam efektif harus lebih dari nol.');
+    if(hours<=0)throw new Error('Total jam efektif harus lebih dari nol.');
     invoiceNo = await nextDocNumber(tx,'INV',s.invoices.invoiceNumber,s.invoices,todayISO(tz).slice(0,4));
     const [invoice]=await tx.insert(s.invoices).values({invoiceNumber:invoiceNo,contractId,subtotalAmount:totals.subtotal.toFixed(2),totalAmount:totals.total.toFixed(2),taxAmount:totals.tax.toFixed(2),taxRate:String(ppnRate),status:'unpaid',issueDate:todayISO(tz),dueDate,operatorAmount:operatorAmount.toFixed(2)}).returning();
     for(const log of logs)await tx.update(s.timesheets).set({invoiceId:invoice.id}).where(eq(s.timesheets.id,log.id));
