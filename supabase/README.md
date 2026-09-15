@@ -55,9 +55,24 @@ supabase/
 │   ├── 0006_bast_checklist.sql            9 kolom boolean BAST (migrasi 0006, tabel handovers)
 │   ├── 0007_contract_revisions.sql        tabel contract_revisions + RLS (dependen 0001/0003/0004)
 │   ├── 0008_signer_fields.sql             kolom signer_name + signer_title di company_settings (dependen 0002)
+│   ├── 0009_company_config.sql            tarif PPN + ambang peringatan dokumen (dependen 0002)
+│   ├── 0010_payments.sql                  tabel payments (ledger pembayaran) + RLS (dependen 0001)
+│   ├── 0011_audit_log.sql                 tabel audit_log (append-only) + RLS (dependen 0001)
+│   ├── 0012_bast_photos.sql               kolom photo_urls di handovers + bucket Storage (dependen 0002/0003)
+│   ├── 0013_user_invite_trigger.sql       trigger profil otomatis user undangan (dependen 0001)
+│   ├── 0014_invoice_tax_snapshot.sql      kolom subtotal_amount + tax_rate di invoices (dependen 0002)
+│   ├── 0015_payment_notes.sql             kolom notes di payments (dependen 0010)
+│   ├── 0016_invoice_snapshot_guard.sql    validasi + CHECK snapshot pajak historis (dependen 0014)
+│   ├── 0017_pagination_indexes.sql        indeks paginasi server-side (dependen 0002)
+│   ├── 0018_company_locale.sql            kota penandatanganan + zona waktu (dependen 0002)
+│   ├── 0019_payment_identity.sql          rekening bank, NPWP, KTP penandatangan (dependen 0002)
 │   ├── 0020_document_templates.sql        tabel document_templates + RLS + seed 4 template (dependen 0003/0004)
+│   ├── 0021_handover_uniqueness.sql       unique constraint BAST (contract_id, type) (dependen 0002/0006)
+│   ├── 0022_handover_uniqueness_idempotent.sql  guard idempoten 0021 (dependen 0021)
+│   ├── 0023_media_files.sql               tabel media_files + RLS (dependen 0001/0003/0004)
+│   ├── 0024_operators.sql                 tabel operators + contract_operators + RLS (dependen 0001/0003)
 │   ├── 0025_invoice_operator_amount.sql   kolom operator_amount di invoices (dependen 0002)
-│   └── 0026_timesheet_billing_snapshots.sql kolom snapshot tarif pada timesheets (billing_rate_snapshot, operator_rate_snapshot, operator_rate_type_snapshot)
+│   └── 0026_timesheet_billing_snapshots.sql kolom snapshot tarif pada timesheets (dependen 0002/0024)
 │
 ├── seed/
 │   └── bootstrap_settings.sql           baris awal company_settings (kop surat);
@@ -179,7 +194,7 @@ Verifikasi cepat setelah Tahap 1:
 
 ```sql
 SELECT table_name FROM information_schema.tables
-WHERE table_schema = 'public' ORDER BY table_name;   -- harapkan 8 tabel
+WHERE table_schema = 'public' ORDER BY table_name;   -- harapkan 15 tabel
 ```
 
 ### Tahap 2 · Auth & Provisioning User
@@ -231,8 +246,7 @@ Smoke test end-to-end (pakai akun per role):
 □ operations: approve/reject timesheet → selesaikan kontrak → unit kembali 'available'
 □ finance  : buat invoice dari jam disetujui → PDF terbit → tandai lunas
 □ semua    : unduh PDF invoice/SPH/BAST → pindai QR → /verify/doc tampil "Terverifikasi"
-□ negatif  : user tanpa profiles menolak; operator tak bisa akses /api/report & PDF invoice*
-            *pembatasan role route ini = item Fase 0.1 di roadmap.md (belum diterapkan)
+□ negatif  : user tanpa profiles menolak; operator tak bisa akses /api/report & PDF invoice
 □ /api/health ok; tidak ada error di log Vercel
 ```
 
@@ -257,17 +271,39 @@ Lanjut ke §7 (change management) — alur ini yang dipakai selamanya setelah go
 | 6 | `0006_bast_checklist.sql` | 9 kolom boolean BAST (`oil`…`documents`, NOT NULL DEFAULT TRUE) | #2 (tabel `handovers`) |
 | 7 | `0007_contract_revisions.sql` | Tabel `contract_revisions` + indeks + RLS (`staff_read` semua role, `operations_write` admin/operations) | #1 (`contracts`, `fleet`, `profiles`) + #3/#4 (fungsi & pola RLS) |
 | 8 | `0008_signer_fields.sql` | Kolom `signer_name` + `signer_title` di `company_settings` untuk blok TTD PDF | #2 (tabel `company_settings`) |
-| 9–21 | `0009`–`0021` | Konfigurasi PPN, ledger pembayaran, audit log, foto BAST, invite trigger, snapshot pajak + guard, indeks paginasi, locale, identitas dokumen, template PDF, uniqueness BAST | Lihat header tiap file |
+| 9 | `0009_company_config.sql` | Tarif PPN + ambang peringatan dokumen di `company_settings` (sebelumnya hardcode 11%) | #2 (company_settings) |
+| 10 | `0010_payments.sql` | Tabel `payments` (ledger pembayaran per transaksi, cicilan/penuh) + RLS + indeks | #1 (invoices, profiles) |
+| 11 | `0011_audit_log.sql` | Tabel `audit_log` (append-only, tanpa FK profiles) + RLS | #1 (profiles) |
+| 12 | `0012_bast_photos.sql` | Kolom `photo_urls` di `handovers` + bucket Storage privat `bast-photos` | #2 (handovers) + #3 |
+| 13 | `0013_user_invite_trigger.sql` | Trigger profil otomatis untuk user undangan (auth → profiles, anti eskalasi role) | #1 (profiles) |
+| 14 | `0014_invoice_tax_snapshot.sql` | Kolom `subtotal_amount` + `tax_rate` di `invoices` (snapshot pajak historis) + backfill | #2 (invoices) |
+| 15 | `0015_payment_notes.sql` | Kolom `notes` di `payments` | #10 (payments) |
+| 16 | `0016_invoice_snapshot_guard.sql` | Validasi + CHECK constraint snapshot pajak historis (gagal eksplisit, tanpa repair otomatis) | #14 (kolom subtotal/tax_rate) |
+| 17 | `0017_pagination_indexes.sql` | Indeks paginasi server-side (ORDER BY + filter status) untuk semua tabel utama | #2 (idempotent) |
+| 18 | `0018_company_locale.sql` | Kolom kota penandatanganan + zona waktu di `company_settings` | #2 (company_settings) |
+| 19 | `0019_payment_identity.sql` | Rekening bank, NPWP, No. KTP penandatangan di `company_settings` + `clients` | #2 (company_settings, clients) |
+| 20 | `0020_document_templates.sql` | Tabel `document_templates` + RLS + seed 4 template PDF | #3/#4 (fungsi & pola RLS) |
+| 21 | `0021_handover_uniqueness.sql` | Bersihkan duplikat BAST + unique constraint `(contract_id, type)` | #2 (handovers) + #6 |
 | 22 | `0022_handover_uniqueness_idempotent.sql` | Guard idempoten `handovers_contract_type_unique` (pola 0016) — aman di-rerun bila 0021 terputus parsial (error 42P07) | #21 |
 | 23 | `0023_media_files.sql` | Tabel `media_files` (metadata media layer; binary di Cloudflare R2) + indeks entity/status + RLS (baca semua role internal; tulis admin/operations/operator; hapus admin/operations). Lihat `docs/media-architecture.md` | #1 (profiles, fleet) + #3 (fungsi) + #4 (pola RLS) |
+| 24 | `0024_operators.sql` | Tabel `operators` (registri personel: SIO/SIM/tarif) + `contract_operators` (assignment M:N) + RLS + indeks | #1 (contracts, fleet, profiles) + #3 |
+| 25 | `0025_invoice_operator_amount.sql` | Kolom `operator_amount` di `invoices` (pecahan biaya operator dari total tagihan) | #2 (invoices) |
+| 26 | `0026_timesheet_billing_snapshots.sql` | Kolom snapshot tarif pada `timesheets` (`billing_rate_snapshot`, `operator_rate_snapshot`, `operator_rate_type_snapshot`) + backfill konservatif | #2 (timesheets) + #24 (operator fields) |
 
 ```
-0001 ──► 0002 ──► 0004
-  │        ▲       ▲
-  │        │       │
-  └─► 0003 ┘       │
-                   │
-       0005 (kapan pun setelah 0002)
+0001 ──► 0002 ──► 0004       0009, 0014 ──► 0016
+  │        ▲       ▲           │        0018, 0019
+  │        │       │           ▼
+  └─► 0003 ┘       │         0010 ──► 0015
+                   │         0011, 0012, 0013
+       0005 (setelah 0002)   0017 (setelah 0002)
+       0006 ──► 0021 ──► 0022
+       0008 (setelah 0002)
+       0020 (setelah 0003/0004)
+       0023 (setelah 0001/0003/0004)
+       0024 (setelah 0001/0003)
+       0025 (setelah 0002)
+       0026 (setelah 0002/0024)
 ```
 
 Perbandingan dengan `schema.sql` lama: **isi SQL identik**, hanya dipecah berurutan + diberi header dependensi + file indeks tambahan. `schema.sql` di root kini berstatus *snapshot legacy* (§3).
@@ -307,7 +343,7 @@ Aturan change management:
 
 ## 8. Matriks RLS Ringkas
 
-Kebijakan di `0004_rls_policies.sql` (berlaku untuk akses via Supabase Data API; aplikasi Drizzle berotorisasi sendiri di Server Actions):
+Kebijakan di `0004_rls_policies.sql` dan migrasi lanjutan (`0007`, `0010`, `0011`, `0020`, `0023`, `0024`) — berlaku untuk akses via Supabase Data API; aplikasi Drizzle berotorisasi sendiri di Server Actions:
 
 | Tabel | SELECT | INSERT | UPDATE | DELETE | Ketentuan khusus |
 |---|---|---|---|---|---|
@@ -320,8 +356,12 @@ Kebijakan di `0004_rls_policies.sql` (berlaku untuk akses via Supabase Data API;
 | `handovers` | semua role internal | admin, operations | admin, operations | admin, operations | — |
 | `contract_revisions` | semua role internal | admin, operations | admin, operations | admin, operations | Revisi = amandemen bernomor + alasan; tarif baru hanya untuk jam belum tertagih |
 | `company_settings` | semua role internal | admin | admin | admin | — |
+| `payments` | admin, operations, finance | admin, finance | admin, finance | admin, finance | Selaras invoices; operator tidak dapat melihat pembayaran |
+| `audit_log` | admin | semua role internal (INSERT only) | — | — | Append-only: tidak ada policy UPDATE/DELETE; immutable |
 | `document_templates` | semua role internal | admin | admin | admin | Template PDF dinamis; publish/rollback admin-only via Server Actions |
 | `media_files` | semua role internal | admin, operations, operator | admin, operations, operator | admin, operations | Metadata foto fleet (binary di R2, bukan DB); Worker Media API membaca via Data API (SELECT-only) — tulis hanya oleh Server Action aplikasi |
+| `operators` | semua role internal | admin, operations | admin, operations | admin, operations | Registri personel (SIO/SIM/tarif); cermin policy fleet |
+| `contract_operators` | semua role internal | admin, operations | admin, operations | admin, operations | Assignment operator ke kontrak (M:N) |
 
 ---
 
@@ -347,7 +387,7 @@ Kebijakan di `0004_rls_policies.sql` (berlaku untuk akses via Supabase Data API;
 Jalankan di SQL Editor Supabase setelah Tahap 1–2:
 
 ```sql
--- 1. Delapan tabel publik ada
+-- 1. Lima belas tabel publik ada
 SELECT table_name FROM information_schema.tables
 WHERE table_schema = 'public' ORDER BY table_name;
 
