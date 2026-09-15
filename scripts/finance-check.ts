@@ -2,9 +2,13 @@
 // Jalankan: node scripts/finance-check.ts   (Node 22.18+, tanpa flag/build)
 // Mengimpor util ASLI (bukan duplikat rumus) sehingga yang diuji adalah
 // kode produksi yang dipakai Server Actions dan pratinjau UI.
-import { calcInvoiceTotals, calcOperatorCost, calcInvoiceTotalsWithOperator, remainingBalance, resolveInvoiceStatus, normalizePaymentAmount } from '../src/lib/finance.ts';
+import { calcInvoiceTotals, calcOperatorCost, calcInvoiceTotalsWithOperator, remainingBalance, resolveInvoiceStatus, normalizePaymentAmount, calcEquipmentAmountFromSnapshots, calcOperatorCostFromSnapshots } from '../src/lib/finance.ts';
 
 let failures = 0;
+const assert = (cond: boolean, msg: string) => {
+  console.log(`${cond ? 'PASS' : 'FAIL'}  ${msg}`);
+  if (!cond) failures++;
+};
 const check = (name: string, cond: boolean, detail = '') => {
   console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}${detail ? `  [${detail}]` : ''}`);
   if (!cond) failures++;
@@ -77,4 +81,25 @@ if (failures) {
   console.error(`\n${failures} check(s) FAILED`);
   process.exit(1);
 }
+// M1.3: Uji snapshot tarif catatan kerja (historical integrity)
+{
+  const logsHourly = [
+    { effectiveHours: 10, billingRateSnapshot: 500_000, date: '2026-09-01', operatorRateSnapshot: 100_000, operatorRateTypeSnapshot: 'hourly' },
+    { effectiveHours: 5.5, billingRateSnapshot: 600_000, date: '2026-09-02', operatorRateSnapshot: 120_000, operatorRateTypeSnapshot: 'hourly' },
+  ];
+  const eqTotal = calcEquipmentAmountFromSnapshots(logsHourly);
+  assert(eqTotal === 8_300_000, `snapshot equipment = 10x500k + 5.5x600k = 8.300.000 [${eqTotal}]`);
+
+  const opTotalHourly = calcOperatorCostFromSnapshots(logsHourly);
+  assert(opTotalHourly === 1_660_000, `snapshot operator hourly = 10x100k + 5.5x120k = 1.660.000 [${opTotalHourly}]`);
+
+  const logsDaily = [
+    { effectiveHours: 8, billingRateSnapshot: 500_000, date: '2026-09-01', operatorRateSnapshot: 300_000, operatorRateTypeSnapshot: 'daily' },
+    { effectiveHours: 4, billingRateSnapshot: 500_000, date: '2026-09-01', operatorRateSnapshot: 300_000, operatorRateTypeSnapshot: 'daily' }, // same day
+    { effectiveHours: 8, billingRateSnapshot: 500_000, date: '2026-09-02', operatorRateSnapshot: 350_000, operatorRateTypeSnapshot: 'daily' }, // revised daily rate
+  ];
+  const opTotalDaily = calcOperatorCostFromSnapshots(logsDaily);
+  assert(opTotalDaily === 650_000, `snapshot operator daily = 1x300k (unique date) + 1x350k = 650.000 [${opTotalDaily}]`);
+}
+
 console.log('\nSemua uji finansial lolos.');

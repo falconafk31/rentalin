@@ -9,7 +9,7 @@ import { isMediaConfigured, MediaApiError, requestMediaUploadUrl, completeMediaU
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { todayISO, money, resolveTz, type AppTimezone } from '@/lib/format';
-import { calcInvoiceTotals, calcOperatorCost, calcInvoiceTotalsWithOperator, remainingBalance, resolveInvoiceStatus, normalizePaymentAmount } from '@/lib/finance';
+import { calcInvoiceTotals, calcOperatorCost, calcInvoiceTotalsWithOperator, remainingBalance, resolveInvoiceStatus, normalizePaymentAmount, calcEquipmentAmountFromSnapshots, calcOperatorCostFromSnapshots, round2 } from '@/lib/finance';
 import { nextDocNumber } from '@/lib/docnum';
 
 export type ActionResult = { success: boolean; message: string; fieldErrors?: Record<string, string> };
@@ -194,14 +194,56 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
    await db.transaction(async tx=>{
     const [contract]=await tx.select().from(s.contracts).where(eq(s.contracts.id,contractId)).for('update');
     if(!contract)throw new Error('Kontrak tidak ditemukan.');
-    const logs=await tx.select().from(s.timesheets).where(and(eq(s.timesheets.contractId,contractId),eq(s.timesheets.status,'approved'),isNull(s.timesheets.invoiceId))).for('update');
+    
+    // M1.3: Select timesheets WITH billing snapshots
+    const logs=await tx.select({
+      id: s.timesheets.id,
+      effectiveHours: s.timesheets.effectiveHours,
+      date: s.timesheets.date,
+      billingRateSnapshot: s.timesheets.billingRateSnapshot,
+      operatorRateSnapshot: s.timesheets.operatorRateSnapshot,
+      operatorRateTypeSnapshot: s.timesheets.operatorRateTypeSnapshot
+    }).from(s.timesheets).where(and(
+      eq(s.timesheets.contractId,contractId),
+      eq(s.timesheets.status,'approved'),
+      isNull(s.timesheets.invoiceId)
+    )).for('update');
+    
     if(!logs.length)throw new FieldError({contractId:'Tidak ada jam kerja disetujui yang belum ditagihkan.'});
-    const hours=logs.reduce((a,l)=>a+Number(l.effectiveHours),0);
-    const operatorAmount=calcOperatorCost({includeOperator:!!contract.includeOperator,rateType:(contract.operatorRateType as 'hourly'|'daily'|null),rate:contract.operatorRate},logs.map(l=>({effectiveHours:l.effectiveHours??0,date:l.date})));
-    const totals=calcInvoiceTotalsWithOperator(hours,Number(contract.ratePerHour),ppnRate,operatorAmount);
-    if(hours<=0)throw new Error('Total jam efektif harus lebih dari nol.');
+
+    // M1.3: Validate all timesheets have billing snapshots
+    const missingSnapshot = logs.filter(l => !l.billingRateSnapshot);
+    if (missingSnapshot.length > 0) {
+      throw new Error(`${missingSnapshot.length} catatan kerja tanpa snapshot tarif. Hubungi administrator.`);
+    }
+
+    // M1.3: Calculate from snapshots, NOT current contract rates
+    const equipmentAmount = calcEquipmentAmountFromSnapshots(logs);
+    const operatorAmount = calcOperatorCostFromSnapshots(logs);
+    const totalHours = logs.reduce((a,l)=>a+Number(l.effectiveHours),0);
+
+    // Calculate invoice totals
+    const subtotal = round2(equipmentAmount + operatorAmount);
+    const tax = round2((subtotal * ppnRate) / 100);
+    const total = round2(subtotal + tax);
+
+    if(totalHours<=0)throw new Error('Total jam efektif harus lebih dari nol.');
+    
     invoiceNo = await nextDocNumber(tx,'INV',s.invoices.invoiceNumber,s.invoices,todayISO(tz).slice(0,4));
-    const [invoice]=await tx.insert(s.invoices).values({invoiceNumber:invoiceNo,contractId,subtotalAmount:totals.subtotal.toFixed(2),totalAmount:totals.total.toFixed(2),taxAmount:totals.tax.toFixed(2),taxRate:String(ppnRate),status:'unpaid',issueDate:todayISO(tz),dueDate,operatorAmount:operatorAmount.toFixed(2)}).returning();
+    const [invoice]=await tx.insert(s.invoices).values({
+      invoiceNumber:invoiceNo,
+      contractId,
+      subtotalAmount:subtotal.toFixed(2),
+      totalAmount:total.toFixed(2),
+      taxAmount:tax.toFixed(2),
+      taxRate:String(ppnRate),
+      status:'unpaid',
+      issueDate:todayISO(tz),
+      dueDate,
+      operatorAmount:operatorAmount.toFixed(2)
+    }).returning();
+    
+    // Lock timesheets to invoice
     for(const log of logs)await tx.update(s.timesheets).set({invoiceId:invoice.id}).where(eq(s.timesheets.id,log.id));
    });
    await logAudit({ ...actor, action: 'create', entity: 'invoices', summary: `Menerbitkan ${invoiceNo} (PPN ${ppnRate}%)` });
@@ -261,9 +303,65 @@ export async function changeStatus(module:string,id:string,status:string): Promi
   const tz = await companyTz();
   const actor = { actorId: user.id, actorName: user.fullName };
   if(module==='timesheets'&&['approved','rejected'].includes(status)){
-   const updated=await db.update(s.timesheets).set({status}).where(and(eq(s.timesheets.id,id),eq(s.timesheets.status,'pending'),isNull(s.timesheets.invoiceId))).returning();
-   if(!updated.length)throw new Error('Catatan ini sudah diproses.');
-   await logAudit({ ...actor, action: status==='approved'?'approve':'reject', entity: 'timesheets', entityId: id, summary: `${status==='approved'?'Menyetujui':'Menolak'} catatan kerja ${updated[0].date}` });
+   // M1.3: Capture billing rate snapshots on approval (freeze billing rates)
+   await db.transaction(async tx => {
+    // Lock timesheet row
+    const [timesheet] = await tx.select({
+      id: s.timesheets.id,
+      contractId: s.timesheets.contractId,
+      status: s.timesheets.status,
+      invoiceId: s.timesheets.invoiceId,
+      date: s.timesheets.date
+    }).from(s.timesheets).where(eq(s.timesheets.id, id)).for('update');
+
+    if (!timesheet) throw new Error('Catatan kerja tidak ditemukan.');
+    if (timesheet.status !== 'pending') throw new Error('Catatan ini sudah diproses.');
+    if (timesheet.invoiceId) throw new Error('Catatan ini sudah ditagihkan.');
+
+    // If approving, capture billing snapshots from contract
+    let snapshots: Record<string, unknown> = {};
+    if (status === 'approved') {
+      // Lock contract to prevent concurrent revision
+      const [contract] = await tx.select({
+        ratePerHour: s.contracts.ratePerHour,
+        includeOperator: s.contracts.includeOperator,
+        operatorRate: s.contracts.operatorRate,
+        operatorRateType: s.contracts.operatorRateType
+      }).from(s.contracts).where(eq(s.contracts.id, timesheet.contractId)).for('update');
+
+      if (!contract) throw new Error('Kontrak tidak ditemukan.');
+
+      // Validate wet-hire operator data
+      if (contract.includeOperator) {
+        if (!contract.operatorRate || !contract.operatorRateType) {
+          throw new Error('Kontrak wet-hire harus memiliki tarif dan tipe operator.');
+        }
+        if (!['hourly','daily'].includes(contract.operatorRateType)) {
+          throw new Error('Tipe tarif operator tidak valid.');
+        }
+      }
+
+      snapshots = {
+        billingRateSnapshot: contract.ratePerHour,
+        operatorRateSnapshot: contract.includeOperator ? contract.operatorRate : null,
+        operatorRateTypeSnapshot: contract.includeOperator ? contract.operatorRateType : null
+      };
+    }
+
+    // Update status + snapshots atomically
+    const updated = await tx.update(s.timesheets).set({ status, ...snapshots })
+      .where(eq(s.timesheets.id, id)).returning();
+
+    if (!updated.length) throw new Error('Gagal memperbarui status.');
+
+    await logAudit({ 
+      ...actor, 
+      action: status==='approved'?'approve':'reject', 
+      entity: 'timesheets', 
+      entityId: id, 
+      summary: `${status==='approved'?'Menyetujui':'Menolak'} catatan kerja ${updated[0].date}` 
+    });
+   });
   }else if(module==='invoices'&&status==='paid'){
    // Ledger tetap konsisten: pelunasan manual ikut tercatat sebagai baris pembayaran.
    await db.transaction(async tx=>{

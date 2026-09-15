@@ -55,7 +55,9 @@ supabase/
 │   ├── 0006_bast_checklist.sql            9 kolom boolean BAST (migrasi 0006, tabel handovers)
 │   ├── 0007_contract_revisions.sql        tabel contract_revisions + RLS (dependen 0001/0003/0004)
 │   ├── 0008_signer_fields.sql             kolom signer_name + signer_title di company_settings (dependen 0002)
-│   └── 0020_document_templates.sql        tabel document_templates + RLS + seed 4 template (dependen 0003/0004)
+│   ├── 0020_document_templates.sql        tabel document_templates + RLS + seed 4 template (dependen 0003/0004)
+│   ├── 0025_invoice_operator_amount.sql   kolom operator_amount di invoices (dependen 0002)
+│   └── 0026_timesheet_billing_snapshots.sql kolom snapshot tarif pada timesheets (billing_rate_snapshot, operator_rate_snapshot, operator_rate_type_snapshot)
 │
 ├── seed/
 │   └── bootstrap_settings.sql           baris awal company_settings (kop surat);

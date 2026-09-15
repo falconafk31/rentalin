@@ -1,5 +1,8 @@
 import { renderToBuffer } from '@react-pdf/renderer';
 import QRCode from 'qrcode';
+import { db } from '@/db';
+import * as s from '@/db/schema';
+import { eq } from 'drizzle-orm';
 import { getDocumentBundle, getTemplate, templateContent, templateVars, applyTemplateVars, type TemplateKind } from '@/lib/data';
 import { BusinessDocument, type PdfData } from '@/components/pdf-document';
 import { dateLabel, fullDateLabel, money, labels } from '@/lib/format';
@@ -74,8 +77,42 @@ export async function GET(request:Request,{params}:{params:Promise<{kind:string;
   const hours=bundle.hours??0;
   const history=bundle.payments??[];
   const paidTotal=history.reduce((a,p)=>a+Number(p.amount),0);
-  data.rows.push({label:'Tarif sewa per jam',value:money(contract.ratePerHour)});
-if(Number(invoice.operatorAmount??0)>0)data.rows.push({label:'Jasa operator (wet hire)',value:money(invoice.operatorAmount)});
+  
+  // M1.3: Query timesheet snapshots for historical rate display
+  const timesheetRates = await db.select({
+    billingRateSnapshot: s.timesheets.billingRateSnapshot,
+    effectiveHours: s.timesheets.effectiveHours
+  }).from(s.timesheets).where(eq(s.timesheets.invoiceId, invoice.id));
+
+  // Determine rate presentation
+  const uniqueRates: number[] = Array.from(new Set(
+    timesheetRates
+      .map(t => Number(t.billingRateSnapshot))
+      .filter(r => Number.isFinite(r) && r > 0)
+  ));
+
+  if (uniqueRates.length === 0) {
+    // Historical invoice pre-snapshot (legacy)
+    data.rows.push({label:'Tarif sewa',value:'Data tarif historis tidak tersedia'});
+  } else if (uniqueRates.length === 1) {
+    // Single rate - clean display
+    const rate = uniqueRates[0];
+    data.rows.push({label:'Tarif sewa per jam',value:money(rate)});
+  } else {
+    // Multiple rates - show breakdown
+    const rateBreakdown = uniqueRates
+      .sort((a, b) => b - a)
+      .map(rate => {
+        const rateHours = timesheetRates
+          .filter(t => Number(t.billingRateSnapshot) === rate)
+          .reduce((sum, t) => sum + Number(t.effectiveHours ?? 0), 0);
+        return `${rateHours.toLocaleString('id-ID')} jam × ${money(rate)}`;
+      })
+      .join(' + ');
+    data.rows.push({label:'Tarif sewa',value:rateBreakdown});
+  }
+
+  if(Number(invoice.operatorAmount??0)>0)data.rows.push({label:'Jasa operator (wet hire)',value:money(invoice.operatorAmount)});
   if(hours)data.rows.push({label:'Jumlah jam kerja efektif yang disetujui',value:`${hours.toLocaleString('id-ID')} jam`});
   else data.rows.push({label:'Dasar penagihan',value:'Sewa alat berat sesuai kontrak'});
   data.rows.push({label:'Status pembayaran',value:labels[invoice.status]});

@@ -5,7 +5,7 @@
 
 export type InvoiceTotals = { hours: number; subtotal: number; tax: number; total: number };
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
+export const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** Subtotal = jam × tarif; pajak = subtotal × tarif%; total = subtotal + pajak. */
 export function calcInvoiceTotals(hours: number, ratePerHour: number, ppnRate: number): InvoiceTotals {
@@ -89,4 +89,74 @@ export function resolveInvoiceStatus(
   if (dueDateISO < todayISOv) return 'overdue';
   if (paidTotal > 0.005) return 'partial';
   return 'unpaid';
+}
+
+/**
+ * Calculate equipment amount from timesheet billing rate snapshots.
+ * M1.3: Invoice billing uses frozen snapshots, never current contract rates.
+ */
+export function calcEquipmentAmountFromSnapshots(
+  logs: { effectiveHours: number | string | null; billingRateSnapshot: number | string | null }[]
+): number {
+  let total = 0;
+  for (const log of logs) {
+    const hours = Number(log.effectiveHours ?? 0);
+    const rate = Number(log.billingRateSnapshot ?? 0);
+    if (!Number.isFinite(hours) || !Number.isFinite(rate) || rate === 0) {
+      throw new Error('Invalid timesheet snapshot: missing or malformed billing_rate_snapshot');
+    }
+    total += hours * rate;
+  }
+  return round2(total);
+}
+
+/**
+ * Calculate operator cost from timesheet snapshots.
+ * Handles mixed rate types (hourly + daily) within single invoice.
+ * M1.3: Uses frozen snapshots from approval, never current contract/master rates.
+ */
+export function calcOperatorCostFromSnapshots(
+  logs: { 
+    effectiveHours: number | string | null; 
+    date: string;
+    operatorRateSnapshot: number | string | null;
+    operatorRateTypeSnapshot: string | null;
+  }[]
+): number {
+  // Separate hourly and daily logs
+  const hourlyLogs = logs.filter(l => l.operatorRateTypeSnapshot === 'hourly' && l.operatorRateSnapshot);
+  const dailyLogs = logs.filter(l => l.operatorRateTypeSnapshot === 'daily' && l.operatorRateSnapshot);
+
+  let hourlyTotal = 0;
+  let dailyTotal = 0;
+
+  // Hourly: sum (hours × rate) for each log
+  for (const log of hourlyLogs) {
+    const hours = Number(log.effectiveHours ?? 0);
+    const rate = Number(log.operatorRateSnapshot ?? 0);
+    if (!Number.isFinite(hours) || !Number.isFinite(rate)) {
+      throw new Error('Invalid hourly operator snapshot');
+    }
+    hourlyTotal += hours * rate;
+  }
+
+  // Daily: group by rate, count unique dates per rate
+  // Handles scenario: contract revised mid-period, different daily rates
+  const dailyRateGroups = new Map<number, Set<string>>();
+  for (const log of dailyLogs) {
+    const rate = Number(log.operatorRateSnapshot ?? 0);
+    if (!Number.isFinite(rate)) {
+      throw new Error('Invalid daily operator snapshot');
+    }
+    if (!dailyRateGroups.has(rate)) {
+      dailyRateGroups.set(rate, new Set());
+    }
+    dailyRateGroups.get(rate)!.add(log.date);
+  }
+
+  for (const [rate, dates] of dailyRateGroups) {
+    dailyTotal += dates.size * rate;
+  }
+
+  return round2(hourlyTotal + dailyTotal);
 }
