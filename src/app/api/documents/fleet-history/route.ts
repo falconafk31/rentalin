@@ -6,6 +6,7 @@ import { requireUser } from '@/lib/auth';
 import { getDetailedFleetHistory, type DetailedFleetHistory } from '@/lib/fleet-history';
 import { AllFleetsHistoryDocument } from '@/components/pdf-fleet-history';
 import { dateLabel } from '@/lib/format';
+import { MAX_FLEET_PDF_EXPORT_LIMIT } from '@/lib/fleet-history-helpers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,7 +21,17 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const unitsParam = url.searchParams.get('units');
-  const unitIds = unitsParam ? unitsParam.split(',').filter((u) => u.trim().length > 0) : [];
+  const unitIds = unitsParam ? unitsParam.split(',').map((u) => u.trim()).filter((u) => u.length > 0) : [];
+
+  // Validasi batas eksplisit: jika parameter ?units melampaui batas, tolak dengan 400 Bad Request
+  if (unitIds.length > MAX_FLEET_PDF_EXPORT_LIMIT) {
+    return Response.json(
+      {
+        message: `Jumlah unit yang dipilih (${unitIds.length}) melampaui batas maksimum ekspor PDF gabungan (${MAX_FLEET_PDF_EXPORT_LIMIT} unit). Silakan pilih unit lebih spesifik.`,
+      },
+      { status: 400 }
+    );
+  }
 
   let fleetRows: { id: string }[] = [];
   if (unitIds.length > 0) {
@@ -30,11 +41,21 @@ export async function GET(request: Request) {
       .where(inArray(s.fleet.id, unitIds))
       .orderBy(asc(s.fleet.unitCode));
   } else {
+    // Jika mengekspor seluruh armada, periksa apakah total armada melampaui batas aman
     fleetRows = await db
       .select({ id: s.fleet.id })
       .from(s.fleet)
       .orderBy(asc(s.fleet.unitCode))
-      .limit(50); // Batas wajar server-side agar memori PDF tidak meledak
+      .limit(MAX_FLEET_PDF_EXPORT_LIMIT + 1);
+
+    if (fleetRows.length > MAX_FLEET_PDF_EXPORT_LIMIT) {
+      return Response.json(
+        {
+          message: `Total armada (${fleetRows.length}+ unit) melampaui batas maksimum laporan gabungan (${MAX_FLEET_PDF_EXPORT_LIMIT} unit). Gunakan filter unit spesifik (?units=...) untuk menghasilkan PDF.`,
+        },
+        { status: 400 }
+      );
+    }
   }
 
   if (fleetRows.length === 0) {
@@ -43,7 +64,7 @@ export async function GET(request: Request) {
 
   const fleetsData: DetailedFleetHistory[] = [];
   for (const f of fleetRows) {
-    // allTimesheets: true agar dokumen riwayat armada memuat seluruh riwayat operasional lengkap
+    // allTimesheets: true memastikan riwayat setiap armada lengkap tanpa pemotongan artifisial
     const res = await getDetailedFleetHistory(f.id, { allTimesheets: true });
     if (!('error' in res)) {
       fleetsData.push(res);

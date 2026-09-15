@@ -3,6 +3,10 @@
  * Isolated from DB/I-O to allow reuse in both server runtime and automated testing.
  */
 
+// Batas operasional eksplisit untuk ekspor PDF gabungan multi-armada MVP.
+// Mencegah memory spike / DoS pada PDF rendering server-side tanpa memotong riwayat riil unit.
+export const MAX_FLEET_PDF_EXPORT_LIMIT = 50;
+
 export interface HmIntervalLog {
   startHm: number | string;
   endHm: number | string;

@@ -140,7 +140,7 @@ export async function getDetailedFleetHistory(
     .from(s.contracts)
     .leftJoin(s.clients, eq(s.clients.id, s.contracts.clientId))
     .where(eq(s.contracts.unitId, unitId))
-    .orderBy(desc(s.contracts.startDate));
+    .orderBy(desc(s.contracts.startDate), desc(s.contracts.id));
 
   const contractIds = contractRows.map((c) => c.id);
 
@@ -307,7 +307,7 @@ export async function getDetailedFleetHistory(
       .from(s.invoices)
       .innerJoin(s.contracts, eq(s.contracts.id, s.invoices.contractId))
       .where(inArray(s.invoices.contractId, contractIds))
-      .orderBy(desc(s.invoices.issueDate));
+      .orderBy(desc(s.invoices.issueDate), desc(s.invoices.id));
 
     revenueRows = invData;
     totalInvoiced = invData.reduce((acc, curr) => acc + Number(curr.totalAmount || 0), 0);
@@ -322,31 +322,77 @@ export async function getDetailedFleetHistory(
     pageSize: options?.pageSize || 10,
   });
 
-  const timesheetsQuery = db
-    .select({
-      id: s.timesheets.id,
-      date: s.timesheets.date,
-      contractNumber: s.contracts.contractNumber,
-      driverName: s.operators.fullName,
-      driverProfile: s.profiles.fullName,
-      startHm: s.timesheets.startHm,
-      endHm: s.timesheets.endHm,
-      breakdownHours: s.timesheets.breakdownHours,
-      effectiveHours: s.timesheets.effectiveHours,
-      status: s.timesheets.status,
-      invoiceNumber: s.invoices.invoiceNumber,
-    })
-    .from(s.timesheets)
-    .leftJoin(s.contracts, eq(s.contracts.id, s.timesheets.contractId))
-    .leftJoin(s.operators, eq(s.operators.id, s.timesheets.operatorDriverId))
-    .leftJoin(s.profiles, eq(s.profiles.id, s.timesheets.operatorId))
-    .leftJoin(s.invoices, eq(s.invoices.id, s.timesheets.invoiceId))
-    .where(eq(s.timesheets.unitId, unitId))
-    .orderBy(desc(s.timesheets.date));
+  // PENTING (Finding 1 & 2):
+  // - Least-privilege: Tabel `invoices` HANYA di-join bila pengguna berwenang finansial (`isFinance === true`).
+  //   Bila non-finance, invoiceNumber otomatis null dan database TIDAK menyentuh tabel invoices.
+  // - Deterministic Ordering: Menggunakan `desc(s.timesheets.date), desc(s.timesheets.id)`
+  //   sebagai tie-breaker unik sehingga halaman tidak mengalami duplikasi atau catatan terlewat.
+  let pagedTimesheets: {
+    id: string;
+    date: string;
+    contractNumber: string | null;
+    driverName: string | null;
+    driverProfile: string | null;
+    startHm: string;
+    endHm: string;
+    breakdownHours: string;
+    effectiveHours: string | null;
+    status: string;
+    invoiceNumber: string | null;
+  }[] = [];
 
-  const pagedTimesheets = allTimesheets
-    ? await timesheetsQuery
-    : await timesheetsQuery.limit(pagination.limit).offset(pagination.offset);
+  if (isFinance) {
+    const baseQuery = db
+      .select({
+        id: s.timesheets.id,
+        date: s.timesheets.date,
+        contractNumber: s.contracts.contractNumber,
+        driverName: s.operators.fullName,
+        driverProfile: s.profiles.fullName,
+        startHm: s.timesheets.startHm,
+        endHm: s.timesheets.endHm,
+        breakdownHours: s.timesheets.breakdownHours,
+        effectiveHours: s.timesheets.effectiveHours,
+        status: s.timesheets.status,
+        invoiceNumber: s.invoices.invoiceNumber,
+      })
+      .from(s.timesheets)
+      .leftJoin(s.contracts, eq(s.contracts.id, s.timesheets.contractId))
+      .leftJoin(s.operators, eq(s.operators.id, s.timesheets.operatorDriverId))
+      .leftJoin(s.profiles, eq(s.profiles.id, s.timesheets.operatorId))
+      .leftJoin(s.invoices, eq(s.invoices.id, s.timesheets.invoiceId))
+      .where(eq(s.timesheets.unitId, unitId))
+      .orderBy(desc(s.timesheets.date), desc(s.timesheets.id));
+
+    pagedTimesheets = allTimesheets
+      ? await baseQuery
+      : await baseQuery.limit(pagination.limit).offset(pagination.offset);
+  } else {
+    const baseQuery = db
+      .select({
+        id: s.timesheets.id,
+        date: s.timesheets.date,
+        contractNumber: s.contracts.contractNumber,
+        driverName: s.operators.fullName,
+        driverProfile: s.profiles.fullName,
+        startHm: s.timesheets.startHm,
+        endHm: s.timesheets.endHm,
+        breakdownHours: s.timesheets.breakdownHours,
+        effectiveHours: s.timesheets.effectiveHours,
+        status: s.timesheets.status,
+        invoiceNumber: sql<string | null>`null`,
+      })
+      .from(s.timesheets)
+      .leftJoin(s.contracts, eq(s.contracts.id, s.timesheets.contractId))
+      .leftJoin(s.operators, eq(s.operators.id, s.timesheets.operatorDriverId))
+      .leftJoin(s.profiles, eq(s.profiles.id, s.timesheets.operatorId))
+      .where(eq(s.timesheets.unitId, unitId))
+      .orderBy(desc(s.timesheets.date), desc(s.timesheets.id));
+
+    pagedTimesheets = allTimesheets
+      ? await baseQuery
+      : await baseQuery.limit(pagination.limit).offset(pagination.offset);
+  }
 
   // 8. BAST Handovers
   let handoverRows: {
@@ -397,7 +443,7 @@ export async function getDetailedFleetHistory(
       .from(s.handovers)
       .innerJoin(s.contracts, eq(s.contracts.id, s.handovers.contractId))
       .where(inArray(s.handovers.contractId, contractIds))
-      .orderBy(desc(s.handovers.date));
+      .orderBy(desc(s.handovers.date), desc(s.handovers.id));
   }
 
   const handoversFormatted = handoverRows.map((h) => {
@@ -489,7 +535,7 @@ export async function getDetailedFleetHistory(
       breakdownHours: t.breakdownHours,
       effectiveHours: t.effectiveHours || '0',
       status: t.status,
-      invoiceNumber: t.invoiceNumber,
+      invoiceNumber: isFinance ? t.invoiceNumber : null,
     })),
     timesheetPagination: {
       page: allTimesheets ? 1 : pagination.page,
