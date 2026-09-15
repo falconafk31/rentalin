@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import Script from "next/script";
+import { DASHBOARD_THEME_KEY } from "@/lib/dashboard-theme";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -7,10 +9,33 @@ export const metadata: Metadata = {
   description: "Ruang kerja operasional PT Penyewaan Alat Berat. Kelola armada, kontrak, jam kerja, dan penagihan dalam satu sistem.",
 };
 
+const dashboardThemeBootScript = `(() => {
+  try {
+    if (window.localStorage.getItem('${DASHBOARD_THEME_KEY}') === 'dark') {
+      const el = document.querySelector('.app-shell');
+      if (el) {
+        el.classList.add('dashboard-dark');
+      } else {
+        const observer = new MutationObserver(() => {
+          const target = document.querySelector('.app-shell');
+          if (target) {
+            target.classList.add('dashboard-dark');
+            observer.disconnect();
+          }
+        });
+        observer.observe(document.documentElement, { childList: true, subtree: true });
+      }
+    }
+  } catch (_) {}
+})();`;
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="id" suppressHydrationWarning>
       <head>
+        <Script id="dashboard-theme-boot" strategy="beforeInteractive">
+          {dashboardThemeBootScript}
+        </Script>
         {/* Font dimuat via <link> + preconnect, bukan @import di CSS yang
             memblokir render dan memperlambat first paint. next/font tidak
             dipakai agar build tidak bergantung pada akses jaringan ke Google
@@ -28,3 +53,4 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     </html>
   );
 }
+
