@@ -58,10 +58,25 @@ npm audit                       # tidak boleh ada severity HIGH
 8. **Gaya commit:** satu topik per commit, subjek ringkas Bahasa Indonesia (lihat `git log` untuk contoh).
 9. **Sebelum `import` ikon baru dari `lucide-react`, cek `docs/icon-map.md`** — satu konsep = satu ikon, jangan pakai ulang ikon yang sudah dipetakan ke konsep lain.h).
 
-## 6. Status terakhir (per 12 September 2026)
+## 6. Status terakhir (per 15 September 2026)
 
-- ✅ Audit penuh selesai (`audit.md`) — 4 Quick Wins Utama **sudah dikerjakan**: role check route finansial (+ RLS invoices di migration 0004), lint bersih, lazy-init DB (build lolos tanpa env), postcss 8.5.28 (HIGH tertutup).
-- ✅ **Audit UI/UX (`.zcode/audit/`)** — seluruh topik 01–04 + file modul sudah dieksekusi (night mode terisolasi di login dan dashboard, ikon, konsistensi form, kehalusan list); status detail kini di `.zcode/audit/README.md`. Sisa: 1 keputusan produk (`audit.md` O14); follow-up shell (scroll nav + sticky header) selesai 14 Sep 2026.
-- ✅ Dokumentasi handoff lengkap: `roadmap.md`, `audit.md`, `supabase/README.md` (+ migrations 0001–0005, seed, template provisioning user).
-- ✅ **Media layer foto fleet (R2)** — `media_files` (migrasi 0023) + Cloudflare Worker Media API (`media-worker/`, belum deploy) + kompresi WebP di browser + UI foto fleet (cover/galeri + thumbnail). Foto BAST **tidak disentuh** (Supabase Storage 0012). Arsitektur & keputusan: `docs/media-architecture.md` (§52 = acuan tertinggi; catat: Catatan Revisi lama di dokumen itu keliru — foto BAST memang sudah ada sejak A13). Tanpa `MEDIA_API_URL` fitur ini nonaktif; aplikasi tetap normal.
-- ⏭️ Berikutnya: deploy bucket R2 + Worker (operator, `media-worker/README.md`) + isi `MEDIA_API_URL`; isi `#2`–`#7` (sisa Fase 0 cepat), lalu `#8`–`#9` — setelah itu Fase 1 mengikuti `supabase/README.md`. (Isu `#10` pagination server-side sudah dikerjakan; saat deploy jalankan juga migrasi `0017_pagination_indexes.sql` dan `0023_media_files.sql`.)
+- ✅ **Audit & Fondasi Awal Selesai (`audit.md`)** — 4 Quick Wins Utama, audit UI/UX (`.zcode/audit/`), lazy-init DB (build tanpa env), shell follow-up (scroll nav + sticky header), serta dokumentasi handoff awal.
+- ✅ **Media Layer Foto Fleet (R2)** — `media_files` (migrasi 0023) + Cloudflare Worker Media API (`media-worker/`, belum deploy) + kompresi WebP di browser + UI foto fleet (cover/galeri + thumbnail). Foto BAST tetap di Supabase Storage (migrasi 0012).
+- ✅ **M0 · Perbaikan Bug Tagihan Wet-Hire (PR #27)** — `subtotal = equipment + operator` konsisten di `finance.ts`, validasi jam efektif $> 0$, dan invariant database `subtotal = total - tax` terpenuhi.
+- ✅ **M1 / M1.3 · Snapshot Tarif Penagihan Timesheet (PR #28)** —
+  - Tarif sewa alat dan jasa operator dibekukan saat persetujuan catatan kerja (`pending` $\rightarrow$ `approved`) ke kolom snapshot: `billing_rate_snapshot`, `operator_rate_snapshot`, `operator_rate_type_snapshot`.
+  - Revisi kontrak tidak lagi merusak/mengubah tarif penagihan historis catatan kerja yang sudah disetujui.
+  - Perhitungan invoice (pratinjau UI maupun penyimpanan nyata) menggunakan fungsi terpusat `calcInvoiceTotalsFromSnapshots()`.
+  - PDF faktur invoice menampilkan tarif historis snapshot, breakdown multi-tarif, atau pesan aman `"Data tarif historis tidak tersedia"` / `"Data tarif historis tidak lengkap"` (tidak pernah fallback ke tarif kontrak aktif).
+  - Anti-flash boot script dark mode ditempatkan di root layout `src/app/layout.tsx` via `next/script` (`beforeInteractive`) dan konstanta tema bersama diekstrak ke `src/lib/dashboard-theme.ts`.
+  - Migrasi `0026_timesheet_billing_snapshots.sql` dibuat dan diaplikasikan ke database produksi (backfill konservatif: unbilled approved saja; invoice lama tetap NULL agar tidak memalsukan data historis).
+- ✅ **M2 / M2.1 · Integritas Skema Pembayaran & Ledger Seed (PR #29)** —
+  - Serialisasi transaksi pembayaran via `SELECT ... FROM invoices FOR UPDATE` diverifikasi aman dari overpayment dan race conditions.
+  - Check constraint tabel `payments` di `src/db/schema.ts` disinkronkan dengan migrasi produksi `0010_payments.sql` (`amount > 0` dan `method IN ('transfer', 'cash', 'giro', 'other')`).
+  - `src/db/seed.ts` otomatis menerbitkan baris ledger pembayaran untuk invoice demo berstatus `paid`.
+- ✅ **M3 / M3.1 · Penguatan Skema & Validasi Kontrak/Timesheet (PR #30)** —
+  - Check constraint Drizzle di `src/db/schema.ts` disinkronkan penuh untuk `contracts` (`rate_per_hour > 0`, `operator_rate_type IN ('hourly', 'daily')`), `timesheets` (`timesheets_operator_snapshot_consistent`), dan `operators` (`rate_per_hour >= 0`, `rate_per_day >= 0`, `default_rate_type IN ('hourly', 'daily')`, `status IN ('active', 'inactive')`).
+  - Uji regresi finansial & batas operasional di `scripts/finance-check.ts` diperluas menjadi **86/86 assertions PASS** across 16 skenario.
+- ⏭️ **Berikutnya**:
+  - Deploy bucket R2 + Cloudflare Worker Media API (operator, panduan di `media-worker/README.md`) + set `MEDIA_API_URL`.
+  - Lanjutkan isu Fase 0 & Fase 2 sesuai prioritas di `roadmap.md` (mis. audit log viewer per-record, notifikasi jatuh tempo otomatis).
