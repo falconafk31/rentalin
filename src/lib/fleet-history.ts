@@ -2,6 +2,7 @@ import { db } from '@/db';
 import * as s from '@/db/schema';
 import { eq, desc, inArray, sql, count, and } from 'drizzle-orm';
 import { requireUser } from '@/lib/auth';
+import { calcTotalHmUsed, calcFleetUtilization, calcPaginationParams } from '@/lib/fleet-history-helpers';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -121,9 +122,6 @@ export async function getDetailedFleetHistory(
 
   const isFinance = ['admin', 'finance', 'operations'].includes(user.role);
   const allTimesheets = !!options?.allTimesheets;
-  const page = Math.max(1, Number(options?.page) || 1);
-  const pageSize = Math.max(1, Math.min(100, Number(options?.pageSize) || 10));
-  const offset = (page - 1) * pageSize;
 
   // 1. Ambil seluruh kontrak untuk unit ini
   const contractRows = await db
@@ -168,7 +166,7 @@ export async function getDetailedFleetHistory(
   }
 
   // 3. Timesheets Summary:
-  // - HM Terpakai: sum(end_hm - start_hm) dari interval log valid (start_hm >= 0 & end_hm >= start_hm)
+  // - HM Terpakai: sum(end_hm - start_hm) dari interval log valid
   // - Effective hours: hanya dari timesheet berstatus 'approved'
   const allLogsSummaryQuery = await db
     .select({
@@ -204,9 +202,8 @@ export async function getDetailedFleetHistory(
     }
   }
 
-  // Utilisasi resmi = (workDays_approved / totalContractDays) * 100, max 100%
-  const utilizationRate =
-    totalContractDays > 0 ? Math.min(100, Math.round((workDays / totalContractDays) * 100)) : 0;
+  // Utilisasi resmi dihitung via helper bisnis teruji
+  const utilizationRate = calcFleetUtilization(workDays, totalContractDays);
 
   // 5. Operator history aggregation
   // Menjawab: "Siapa saja yang pernah mengoperasikan unit ini?"
@@ -275,7 +272,7 @@ export async function getDetailedFleetHistory(
     }
   }
 
-  // 6. Invoices & Billing (Role-gated)
+  // 6. Invoices & Billing (Least-privilege: Query DB HANYA jika pengguna memiliki role finance)
   let revenueRows: {
     id: string;
     invoiceNumber: string;
@@ -292,7 +289,7 @@ export async function getDetailedFleetHistory(
   let totalInvoiced = 0;
   let totalOperatorBilled = 0;
 
-  if (contractIds.length > 0) {
+  if (isFinance && contractIds.length > 0) {
     const invData = await db
       .select({
         id: s.invoices.id,
@@ -318,8 +315,13 @@ export async function getDetailedFleetHistory(
   }
 
   // 7. Timesheets selection:
-  // Jika allTimesheets = true (untuk ekspor PDF), ambil semua catatan tanpa LIMIT
-  // Jika UI, ambil terpaginasi sesuai page & pageSize
+  // Hitung parameter paginasi menggunakan pure helper teruji
+  const pagination = calcPaginationParams({
+    totalRecords: totalLogs,
+    page: options?.page || 1,
+    pageSize: options?.pageSize || 10,
+  });
+
   const timesheetsQuery = db
     .select({
       id: s.timesheets.id,
@@ -344,7 +346,7 @@ export async function getDetailedFleetHistory(
 
   const pagedTimesheets = allTimesheets
     ? await timesheetsQuery
-    : await timesheetsQuery.limit(pageSize).offset(offset);
+    : await timesheetsQuery.limit(pagination.limit).offset(pagination.offset);
 
   // 8. BAST Handovers
   let handoverRows: {
@@ -490,10 +492,10 @@ export async function getDetailedFleetHistory(
       invoiceNumber: t.invoiceNumber,
     })),
     timesheetPagination: {
-      page: allTimesheets ? 1 : page,
-      pageSize: allTimesheets ? totalLogs : pageSize,
+      page: allTimesheets ? 1 : pagination.page,
+      pageSize: allTimesheets ? totalLogs : pagination.pageSize,
       total: totalLogs,
-      totalPages: allTimesheets ? 1 : Math.ceil(totalLogs / pageSize) || 1,
+      totalPages: allTimesheets ? 1 : pagination.totalPages,
     },
     handovers: handoversFormatted,
     financials: isFinance
