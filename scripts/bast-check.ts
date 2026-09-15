@@ -2,6 +2,7 @@
 // Jalankan: node scripts/bast-check.ts  (atau npx tsx scripts/bast-check.ts)
 // Mengimpor helper ASLI dari src/lib/bast.ts — kode yang sama yang dipakai
 // Server Action saveRecord/changeStatus dan PDF /api/documents, bukan duplikat.
+import { readFileSync } from 'node:fs';
 import {
   BAST_TYPES, BAST_STATUSES, BAST_DEFAULT_STATUS,
   BAST_HISTORY_UNAVAILABLE, BAST_RATE_HISTORY_UNAVAILABLE,
@@ -138,6 +139,47 @@ check('12. finalisasi ulang ditolak', canFinalizeBast('final') === false);
 check('12. status tak dikenal tidak dapat difinalkan', canFinalizeBast('archived') === false);
 check('12. pesan finalisasi ulang tersedia', BAST_ALREADY_FINAL_MESSAGE.length > 0);
 
+// ==========================================
+// 13. Invarian urutan lock: edit BAST draf vs revisi kontrak (M4.1 follow-up)
+// ==========================================
+// CATATAN JUJUR: ini uji INVARIAN STATIS atas kode sumber (bentuk lock di
+// src/app/actions.ts), BUKAN uji konkurensi PostgreSQL — skrip ini tidak
+// membuka koneksi DB dan tidak memalsukan uji transaksi paralel.
+// Invarian yang dijaga: baris KONTRAK dikunci FOR UPDATE di jalur EDIT BAST
+// draf SEBELUM validasi tanggal, sehingga reviseContract() (yang juga
+// mengunci kontrak) tidak dapat commit di antara validasi dan UPDATE:
+// "BAST draft date validation must use a locked contract row."
+const actionsSource = readFileSync(new URL('../src/app/actions.ts', import.meta.url), 'utf8');
+const EDIT_MARKER = '// LOCK ORDER (M4.1 follow-up): handovers -> contracts.';
+const CREATE_MARKER = '// LOCK ORDER (M4.1 follow-up): contracts -> handovers (insert baris baru).';
+
+const editAt = actionsSource.indexOf(EDIT_MARKER);
+const createAt = actionsSource.indexOf(CREATE_MARKER);
+check('13. penanda urutan lock jalur EDIT BAST draf ada', editAt > -1);
+check('13. penanda urutan lock jalur CREATE BAST ada', createAt > -1);
+
+// Potong blok edit agar tidak meminjam lock dari blok create.
+const editEnd = createAt > editAt && editAt > -1 ? createAt : actionsSource.length;
+const editBlock = editAt > -1 ? actionsSource.slice(editAt, Math.min(editAt + 2000, editEnd)) : '';
+const editHandoverLock = editBlock.indexOf('from(s.handovers)');
+const editContractLock = editBlock.indexOf('from(s.contracts)');
+const editValidate = editBlock.indexOf('validateBastDate(');
+check('13. edit: baris BAST dikunci sebelum baris kontrak (handovers -> contracts)',
+  editHandoverLock > -1 && editContractLock > -1 && editHandoverLock < editContractLock);
+check('13. edit: dua lock FOR UPDATE (BAST + kontrak) di transaksi yang sama',
+  (editBlock.split(".for('update')").length - 1) === 2);
+check('13. edit: kontrak dikunci SEBELUM validasi tanggal (tidak ada jendela stale)',
+  editContractLock > -1 && editValidate > -1 && editContractLock < editValidate);
+check('13. edit: validasi tanggal memakai kontrak terkunci, bukan salinan sebelum lock',
+  editBlock.indexOf('const [contract]=await tx.select().from(s.contracts)') > -1
+  && editBlock.indexOf('const dateErr=validateBastDate(') > -1);
+
+const createBlock = createAt > -1 ? actionsSource.slice(createAt, createAt + 1500) : '';
+check('13. create: kontrak dikunci FOR UPDATE sebelum validasi tanggal',
+  createBlock.indexOf('from(s.contracts)') > -1
+  && createBlock.indexOf('from(s.contracts)') < createBlock.indexOf('validateBastDate('));
+check('13. create: hanya satu lock FOR UPDATE (baris BAST lama tidak dikunci -> tanpa siklus)',
+  (createBlock.split(".for('update')").length - 1) === 1);
 if (failures) {
   console.error(`\n${failures} check(s) FAILED`);
   process.exit(1);

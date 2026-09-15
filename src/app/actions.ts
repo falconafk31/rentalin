@@ -193,14 +193,24 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
    assertBastContentKeys(values);
    if(id){
     await db.transaction(async tx=>{
-     // Lock baris BAST: penyuntingan bersamaan tidak saling menimpa dan status
-     // final tidak dapat dibalik.
+     // LOCK ORDER (M4.1 follow-up): handovers -> contracts.
+     // Baris BAST dikunci lebih dulu (kita perlu contractId-nya), lalu baris
+     // KONTRAK ikut dikunci FOR UPDATE. Tanpa lock kontrak, revisi kontrak
+     // (reviseContract) yang commit di antara validasi dan UPDATE membuat
+     // tanggal BAST divalidasi terhadap periode kontrak yang SUDAH USANG.
+     // Urutan handovers -> contracts juga dipakai resetDatabase() (DELETE
+     // handovers sebelum contracts), dan tidak ada jalur lain yang memegang
+     // lock kontrak lalu menunggu lock baris BAST — create BAST dan
+     // reviseContract mengunci kontrak lebih dulu, finalisasi BAST hanya
+     // mengunci baris BAST — sehingga urutan ini tidak membuat siklus deadlock.
      const [existing]=await tx.select().from(s.handovers).where(eq(s.handovers.id,id)).for('update');
      if(!existing)throw new Error('BAST tidak ditemukan.');
      if(!isBastEditable(existing.status))throw new FieldError({id:BAST_FINAL_LOCK_MESSAGE});
-     const [contract]=await tx.select().from(s.contracts).where(eq(s.contracts.id,existing.contractId));
+     const [contract]=await tx.select().from(s.contracts).where(eq(s.contracts.id,existing.contractId)).for('update');
      if(!contract)throw new Error('Kontrak BAST tidak ditemukan.');
      const siblings=await tx.select({type:s.handovers.type,date:s.handovers.date}).from(s.handovers).where(eq(s.handovers.contractId,existing.contractId));
+     // Validasi tanggal HANYA terhadap baris kontrak yang sudah dikunci di atas
+     // (bukan salinan kontrak yang dibaca sebelum lock).
      const dateErr=validateBastDate({date:values.date,contractStart:contract.startDate,contractEnd:contract.endDate,type:existing.type as BastType,mobilizationDate:siblings.find(h=>h.type==='mobilization')?.date??null,demobilizationDate:siblings.find(h=>h.type==='demobilization')?.date??null});
      if(dateErr)throw new FieldError({date:dateErr});
      await tx.update(s.handovers).set(values).where(eq(s.handovers.id,id));
@@ -208,8 +218,12 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
     });
    }else{
     const docNo=await db.transaction(async tx=>{
-     // Lock kontrak FOR UPDATE: menserialisasi pembuatan BAST per kontrak dan
+     // LOCK ORDER (M4.1 follow-up): contracts -> handovers (insert baris baru).
+     // Lock kontrak FOR UPDATE menserialisasi pembuatan BAST per kontrak dan
      // selaras dengan reviseContract (revisi juga mengunci baris kontrak).
+     // Baris BAST yang sudah ada TIDAK dikunci di sini (hanya INSERT baris
+     // baru), sehingga tidak ada siklus dengan penyuntingan BAST draf yang
+     // mengunci handovers -> contracts.
      const [contract]=await tx.select().from(s.contracts).where(eq(s.contracts.id,contractId)).for('update');
      if(!contract)throw new FieldError({contractId:'Kontrak tidak ditemukan.'});
      if(contract.status!=='active')throw new FieldError({contractId:'Kontrak tidak aktif.'});
