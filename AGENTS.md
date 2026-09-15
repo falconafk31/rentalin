@@ -88,8 +88,8 @@ node scripts/bast-check.ts      # regresi siklus hidup & snapshot BAST (M4.1) �
   - `src/db/seed.ts` otomatis menerbitkan baris ledger pembayaran untuk invoice demo berstatus `paid`.
 - ✅ **M3 / M3.1 · Penguatan Skema & Validasi Kontrak/Timesheet (PR #30)** —
   - Check constraint Drizzle di `src/db/schema.ts` disinkronkan penuh untuk `contracts` (`rate_per_hour > 0`, `operator_rate_type IN ('hourly', 'daily')`), `timesheets` (`timesheets_operator_snapshot_consistent`), dan `operators` (`rate_per_hour >= 0`, `rate_per_day >= 0`, `default_rate_type IN ('hourly', 'daily')`, `status IN ('active', 'inactive')`).
-  - Uji regresi finansial & batas operasional di `scripts/finance-check.ts` diperluas menjadi **86/86 assertions PASS** across 16 skenario.
-- ✅ **M4 / M4.1 · Siklus Hidup & Snapshot Historis BAST (migrasi 0027)** —
+  - Uji regresi finansial & batas operasional di `scripts/finance-check.ts` diperluas menjadi **87/87 assertions PASS** across 16 skenario (hitungan diverifikasi ulang saat M4.1; sebelumnya tertulis 86 — file uji tidak diubah pada M4.1).
+- ✅ **M4 / M4.1 · Siklus Hidup & Snapshot Historis BAST (migrasi 0027, PR #31)** —
   - Audit read-only M4 (tanpa perubahan kode) menemukan F1 (BAST dapat diubah setelah dibuat) & F2 (PDF BAST membaca kontrak/klien/unit live) sebagai P1.
   - `handovers.status` (`draft`/`final`, CHECK) + snapshot historis `client_name_snapshot`, `unit_code_snapshot`, `unit_model_snapshot`, `rate_at_handover` (nullable, CHECK tarif > 0).
   - `contractId`/`type`/`documentNumber` immutable sejak pembuatan (guard runtime `assertBastContentKeys`); BAST `final` beku seluruhnya.
@@ -99,5 +99,6 @@ node scripts/bast-check.ts      # regresi siklus hidup & snapshot BAST (M4.1) �
   - Regresi baru `scripts/bast-check.ts` (**45 assertion**, dijalankan CI) di samping `finance-check.ts` yang tetap 0 FAIL.
   - Migrasi 0027 **belum dijalankan di produksi** (review terpisah). Baris lama tetap `draft` dengan snapshot NULL dan difinalkan secara eksplisit oleh admin/operations.
 - ⏭️ **Berikutnya**:
+  - **Terapkan migrasi `0027_bast_lifecycle_snapshots.sql`** ke produksi (review terpisah setelah PR #31) — sebelum itu baris lama tetap `draft` dan PDF BAST menampilkan pesan aman untuk nilai historis yang belum terbukti.
   - Deploy bucket R2 + Cloudflare Worker Media API (operator, panduan di `media-worker/README.md`) + set `MEDIA_API_URL`.
   - Lanjutkan isu Fase 0 & Fase 2 sesuai prioritas di `roadmap.md` (mis. audit log viewer per-record, notifikasi jatuh tempo otomatis).
