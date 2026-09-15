@@ -5,6 +5,39 @@ import { validateImageUpload, MAX_IMAGE_BYTES } from '@/lib/images';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// GET: Mengambil signed URL sementara untuk pratinjau thumbnail foto BAST privat.
+// Query: ?path=handovers/...
+export async function GET(request: Request) {
+  try {
+    await requireUser(['admin', 'operations', 'operator']);
+  } catch (error) {
+    if (((error as Error).message || '').includes('NEXT_REDIRECT')) throw error;
+    return Response.json({ message: 'Anda tidak memiliki izin.' }, { status: 403 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const path = searchParams.get('path');
+  if (!path || !path.startsWith('handovers/')) {
+    return Response.json({ message: 'Path foto tidak valid.' }, { status: 400 });
+  }
+
+  if (!isConfigured()) {
+    return Response.json({ message: 'Storage belum dikonfigurasi (mode pratinjau).' }, { status: 503 });
+  }
+
+  try {
+    const supabase = await createAuthClient();
+    const { data, error } = await supabase.storage.from('bast-photos').createSignedUrl(path, 3600);
+    if (error || !data?.signedUrl) {
+      return Response.json({ message: 'Foto tidak ditemukan.' }, { status: 404 });
+    }
+    // Redirect langsung ke signed URL yang aman
+    return Response.redirect(data.signedUrl, 307);
+  } catch {
+    return Response.json({ message: 'Gagal memuat foto.' }, { status: 500 });
+  }
+}
+
 // Unggah satu foto lampiran BAST ke bucket privat `bast-photos`.
 // Body: multipart FormData { file }. Mengembalikan { path } untuk disimpan
 // ke handovers.photo_urls saat BAST dibuat. Maks 5 MB, hanya gambar.
