@@ -28,6 +28,7 @@ import {
   type BastType, isBastType, isBastEditable, canFinalizeBast, assertBastContentKeys,
   buildBastSnapshotValues, validateBastDate,
   BAST_DEFAULT_STATUS, BAST_FINAL_LOCK_MESSAGE, BAST_ALREADY_FINAL_MESSAGE,
+  isUniqueViolation, classifyBastUniqueError, bastDuplicateMessage,
 } from '@/lib/bast';
 
 export type ActionResult = { success: boolean; message: string; fieldErrors?: Record<string, string> };
@@ -228,6 +229,8 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
      if(!contract)throw new FieldError({contractId:'Kontrak tidak ditemukan.'});
      if(contract.status!=='active')throw new FieldError({contractId:'Kontrak tidak aktif.'});
      // Satu jenis satu BAST per kontrak: tolak mobilisasi/demobilisasi ganda.
+     // Ini pre-check UX — otoritas final tetap constraint DB
+     // `handovers_contract_type_unique` (TOCTOU dimenangkan constraint).
      const siblings=await tx.select({type:s.handovers.type,date:s.handovers.date}).from(s.handovers).where(eq(s.handovers.contractId,contractId));
      if(siblings.some(h=>h.type===type))throw new FieldError({type:type==='mobilization'?'BAST mobilisasi kontrak ini sudah ada.':'BAST demobilisasi kontrak ini sudah ada.'});
      const mobilization=siblings.find(h=>h.type==='mobilization');
@@ -239,7 +242,15 @@ export async function saveRecord(module:string,form:FormData): Promise<ActionRes
      const [unit]=await tx.select({unitCode:s.fleet.unitCode,brandModel:s.fleet.brandModel}).from(s.fleet).where(eq(s.fleet.id,contract.unitId));
      const snapshot=buildBastSnapshotValues({clientName:client?.companyName,unitCode:unit?.unitCode,unitModel:unit?.brandModel,ratePerHour:contract.ratePerHour});
      const no=await nextDocNumber(tx,'BAST',s.handovers.documentNumber,s.handovers,todayISO(tz).slice(0,4));
-     await tx.insert(s.handovers).values({documentNumber:no,contractId,type,status:BAST_DEFAULT_STATUS,...values,...snapshot});
+     // M4.2/F5: bila INSERT ditolak constraint unique (TOCTOU dua create
+     // bersamaan), ubah 23505 menjadi pesan bisnis Indonesia yang aman —
+     // jangan bocorkan teks mentah PostgreSQL.
+     try {
+      await tx.insert(s.handovers).values({documentNumber:no,contractId,type,status:BAST_DEFAULT_STATUS,...values,...snapshot});
+     } catch(insertError) {
+      if(isUniqueViolation(insertError))throw new FieldError({type:bastDuplicateMessage(classifyBastUniqueError(insertError))});
+      throw insertError;
+     }
      return no;
     });
     await logAudit({ ...actor, action: 'create', entity: 'bast', summary: `Membuat BAST ${docNo}${photoUrls.length ? ` (${photoUrls.length} foto)` : ''}` });
