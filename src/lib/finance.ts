@@ -39,8 +39,9 @@ export function calcInvoiceTotalsWithOperator(
 ): InvoiceTotals & { operatorAmount: number } {
   const base = calcInvoiceTotals(hours, ratePerHour, ppnRate);
   const op = round2(Math.max(0, operatorAmount));
-  const tax = round2(((base.subtotal + op) * ppnRate) / 100);
-  return { ...base, operatorAmount: op, tax, total: round2(base.subtotal + op + tax) };
+  const subtotal = round2(base.subtotal + op);
+  const tax = round2((subtotal * ppnRate) / 100);
+  return { hours, subtotal, operatorAmount: op, tax, total: round2(subtotal + tax) };
 }
 
 /** Toleransi pembulatan pembayaran: setengah sen (0,005). */

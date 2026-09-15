@@ -12,7 +12,7 @@ import { compressImage, putToPresignedUrl } from '@/lib/image-compress';
 import { money, dateLabel, dateTimeLabel, timeLabel, labels, todayISO, isPastDue, isExpiringSoon } from '@/lib/format';
 import type { ModulePageData, ModuleRow, FleetRow, ClientRow, OperatorRow, ContractRow, TimesheetRow, HandoverRow, InvoiceRow, PaymentRow, CompanySettings, ModuleFilters } from '@/lib/data';
 import { MODULE_PAGE_SIZE } from '@/lib/pagination';
-import { calcInvoiceTotals, remainingBalance } from '@/lib/finance';
+import { calcInvoiceTotalsWithOperator, remainingBalance } from '@/lib/finance';
 
 // G6 (audit 02): label tombol submit hidup di config — modul baru cukup
 // tambah 1 baris, bukan mengedit rantai ternary di form.
@@ -614,7 +614,7 @@ function RecordModal({ module, settings, editing, revising, bulk, pending, canWr
   const clientOptions = useMemo(() => options?.clients ?? [], [options]);
   const fleetCats = useMemo(() => Array.from(new Set([...fleetCategories, ...categoryOptions])), [categoryOptions]);
   const selectedContract = useMemo(() => contracts.find(x => x.id === contractId), [contracts, contractId]);
-  const totals = useMemo(() => calcInvoiceTotals(billable ?? 0, Number(selectedContract?.ratePerHour || 0), ppnRate), [billable, selectedContract, ppnRate]);
+  const totals = useMemo(() => calcInvoiceTotalsWithOperator(billable ?? 0, Number(selectedContract?.ratePerHour || 0), ppnRate, billableOperator ?? 0), [billable, selectedContract, ppnRate, billableOperator]);
   const subtotal = totals.subtotal;
   const revisionHistory = useMemo(() => revising ? (revisions ?? []) : [], [revisions, revising]);
   const latestReason = useMemo(() => revisions?.[0]?.reason || '', [revisions]);
