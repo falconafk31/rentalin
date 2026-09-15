@@ -36,7 +36,7 @@ export const companySettings = pgTable('company_settings', {
 });
 export const payments = pgTable('payments', {
  id: uuid('id').defaultRandom().primaryKey(), invoiceId: uuid('invoice_id').references(() => invoices.id, { onDelete: 'restrict' }).notNull(), amount: numeric('amount', { precision: 15, scale: 2 }).notNull(), method: text('method').notNull(), reference: text('reference'), notes: text('notes'), paidAt: date('paid_at').notNull(), notedBy: uuid('noted_by').references(() => profiles.id), createdAt: createdAt(),
-}, (t) => [index('payments_invoice_id_idx').on(t.invoiceId)]);
+}, (t) => [check('payments_amount_positive', sql`${t.amount} > 0`), check('payments_method_valid', sql`${t.method} IN ('transfer', 'cash', 'giro', 'other')`), index('payments_invoice_id_idx').on(t.invoiceId)]);
 export const documentTemplates = pgTable('document_templates', {
  id: uuid('id').defaultRandom().primaryKey(), kind: text('kind').notNull(), version: integer('version').notNull(), status: text('status').notNull().default('draft'), title: text('title').notNull().default(''), content: jsonb('content').notNull().default({}), variables: text('variables').array().notNull().default(sql`'{}'`), updatedBy: uuid('updated_by').references(() => profiles.id), createdAt: createdAt(), publishedAt: timestamp('published_at', { withTimezone: true }),
 }, (t) => [index('doc_templates_kind_status_idx').on(t.kind, t.status)]);
