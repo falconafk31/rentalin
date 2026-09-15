@@ -1,15 +1,20 @@
 import { requireUser, createAuthClient, isConfigured } from '@/lib/auth';
 import { logAudit } from '@/lib/audit';
 import { validateImageUpload, MAX_IMAGE_BYTES } from '@/lib/images';
+import { db } from '@/db';
+import * as s from '@/db/schema';
+import { sql } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 // GET: Mengambil signed URL sementara untuk pratinjau thumbnail foto BAST privat.
 // Query: ?path=handovers/...
+// Keamanan P1: Otorisasi level entitas — verifikasi bahwa path benar-benar terdaftar pada handovers.photo_urls
 export async function GET(request: Request) {
+  let user: { id: string; role: string };
   try {
-    await requireUser(['admin', 'operations', 'operator']);
+    user = await requireUser(['admin', 'operations', 'operator']);
   } catch (error) {
     if (((error as Error).message || '').includes('NEXT_REDIRECT')) throw error;
     return Response.json({ message: 'Anda tidak memiliki izin.' }, { status: 403 });
@@ -21,6 +26,17 @@ export async function GET(request: Request) {
     return Response.json({ message: 'Path foto tidak valid.' }, { status: 400 });
   }
 
+  // 1. Entity-level authorization: pastikan path terdaftar pada tabel handovers
+  const [referenced] = await db
+    .select({ id: s.handovers.id })
+    .from(s.handovers)
+    .where(sql`${path} = ANY(${s.handovers.photoUrls})`)
+    .limit(1);
+
+  if (!referenced) {
+    return Response.json({ message: 'Foto tidak terdaftar pada dokumen BAST mana pun.' }, { status: 404 });
+  }
+
   if (!isConfigured()) {
     return Response.json({ message: 'Storage belum dikonfigurasi (mode pratinjau).' }, { status: 503 });
   }
@@ -29,7 +45,7 @@ export async function GET(request: Request) {
     const supabase = await createAuthClient();
     const { data, error } = await supabase.storage.from('bast-photos').createSignedUrl(path, 3600);
     if (error || !data?.signedUrl) {
-      return Response.json({ message: 'Foto tidak ditemukan.' }, { status: 404 });
+      return Response.json({ message: 'Foto tidak ditemukan pada penyimpanan.' }, { status: 404 });
     }
     // Redirect langsung ke signed URL yang aman
     return Response.redirect(data.signedUrl, 307);

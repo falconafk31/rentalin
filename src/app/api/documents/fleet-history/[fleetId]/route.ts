@@ -18,7 +18,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ flee
     return Response.json({ message: 'Anda tidak memiliki izin.' }, { status: 403 });
   }
 
-  const historyRes = await getDetailedFleetHistory(fleetId, { page: 1, pageSize: 50 });
+  // Menggunakan allTimesheets: true agar dokumen ekspor PDF memuat seluruh riwayat operasional lengkap
+  const historyRes = await getDetailedFleetHistory(fleetId, { allTimesheets: true });
   if ('error' in historyRes) {
     return Response.json({ message: 'Data riwayat armada tidak ditemukan.' }, { status: 404 });
   }

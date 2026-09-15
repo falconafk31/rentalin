@@ -9,13 +9,17 @@ export const dynamic = 'force-dynamic';
 
 export default async function FleetHistoryPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ fleetId: string }>;
+  searchParams: Promise<{ page?: string; tab?: string }>;
 }) {
   const { fleetId } = await params;
+  const search = await searchParams;
   const user = await requireUser();
 
-  const history = await getDetailedFleetHistory(fleetId, { page: 1, pageSize: 50 });
+  const page = Math.max(1, Number(search.page) || 1);
+  const history = await getDetailedFleetHistory(fleetId, { page, pageSize: 10 });
   if ('error' in history) {
     notFound();
   }
@@ -28,6 +32,7 @@ export default async function FleetHistoryPage({
       data={history}
       timezone={timezone}
       userRole={user.role}
+      initialTab={search.tab}
     />
   );
 }

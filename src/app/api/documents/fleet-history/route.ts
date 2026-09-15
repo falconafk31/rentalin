@@ -43,7 +43,8 @@ export async function GET(request: Request) {
 
   const fleetsData: DetailedFleetHistory[] = [];
   for (const f of fleetRows) {
-    const res = await getDetailedFleetHistory(f.id, { page: 1, pageSize: 20 });
+    // allTimesheets: true agar dokumen riwayat armada memuat seluruh riwayat operasional lengkap
+    const res = await getDetailedFleetHistory(f.id, { allTimesheets: true });
     if (!('error' in res)) {
       fleetsData.push(res);
     }

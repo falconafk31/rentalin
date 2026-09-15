@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   FileDown,
@@ -10,13 +11,9 @@ import {
   Clock,
   HardHat,
   Truck,
-  Wrench,
   CheckCircle2,
-  AlertTriangle,
   ChevronLeft,
   ChevronRight,
-  ShieldCheck,
-  FileText,
 } from 'lucide-react';
 import type { DetailedFleetHistory } from '@/lib/fleet-history';
 import { Badge } from './overview';
@@ -28,18 +25,33 @@ export function FleetHistoryView({
   data,
   timezone,
   userRole,
+  initialTab,
 }: {
   data: DetailedFleetHistory;
   timezone: string;
   userRole: string;
+  initialTab?: string;
 }) {
+  const router = useRouter();
   const isFinance = ['admin', 'finance', 'operations'].includes(userRole);
-  const [activeTab, setActiveTab] = useState<TabKey>('summary');
-  const [tsPage, setTsPage] = useState(1);
-  const tsPageSize = 10;
+  const validTabs: TabKey[] = ['summary', 'contracts', 'operators', 'timesheets', 'bast', 'financials'];
+  const [activeTab, setActiveTab] = useState<TabKey>(() => {
+    if (initialTab && validTabs.includes(initialTab as TabKey)) {
+      if (initialTab === 'financials' && !isFinance) return 'summary';
+      return initialTab as TabKey;
+    }
+    return 'summary';
+  });
 
-  const totalTsPages = Math.ceil(data.timesheets.length / tsPageSize) || 1;
-  const currentTimesheets = data.timesheets.slice((tsPage - 1) * tsPageSize, tsPage * tsPageSize);
+  const pagination = data.timesheetPagination;
+
+  const navigateToPage = (newPage: number) => {
+    router.push(`/dashboard/fleet/${data.unit.id}/history?tab=timesheets&page=${newPage}`);
+  };
+
+  const handleTabChange = (tab: TabKey) => {
+    setActiveTab(tab);
+  };
 
   return (
     <div className="fleet-history-container" style={{ padding: '24px 32px 60px' }}>
@@ -94,7 +106,7 @@ export function FleetHistoryView({
             className="button button-primary"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
           >
-            <FileDown size={16} /> Unduh PDF Riwayat
+            <FileDown size={16} /> Unduh PDF Riwayat Lengkap
           </a>
         </div>
       </div>
@@ -119,16 +131,16 @@ export function FleetHistoryView({
 
         <div className="panel" style={{ padding: '16px 20px' }}>
           <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Calendar size={15} color="#10b981" /> Total Hari Sewa
+            <Calendar size={15} color="#10b981" /> Hari Kerja Disetujui
           </div>
           <div style={{ fontSize: 22, fontWeight: 700, color: '#1e293b' }}>
-            {data.summary.workDays} <span style={{ fontSize: 13, fontWeight: 400, color: '#64748b' }}>hari aktif</span>
+            {data.summary.workDays} <span style={{ fontSize: 13, fontWeight: 400, color: '#64748b' }}>hari</span>
           </div>
         </div>
 
         <div className="panel" style={{ padding: '16px 20px' }}>
           <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Clock size={15} color="#8b5cf6" /> Jam Efektif
+            <Clock size={15} color="#8b5cf6" /> Jam Efektif (Approved)
           </div>
           <div style={{ fontSize: 22, fontWeight: 700, color: '#1e293b' }}>
             {data.summary.effectiveHours.toLocaleString('id-ID')} <span style={{ fontSize: 13, fontWeight: 400, color: '#64748b' }}>jam</span>
@@ -143,7 +155,7 @@ export function FleetHistoryView({
             {data.summary.utilizationRate}%
           </div>
           <small style={{ fontSize: 11, color: '#94a3b8' }}>
-            Hari Kerja / Hari Sewa ({data.summary.workDays}/{data.summary.contractDays || 1} hari)
+            Hari Kerja Disetujui / Hari Sewa ({data.summary.workDays}/{data.summary.contractDays || 1} hari)
           </small>
         </div>
 
@@ -151,19 +163,19 @@ export function FleetHistoryView({
           <>
             <div className="panel" style={{ padding: '16px 20px' }}>
               <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <CheckCircle2 size={15} color="#059669" /> Pendapatan Unit
+                <CheckCircle2 size={15} color="#059669" /> Total Nilai Tagihan
               </div>
               <div style={{ fontSize: 20, fontWeight: 700, color: '#059669' }}>
-                {money(data.summary.revenue || 0)}
+                {money(data.summary.totalInvoiced || 0)}
               </div>
             </div>
 
             <div className="panel" style={{ padding: '16px 20px' }}>
               <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <HardHat size={15} color="#2563eb" /> Biaya Operator
+                <HardHat size={15} color="#2563eb" /> Jasa Operator Ditagihkan
               </div>
               <div style={{ fontSize: 20, fontWeight: 700, color: '#2563eb' }}>
-                {money(data.summary.operatorCost || 0)}
+                {money(data.summary.operatorBilled || 0)}
               </div>
             </div>
           </>
@@ -182,35 +194,35 @@ export function FleetHistoryView({
         }}
       >
         <button
-          onClick={() => setActiveTab('summary')}
+          onClick={() => handleTabChange('summary')}
           className={`button ${activeTab === 'summary' ? 'button-primary' : 'button-ghost'}`}
           style={{ height: 36, padding: '0 14px', fontSize: 13 }}
         >
           Ringkasan &amp; Legalitas
         </button>
         <button
-          onClick={() => setActiveTab('contracts')}
+          onClick={() => handleTabChange('contracts')}
           className={`button ${activeTab === 'contracts' ? 'button-primary' : 'button-ghost'}`}
           style={{ height: 36, padding: '0 14px', fontSize: 13 }}
         >
           Riwayat Kontrak ({data.contracts.length})
         </button>
         <button
-          onClick={() => setActiveTab('operators')}
+          onClick={() => handleTabChange('operators')}
           className={`button ${activeTab === 'operators' ? 'button-primary' : 'button-ghost'}`}
           style={{ height: 36, padding: '0 14px', fontSize: 13 }}
         >
           Riwayat Operator ({data.operators.length})
         </button>
         <button
-          onClick={() => setActiveTab('timesheets')}
+          onClick={() => handleTabChange('timesheets')}
           className={`button ${activeTab === 'timesheets' ? 'button-primary' : 'button-ghost'}`}
           style={{ height: 36, padding: '0 14px', fontSize: 13 }}
         >
-          Timesheet Harian ({data.timesheets.length})
+          Timesheet Harian ({data.timesheetPagination.total})
         </button>
         <button
-          onClick={() => setActiveTab('bast')}
+          onClick={() => handleTabChange('bast')}
           className={`button ${activeTab === 'bast' ? 'button-primary' : 'button-ghost'}`}
           style={{ height: 36, padding: '0 14px', fontSize: 13 }}
         >
@@ -218,7 +230,7 @@ export function FleetHistoryView({
         </button>
         {isFinance && (
           <button
-            onClick={() => setActiveTab('financials')}
+            onClick={() => handleTabChange('financials')}
             className={`button ${activeTab === 'financials' ? 'button-primary' : 'button-ghost'}`}
             style={{ height: 36, padding: '0 14px', fontSize: 13 }}
           >
@@ -232,17 +244,17 @@ export function FleetHistoryView({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
           <div className="panel" style={{ padding: 22 }}>
             <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 16px', color: '#1e293b' }}>
-              Spesifikasi &amp; Detail Alat
+              Spesifikasi &amp; Detail Penggunaan
             </h3>
             <div className="summary-box">
               <div><span>Kode Unit</span><b>{data.unit.unitCode}</b></div>
               <div><span>Merek / Model</span><b>{data.unit.brandModel}</b></div>
               <div><span>Kategori</span><b>{data.unit.category}</b></div>
               <div><span>Tahun Pembuatan</span><b>{data.unit.year || '—'}</b></div>
-              <div><span>Tarif Sewa Dasar</span><b>{money(data.unit.hourlyRate)} / jam</b></div>
-              <div><span>Lokasi Saat Ini</span><b>{data.unit.currentLocation || '—'}</b></div>
-              <div><span>Total HM Terpakai</span><b>{data.summary.hmUsed !== null ? `${data.summary.hmUsed.toLocaleString('id-ID')} HM` : '—'}</b></div>
-              <div><span>Total Jam Kerusakan (Breakdown)</span><b>{data.summary.breakdownHours.toLocaleString('id-ID')} jam</b></div>
+              <div><span>Tarif Sewa Standar</span><b>{money(data.unit.hourlyRate)} / jam</b></div>
+              <div><span>Lokasi Terkini</span><b>{data.unit.currentLocation || '—'}</b></div>
+              <div><span>Total HM Terpakai (Σ Interval HM)</span><b>{data.summary.hmUsed !== null ? `${data.summary.hmUsed.toLocaleString('id-ID')} HM` : '0 HM'}</b></div>
+              <div><span>Total Jam Kerusakan (Breakdown Approved)</span><b>{data.summary.breakdownHours.toLocaleString('id-ID')} jam</b></div>
             </div>
           </div>
 
@@ -264,9 +276,9 @@ export function FleetHistoryView({
                 <Badge status={data.unit.status} />
               </div>
               <div>
-                <span>Formula Utilisasi</span>
+                <span>Formula Utilisasi Resmi</span>
                 <span style={{ fontSize: 12, color: '#64748b', textAlign: 'right' }}>
-                  (Hari Kerja ÷ Hari Sewa) × 100%
+                  (Hari Kerja Approved ÷ Total Hari Kalender Sewa) × 100%
                 </span>
               </div>
             </div>
@@ -285,7 +297,7 @@ export function FleetHistoryView({
                 <th style={{ padding: '12px 16px' }}>Periode Sewa</th>
                 <th style={{ padding: '12px 16px' }}>Layanan</th>
                 <th style={{ padding: '12px 16px' }}>Operator Ditugaskan</th>
-                {isFinance && <th style={{ padding: '12px 16px', textAlign: 'right' }}>Pendapatan Kontrak</th>}
+                {isFinance && <th style={{ padding: '12px 16px', textAlign: 'right' }}>Total Tagihan Kontrak</th>}
                 <th style={{ padding: '12px 16px', textAlign: 'center' }}>Status</th>
               </tr>
             </thead>
@@ -324,7 +336,7 @@ export function FleetHistoryView({
                     </td>
                     {isFinance && (
                       <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 600, color: '#0f766e' }}>
-                        {money(c.totalRevenue || 0)}
+                        {money(c.totalInvoiced || 0)}
                       </td>
                     )}
                     <td style={{ padding: '12px 16px', textAlign: 'center' }}>
@@ -346,7 +358,7 @@ export function FleetHistoryView({
               Personel yang Pernah Mengoperasikan Unit Ini
             </h3>
             <p style={{ margin: '4px 0 0', fontSize: 12, color: '#64748b' }}>
-              Berdasarkan pencatatan fisik operator/driver pada lembar timesheet kerja harian.
+              Berdasarkan data personel operator fisik (operator_driver_id) pada timesheet harian.
             </p>
           </div>
           <table className="module-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -395,7 +407,7 @@ export function FleetHistoryView({
         </div>
       )}
 
-      {/* Tab 4: Timesheet Harian (Paginated) */}
+      {/* Tab 4: Timesheet Harian (True Server-side Pagination) */}
       {activeTab === 'timesheets' && (
         <div className="panel" style={{ overflowX: 'auto' }}>
           <table className="module-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -412,14 +424,14 @@ export function FleetHistoryView({
               </tr>
             </thead>
             <tbody>
-              {currentTimesheets.length === 0 ? (
+              {data.timesheets.length === 0 ? (
                 <tr>
                   <td colSpan={8} style={{ padding: 32, textAlign: 'center', color: '#94a3b8' }}>
                     Belum ada lembar timesheet untuk unit ini.
                   </td>
                 </tr>
               ) : (
-                currentTimesheets.map((t) => (
+                data.timesheets.map((t) => (
                   <tr key={t.id} style={{ borderBottom: '1px solid #f1f5f9', fontSize: 13 }}>
                     <td style={{ padding: '12px 16px', fontWeight: 500 }}>{dateLabel(t.date, timezone)}</td>
                     <td style={{ padding: '12px 16px' }}>{t.contractNumber || '—'}</td>
@@ -446,23 +458,23 @@ export function FleetHistoryView({
           </table>
 
           {/* Pagination Toolbar */}
-          {data.timesheets.length > tsPageSize && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderTop: '1px solid #e2e8f0' }}>
+          {pagination.total > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderTop: '1px solid #e2e8f0', flexWrap: 'wrap', gap: 10 }}>
               <div style={{ fontSize: 12, color: '#64748b' }}>
-                Menampilkan {(tsPage - 1) * tsPageSize + 1} s.d. {Math.min(tsPage * tsPageSize, data.timesheets.length)} dari {data.timesheets.length} log
+                Halaman {pagination.page} dari {pagination.totalPages} (Total {pagination.total} lembar timesheet tercatat)
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button
                   className="button button-outline button-sm"
-                  disabled={tsPage <= 1}
-                  onClick={() => setTsPage((p) => Math.max(1, p - 1))}
+                  disabled={pagination.page <= 1}
+                  onClick={() => navigateToPage(pagination.page - 1)}
                 >
                   <ChevronLeft size={14} /> Sebelumnya
                 </button>
                 <button
                   className="button button-outline button-sm"
-                  disabled={tsPage >= totalTsPages}
-                  onClick={() => setTsPage((p) => Math.min(totalTsPages, p + 1))}
+                  disabled={pagination.page >= pagination.totalPages}
+                  onClick={() => navigateToPage(pagination.page + 1)}
                 >
                   Berikutnya <ChevronRight size={14} />
                 </button>
@@ -545,20 +557,20 @@ export function FleetHistoryView({
           <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
             <div>
               <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#1e293b' }}>
-                Histori Penagihan &amp; Pembayaran Unit
+                Histori Faktur Tagihan Unit
               </h3>
               <p style={{ margin: '4px 0 0', fontSize: 12, color: '#64748b' }}>
-                Ringkasan faktur tagihan yang diterbitkan berdasarkan penggunaan unit alat berat ini.
+                Daftar faktur penagihan resmi (invoices) yang diterbitkan berdasarkan pemakaian unit ini.
               </p>
             </div>
             <div style={{ display: 'flex', gap: 16 }}>
               <div>
-                <span style={{ fontSize: 11, color: '#64748b', display: 'block' }}>Total Pendapatan Terbit</span>
-                <b style={{ fontSize: 16, color: '#047857' }}>{money(data.financials.totalRevenue)}</b>
+                <span style={{ fontSize: 11, color: '#64748b', display: 'block' }}>Total Nilai Tagihan Terbit</span>
+                <b style={{ fontSize: 16, color: '#047857' }}>{money(data.financials.totalInvoiced)}</b>
               </div>
               <div>
-                <span style={{ fontSize: 11, color: '#64748b', display: 'block' }}>Total Porsi Jasa Operator</span>
-                <b style={{ fontSize: 16, color: '#2563eb' }}>{money(data.financials.totalOperatorCost)}</b>
+                <span style={{ fontSize: 11, color: '#64748b', display: 'block' }}>Total Nilai Jasa Operator</span>
+                <b style={{ fontSize: 16, color: '#2563eb' }}>{money(data.financials.totalOperatorBilled)}</b>
               </div>
             </div>
           </div>

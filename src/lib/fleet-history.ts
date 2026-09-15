@@ -26,10 +26,10 @@ export type DetailedFleetHistory = {
     contractDays: number;
     effectiveHours: number;
     breakdownHours: number;
-    hmUsed: number | null;
-    utilizationRate: number; // percentage 0 - 100
-    revenue: number | null; // role-gated
-    operatorCost: number | null; // role-gated
+    hmUsed: number | null; // Total HM Terpakai: sum(endHm - startHm) dari timesheet valid
+    utilizationRate: number; // percentage 0 - 100 berdasarkan approved workDays / contractDays
+    totalInvoiced: number | null; // role-gated: Total Nilai Tagihan (Invoices)
+    operatorBilled: number | null; // role-gated: Total Nilai Jasa Operator Ditagihkan pada Invoice
   };
   operators: {
     operatorId: string | null;
@@ -54,7 +54,7 @@ export type DetailedFleetHistory = {
     operatorRateType: string | null;
     ratePerHour: string;
     assignedOperators: string[];
-    totalRevenue: number | null; // role-gated
+    totalInvoiced: number | null; // role-gated: Total Nilai Tagihan per kontrak
   }[];
   timesheets: {
     id: string;
@@ -86,8 +86,8 @@ export type DetailedFleetHistory = {
     checklistTotalCount: number;
   }[];
   financials?: {
-    totalRevenue: number;
-    totalOperatorCost: number;
+    totalInvoiced: number; // Total Nilai Tagihan (Total tagihan termasuk PPN)
+    totalOperatorBilled: number; // Total Nilai Jasa Operator Ditagihkan
     invoices: {
       id: string;
       invoiceNumber: string;
@@ -96,7 +96,7 @@ export type DetailedFleetHistory = {
       dueDate: string;
       status: string;
       subtotalAmount: string;
-      operatorAmount: string;
+      operatorAmount: string; // Jasa operator pada invoice
       taxAmount: string;
       totalAmount: string;
     }[];
@@ -105,7 +105,7 @@ export type DetailedFleetHistory = {
 
 export async function getDetailedFleetHistory(
   unitId: string,
-  options?: { page?: number; pageSize?: number }
+  options?: { page?: number; pageSize?: number; allTimesheets?: boolean }
 ): Promise<DetailedFleetHistory | { error: 'unauthorized' | 'not_found' }> {
   let user: { id: string; role: string; fullName: string };
   try {
@@ -120,8 +120,9 @@ export async function getDetailedFleetHistory(
   if (!unit) return { error: 'not_found' };
 
   const isFinance = ['admin', 'finance', 'operations'].includes(user.role);
+  const allTimesheets = !!options?.allTimesheets;
   const page = Math.max(1, Number(options?.page) || 1);
-  const pageSize = Math.max(1, Math.min(100, Number(options?.pageSize) || 20));
+  const pageSize = Math.max(1, Math.min(100, Number(options?.pageSize) || 10));
   const offset = (page - 1) * pageSize;
 
   // 1. Ambil seluruh kontrak untuk unit ini
@@ -166,28 +167,30 @@ export async function getDetailedFleetHistory(
     assignedOpsMap.set(co.contractId, list);
   }
 
-  // 3. Timesheets query (Agregat ringkasan + Paged rows)
+  // 3. Timesheets Summary:
+  // - HM Terpakai: sum(end_hm - start_hm) dari interval log valid (start_hm >= 0 & end_hm >= start_hm)
+  // - Effective hours: hanya dari timesheet berstatus 'approved'
   const allLogsSummaryQuery = await db
     .select({
       totalLogs: count(),
       effectiveHours: sql<string>`coalesce(sum(case when ${s.timesheets.status} = 'approved' then ${s.timesheets.effectiveHours} else 0 end), 0)`,
-      breakdownHours: sql<string>`coalesce(sum(${s.timesheets.breakdownHours}), 0)`,
-      minStartHm: sql<string | null>`min(${s.timesheets.startHm})`,
-      maxEndHm: sql<string | null>`max(${s.timesheets.endHm})`,
+      breakdownHours: sql<string>`coalesce(sum(case when ${s.timesheets.status} = 'approved' then ${s.timesheets.breakdownHours} else 0 end), 0)`,
+      totalHmUsed: sql<string>`coalesce(sum(case when ${s.timesheets.endHm} >= ${s.timesheets.startHm} then (${s.timesheets.endHm} - ${s.timesheets.startHm}) else 0 end), 0)`,
     })
     .from(s.timesheets)
     .where(eq(s.timesheets.unitId, unitId));
 
   const logSummary = allLogsSummaryQuery[0];
   const totalLogs = Number(logSummary?.totalLogs || 0);
+  const hmUsed = logSummary ? Math.round(Number(logSummary.totalHmUsed) * 100) / 100 : 0;
 
-  // Ambil distinct work days
-  const workDaysRes = await db
+  // 4. Utilisasi: workDays HANYA menghitung tanggal dengan timesheet berstatus 'approved'
+  const approvedWorkDaysRes = await db
     .select({ workDate: s.timesheets.date })
     .from(s.timesheets)
-    .where(eq(s.timesheets.unitId, unitId))
+    .where(and(eq(s.timesheets.unitId, unitId), eq(s.timesheets.status, 'approved')))
     .groupBy(s.timesheets.date);
-  const workDays = workDaysRes.length;
+  const workDays = approvedWorkDaysRes.length;
 
   // Hitung total contract days (rentang hari sewa semua kontrak yang aktif atau selesai)
   let totalContractDays = 0;
@@ -201,17 +204,13 @@ export async function getDetailedFleetHistory(
     }
   }
 
-  // Utilisasi: Work Days / Contract Days (%)
+  // Utilisasi resmi = (workDays_approved / totalContractDays) * 100, max 100%
   const utilizationRate =
     totalContractDays > 0 ? Math.min(100, Math.round((workDays / totalContractDays) * 100)) : 0;
 
-  const minHm = Number(logSummary?.minStartHm);
-  const maxHm = Number(logSummary?.maxEndHm);
-  const hmUsed = Number.isFinite(minHm) && Number.isFinite(maxHm) && maxHm >= minHm ? Math.round((maxHm - minHm) * 100) / 100 : null;
-
-  // 4. Operator history aggregation
+  // 5. Operator history aggregation
   // Menjawab: "Siapa saja yang pernah mengoperasikan unit ini?"
-  // Berdasarkan operator_driver_id (actual operator/driver)
+  // Berdasarkan operator_driver_id (actual physical driver)
   const operatorAggRows = await db
     .select({
       driverId: s.timesheets.operatorDriverId,
@@ -228,7 +227,7 @@ export async function getDetailedFleetHistory(
     .groupBy(s.timesheets.operatorDriverId, s.operators.fullName, s.operators.sioClass)
     .orderBy(desc(sql`sum(${s.timesheets.effectiveHours})`));
 
-  // Ambil juga fallback jika ada timesheets lama yang hanya terisi operator_id (profiles) tanpa operator_driver_id
+  // Fallback untuk catatan lama jika ada yang operator_driver_id-nya null tapi dicatat profiles.id
   const unmappedLogs = await db
     .select({
       profileName: s.profiles.fullName,
@@ -276,10 +275,22 @@ export async function getDetailedFleetHistory(
     }
   }
 
-  // 5. Invoices & Revenue (Role-gated)
-  let revenueRows: { id: string; invoiceNumber: string; contractId: string; contractNumber: string | null; issueDate: string; dueDate: string; status: string; subtotalAmount: string; operatorAmount: string; taxAmount: string; totalAmount: string }[] = [];
-  let totalRevenue = 0;
-  let totalOperatorCost = 0;
+  // 6. Invoices & Billing (Role-gated)
+  let revenueRows: {
+    id: string;
+    invoiceNumber: string;
+    contractId: string;
+    contractNumber: string | null;
+    issueDate: string;
+    dueDate: string;
+    status: string;
+    subtotalAmount: string;
+    operatorAmount: string;
+    taxAmount: string;
+    totalAmount: string;
+  }[] = [];
+  let totalInvoiced = 0;
+  let totalOperatorBilled = 0;
 
   if (contractIds.length > 0) {
     const invData = await db
@@ -302,12 +313,14 @@ export async function getDetailedFleetHistory(
       .orderBy(desc(s.invoices.issueDate));
 
     revenueRows = invData;
-    totalRevenue = invData.reduce((acc, curr) => acc + Number(curr.totalAmount || 0), 0);
-    totalOperatorCost = invData.reduce((acc, curr) => acc + Number(curr.operatorAmount || 0), 0);
+    totalInvoiced = invData.reduce((acc, curr) => acc + Number(curr.totalAmount || 0), 0);
+    totalOperatorBilled = invData.reduce((acc, curr) => acc + Number(curr.operatorAmount || 0), 0);
   }
 
-  // 6. Paginated Timesheets list
-  const pagedTimesheets = await db
+  // 7. Timesheets selection:
+  // Jika allTimesheets = true (untuk ekspor PDF), ambil semua catatan tanpa LIMIT
+  // Jika UI, ambil terpaginasi sesuai page & pageSize
+  const timesheetsQuery = db
     .select({
       id: s.timesheets.id,
       date: s.timesheets.date,
@@ -327,11 +340,13 @@ export async function getDetailedFleetHistory(
     .leftJoin(s.profiles, eq(s.profiles.id, s.timesheets.operatorId))
     .leftJoin(s.invoices, eq(s.invoices.id, s.timesheets.invoiceId))
     .where(eq(s.timesheets.unitId, unitId))
-    .orderBy(desc(s.timesheets.date))
-    .limit(pageSize)
-    .offset(offset);
+    .orderBy(desc(s.timesheets.date));
 
-  // 7. BAST Handovers
+  const pagedTimesheets = allTimesheets
+    ? await timesheetsQuery
+    : await timesheetsQuery.limit(pageSize).offset(offset);
+
+  // 8. BAST Handovers
   let handoverRows: {
     id: string;
     documentNumber: string;
@@ -412,7 +427,7 @@ export async function getDetailedFleetHistory(
     };
   });
 
-  // Susun contracts dengan assigned operators dan revenue per kontrak (jika isFinance)
+  // Susun contracts dengan total billing per kontrak (jika isFinance)
   const contractRevMap = new Map<string, number>();
   for (const inv of revenueRows) {
     const prev = contractRevMap.get(inv.contractId) || 0;
@@ -431,7 +446,7 @@ export async function getDetailedFleetHistory(
     operatorRateType: c.operatorRateType,
     ratePerHour: c.ratePerHour,
     assignedOperators: assignedOpsMap.get(c.id) || [],
-    totalRevenue: isFinance ? contractRevMap.get(c.id) || 0 : null,
+    totalInvoiced: isFinance ? contractRevMap.get(c.id) || 0 : null,
   }));
 
   return {
@@ -457,8 +472,8 @@ export async function getDetailedFleetHistory(
       breakdownHours: Math.round(Number(logSummary?.breakdownHours || 0) * 100) / 100,
       hmUsed,
       utilizationRate,
-      revenue: isFinance ? Math.round(totalRevenue * 100) / 100 : null,
-      operatorCost: isFinance ? Math.round(totalOperatorCost * 100) / 100 : null,
+      totalInvoiced: isFinance ? Math.round(totalInvoiced * 100) / 100 : null,
+      operatorBilled: isFinance ? Math.round(totalOperatorBilled * 100) / 100 : null,
     },
     operators: operatorsResult,
     contracts: contractsFormatted,
@@ -470,21 +485,21 @@ export async function getDetailedFleetHistory(
       startHm: t.startHm,
       endHm: t.endHm,
       breakdownHours: t.breakdownHours,
-      effectiveHours: t.effectiveHours || "0",
+      effectiveHours: t.effectiveHours || '0',
       status: t.status,
       invoiceNumber: t.invoiceNumber,
     })),
     timesheetPagination: {
-      page,
-      pageSize,
+      page: allTimesheets ? 1 : page,
+      pageSize: allTimesheets ? totalLogs : pageSize,
       total: totalLogs,
-      totalPages: Math.ceil(totalLogs / pageSize) || 1,
+      totalPages: allTimesheets ? 1 : Math.ceil(totalLogs / pageSize) || 1,
     },
     handovers: handoversFormatted,
     financials: isFinance
       ? {
-          totalRevenue: Math.round(totalRevenue * 100) / 100,
-          totalOperatorCost: Math.round(totalOperatorCost * 100) / 100,
+          totalInvoiced: Math.round(totalInvoiced * 100) / 100,
+          totalOperatorBilled: Math.round(totalOperatorBilled * 100) / 100,
           invoices: revenueRows.map((r) => ({
             id: r.id,
             invoiceNumber: r.invoiceNumber,

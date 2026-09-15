@@ -25,8 +25,6 @@ const styles = StyleSheet.create({
   logoAccent: { color: '#df7a38' },
   companyName: { fontSize: 9, fontFamily: 'Helvetica-Bold', color: '#2d3748' },
   companySub: { fontSize: 6.8, color: '#718096' },
-  docTitle: { fontSize: 13, fontFamily: 'Helvetica-Bold', textAlign: 'center', color: '#1a202c', marginBottom: 2 },
-  docSub: { fontSize: 8, textAlign: 'center', color: '#718096', marginBottom: 10 },
   fleetBanner: {
     backgroundColor: '#fffaf0',
     borderWidth: 1,
@@ -118,9 +116,9 @@ export function SingleFleetHistoryDocument({ settings, data, printedAt }: FleetH
 
   return (
     <Document title={`Riwayat-${data.unit.unitCode}.pdf`} author={settings.companyName}>
-      <Page size="A4" style={styles.page}>
+      <Page size="A4" style={styles.page} wrap>
         {/* Letterhead */}
-        <View style={styles.header}>
+        <View style={styles.header} fixed>
           <View>
             <Text style={styles.logo}>
               HEAVY<Text style={styles.logoAccent}>OPS</Text>
@@ -129,7 +127,7 @@ export function SingleFleetHistoryDocument({ settings, data, printedAt }: FleetH
             <Text style={styles.companySub}>{settings.address} · {settings.phone}</Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
-            <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#718096' }}>LAPORAN RIWAYAT OPERASIONAL</Text>
+            <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#718096' }}>LAPORAN RIWAYAT OPERASIONAL LENGKAP</Text>
             <Text style={{ fontSize: 7, color: '#a0aec0' }}>Dicetak: {printedAt}</Text>
           </View>
         </View>
@@ -170,7 +168,7 @@ export function SingleFleetHistoryDocument({ settings, data, printedAt }: FleetH
               <Text style={styles.gridVal}>{data.summary.contractCount} ({data.summary.completedCount} selesai)</Text>
             </View>
             <View style={styles.gridItem}>
-              <Text style={styles.gridLabel}>Total Hari Kerja</Text>
+              <Text style={styles.gridLabel}>Hari Kerja Disetujui</Text>
               <Text style={styles.gridVal}>{data.summary.workDays} hari</Text>
             </View>
           </View>
@@ -179,7 +177,7 @@ export function SingleFleetHistoryDocument({ settings, data, printedAt }: FleetH
         {/* Summary KPIs */}
         <View style={styles.kpiGrid}>
           <View style={styles.kpiBox}>
-            <Text style={styles.kpiLabel}>Total Jam Efektif</Text>
+            <Text style={styles.kpiLabel}>Total Jam Efektif (Approved)</Text>
             <Text style={styles.kpiVal}>{data.summary.effectiveHours.toLocaleString('id-ID')} jam</Text>
           </View>
           <View style={styles.kpiBox}>
@@ -187,8 +185,8 @@ export function SingleFleetHistoryDocument({ settings, data, printedAt }: FleetH
             <Text style={styles.kpiVal}>{data.summary.breakdownHours.toLocaleString('id-ID')} jam</Text>
           </View>
           <View style={styles.kpiBox}>
-            <Text style={styles.kpiLabel}>Total HM Terpakai</Text>
-            <Text style={styles.kpiVal}>{data.summary.hmUsed !== null ? `${data.summary.hmUsed.toLocaleString('id-ID')} HM` : '-'}</Text>
+            <Text style={styles.kpiLabel}>Total HM Terpakai (Σ Interval)</Text>
+            <Text style={styles.kpiVal}>{data.summary.hmUsed !== null ? `${data.summary.hmUsed.toLocaleString('id-ID')} HM` : '0 HM'}</Text>
           </View>
           <View style={styles.kpiBox}>
             <Text style={styles.kpiLabel}>Tingkat Utilisasi</Text>
@@ -197,19 +195,19 @@ export function SingleFleetHistoryDocument({ settings, data, printedAt }: FleetH
           {isFinance && (
             <>
               <View style={[styles.kpiBox, { width: '50%', marginTop: 4 }]}>
-                <Text style={styles.kpiLabel}>Total Pendapatan Sewa (Invoices)</Text>
-                <Text style={[styles.kpiVal, { color: '#276749' }]}>{money(data.summary.revenue || 0)}</Text>
+                <Text style={styles.kpiLabel}>Total Nilai Tagihan Terbit (Invoices)</Text>
+                <Text style={[styles.kpiVal, { color: '#276749' }]}>{money(data.summary.totalInvoiced || 0)}</Text>
               </View>
               <View style={[styles.kpiBox, { width: '50%', marginTop: 4 }]}>
-                <Text style={styles.kpiLabel}>Total Biaya Jasa Operator Terhitung</Text>
-                <Text style={[styles.kpiVal, { color: '#2b6cb0' }]}>{money(data.summary.operatorCost || 0)}</Text>
+                <Text style={styles.kpiLabel}>Total Jasa Operator pada Invoice</Text>
+                <Text style={[styles.kpiVal, { color: '#2b6cb0' }]}>{money(data.summary.operatorBilled || 0)}</Text>
               </View>
             </>
           )}
         </View>
 
-        {/* Contract History */}
-        <Text style={styles.sectionTitle}>RIWAYAT KONTRAK SEWA</Text>
+        {/* Contract History (Complete) */}
+        <Text style={styles.sectionTitle}>RIWAYAT KONTRAK SEWA ({data.contracts.length})</Text>
         {data.contracts.length === 0 ? (
           <Text style={styles.emptyNote}>Belum ada riwayat kontrak.</Text>
         ) : (
@@ -221,7 +219,7 @@ export function SingleFleetHistoryDocument({ settings, data, printedAt }: FleetH
               <Text style={{ width: '15%' }}>Layanan</Text>
               <Text style={{ width: '15%', textAlign: 'right' }}>Status</Text>
             </View>
-            {data.contracts.slice(0, 10).map((c) => (
+            {data.contracts.map((c) => (
               <View style={styles.tableRow} key={c.id}>
                 <Text style={{ width: '22%', fontFamily: 'Helvetica-Bold' }}>{c.contractNumber}</Text>
                 <Text style={{ width: '25%' }}>{c.clientName || '-'}</Text>
@@ -233,8 +231,8 @@ export function SingleFleetHistoryDocument({ settings, data, printedAt }: FleetH
           </View>
         )}
 
-        {/* Operator History */}
-        <Text style={styles.sectionTitle}>RIWAYAT PERSONEL OPERATOR</Text>
+        {/* Operator History (Complete) */}
+        <Text style={styles.sectionTitle}>RIWAYAT PERSONEL OPERATOR ({data.operators.length})</Text>
         {data.operators.length === 0 ? (
           <Text style={styles.emptyNote}>Belum ada riwayat operator pada unit ini.</Text>
         ) : (
@@ -258,8 +256,8 @@ export function SingleFleetHistoryDocument({ settings, data, printedAt }: FleetH
           </View>
         )}
 
-        {/* Timesheet Summary / Recent Logs */}
-        <Text style={styles.sectionTitle}>RINGKASAN TIMESHEET TERAKHIR</Text>
+        {/* Timesheet Complete History */}
+        <Text style={styles.sectionTitle}>RIWAYAT TIMESHEET HARIAN ({data.timesheets.length})</Text>
         {data.timesheets.length === 0 ? (
           <Text style={styles.emptyNote}>Belum ada riwayat timesheet.</Text>
         ) : (
@@ -271,7 +269,7 @@ export function SingleFleetHistoryDocument({ settings, data, printedAt }: FleetH
               <Text style={{ width: '17%', textAlign: 'right' }}>Jam Efektif</Text>
               <Text style={{ width: '15%', textAlign: 'right' }}>Status</Text>
             </View>
-            {data.timesheets.slice(0, 8).map((t) => (
+            {data.timesheets.map((t) => (
               <View style={styles.tableRow} key={t.id}>
                 <Text style={{ width: '18%' }}>{dateLabel(t.date, tz)}</Text>
                 <Text style={{ width: '25%' }}>{t.driver || '-'}</Text>
@@ -283,10 +281,10 @@ export function SingleFleetHistoryDocument({ settings, data, printedAt }: FleetH
           </View>
         )}
 
-        {/* BAST Section */}
+        {/* BAST Section (Complete) */}
         {data.handovers.length > 0 && (
           <>
-            <Text style={styles.sectionTitle}>RIWAYAT BERITA ACARA SERAH TERIMA (BAST)</Text>
+            <Text style={styles.sectionTitle}>RIWAYAT BERITA ACARA SERAH TERIMA ({data.handovers.length})</Text>
             <View style={styles.table}>
               <View style={styles.tableHead}>
                 <Text style={{ width: '25%' }}>No. BAST</Text>
@@ -295,7 +293,7 @@ export function SingleFleetHistoryDocument({ settings, data, printedAt }: FleetH
                 <Text style={{ width: '20%' }}>Kondisi Cek</Text>
                 <Text style={{ width: '15%', textAlign: 'right' }}>Foto Lampiran</Text>
               </View>
-              {data.handovers.slice(0, 5).map((h) => (
+              {data.handovers.map((h) => (
                 <View style={styles.tableRow} key={h.id}>
                   <Text style={{ width: '25%', fontFamily: 'Helvetica-Bold' }}>{h.documentNumber}</Text>
                   <Text style={{ width: '20%' }}>{h.type === 'mobilization' ? 'Mobilisasi' : 'Demobilisasi'}</Text>
@@ -309,9 +307,9 @@ export function SingleFleetHistoryDocument({ settings, data, printedAt }: FleetH
         )}
 
         {/* Footer */}
-        <View style={styles.pageFooter}>
-          <Text>Dokumen ini merupakan laporan operasional resmi unit alat berat {settings.companyName}.</Text>
-          <Text>Hal. 1</Text>
+        <View style={styles.pageFooter} fixed>
+          <Text>Laporan Operasional Resmi {settings.companyName} · Dokumen Lengkap</Text>
+          <Text render={({ pageNumber, totalPages }) => `Hal. ${pageNumber} / ${totalPages}`} />
         </View>
       </Page>
     </Document>
@@ -332,9 +330,9 @@ export function AllFleetsHistoryDocument({ settings, fleetsData, printedAt }: Al
       {fleetsData.map((data, index) => {
         const isFinance = !!data.financials;
         return (
-          <Page size="A4" style={styles.page} key={data.unit.id} break={index > 0}>
+          <Page size="A4" style={styles.page} key={data.unit.id} break={index > 0} wrap>
             {/* Letterhead */}
-            <View style={styles.header}>
+            <View style={styles.header} fixed>
               <View>
                 <Text style={styles.logo}>
                   HEAVY<Text style={styles.logoAccent}>OPS</Text>
@@ -381,11 +379,11 @@ export function AllFleetsHistoryDocument({ settings, fleetsData, printedAt }: Al
                 <Text style={styles.kpiVal}>{data.summary.contractCount} ({data.summary.completedCount} selesai)</Text>
               </View>
               <View style={styles.kpiBox}>
-                <Text style={styles.kpiLabel}>Hari Kerja</Text>
+                <Text style={styles.kpiLabel}>Hari Kerja Approved</Text>
                 <Text style={styles.kpiVal}>{data.summary.workDays} hari</Text>
               </View>
               <View style={styles.kpiBox}>
-                <Text style={styles.kpiLabel}>Jam Efektif</Text>
+                <Text style={styles.kpiLabel}>Jam Efektif Approved</Text>
                 <Text style={styles.kpiVal}>{data.summary.effectiveHours.toLocaleString('id-ID')} jam</Text>
               </View>
               <View style={styles.kpiBox}>
@@ -395,19 +393,19 @@ export function AllFleetsHistoryDocument({ settings, fleetsData, printedAt }: Al
               {isFinance && (
                 <>
                   <View style={[styles.kpiBox, { width: '50%', marginTop: 3 }]}>
-                    <Text style={styles.kpiLabel}>Pendapatan</Text>
-                    <Text style={[styles.kpiVal, { color: '#276749' }]}>{money(data.summary.revenue || 0)}</Text>
+                    <Text style={styles.kpiLabel}>Total Nilai Tagihan (Invoices)</Text>
+                    <Text style={[styles.kpiVal, { color: '#276749' }]}>{money(data.summary.totalInvoiced || 0)}</Text>
                   </View>
                   <View style={[styles.kpiBox, { width: '50%', marginTop: 3 }]}>
-                    <Text style={styles.kpiLabel}>Biaya Operator</Text>
-                    <Text style={[styles.kpiVal, { color: '#2b6cb0' }]}>{money(data.summary.operatorCost || 0)}</Text>
+                    <Text style={styles.kpiLabel}>Total Jasa Operator pada Invoice</Text>
+                    <Text style={[styles.kpiVal, { color: '#2b6cb0' }]}>{money(data.summary.operatorBilled || 0)}</Text>
                   </View>
                 </>
               )}
             </View>
 
-            {/* Contracts */}
-            <Text style={styles.sectionTitle}>RIWAYAT KONTRAK</Text>
+            {/* Contracts (Complete) */}
+            <Text style={styles.sectionTitle}>RIWAYAT KONTRAK ({data.contracts.length})</Text>
             {data.contracts.length === 0 ? (
               <Text style={styles.emptyNote}>Tidak ada data kontrak tercatat.</Text>
             ) : (
@@ -418,7 +416,7 @@ export function AllFleetsHistoryDocument({ settings, fleetsData, printedAt }: Al
                   <Text style={{ width: '25%' }}>Periode</Text>
                   <Text style={{ width: '20%', textAlign: 'right' }}>Tipe</Text>
                 </View>
-                {data.contracts.slice(0, 5).map((c) => (
+                {data.contracts.map((c) => (
                   <View style={styles.tableRow} key={c.id}>
                     <Text style={{ width: '25%', fontFamily: 'Helvetica-Bold' }}>{c.contractNumber}</Text>
                     <Text style={{ width: '30%' }}>{c.clientName || '-'}</Text>
@@ -429,8 +427,8 @@ export function AllFleetsHistoryDocument({ settings, fleetsData, printedAt }: Al
               </View>
             )}
 
-            {/* Operators */}
-            <Text style={styles.sectionTitle}>RIWAYAT OPERATOR</Text>
+            {/* Operators (Complete) */}
+            <Text style={styles.sectionTitle}>RIWAYAT OPERATOR ({data.operators.length})</Text>
             {data.operators.length === 0 ? (
               <Text style={styles.emptyNote}>Belum ada riwayat operator.</Text>
             ) : (
@@ -440,7 +438,7 @@ export function AllFleetsHistoryDocument({ settings, fleetsData, printedAt }: Al
                   <Text style={{ width: '30%' }}>SIO</Text>
                   <Text style={{ width: '30%', textAlign: 'right' }}>Jam Efektif</Text>
                 </View>
-                {data.operators.slice(0, 5).map((o, idx) => (
+                {data.operators.map((o, idx) => (
                   <View style={styles.tableRow} key={idx}>
                     <Text style={{ width: '40%', fontFamily: 'Helvetica-Bold' }}>{o.name}</Text>
                     <Text style={{ width: '30%' }}>{o.sioClass || '-'}</Text>
@@ -450,10 +448,33 @@ export function AllFleetsHistoryDocument({ settings, fleetsData, printedAt }: Al
               </View>
             )}
 
+            {/* Timesheets (Complete) */}
+            <Text style={styles.sectionTitle}>RIWAYAT TIMESHEET ({data.timesheets.length})</Text>
+            {data.timesheets.length === 0 ? (
+              <Text style={styles.emptyNote}>Belum ada riwayat timesheet.</Text>
+            ) : (
+              <View style={styles.table}>
+                <View style={styles.tableHead}>
+                  <Text style={{ width: '20%' }}>Tanggal</Text>
+                  <Text style={{ width: '30%' }}>Operator</Text>
+                  <Text style={{ width: '30%' }}>HM Awal - Akhir</Text>
+                  <Text style={{ width: '20%', textAlign: 'right' }}>Jam Efektif</Text>
+                </View>
+                {data.timesheets.map((t) => (
+                  <View style={styles.tableRow} key={t.id}>
+                    <Text style={{ width: '20%' }}>{dateLabel(t.date, tz)}</Text>
+                    <Text style={{ width: '30%' }}>{t.driver || '-'}</Text>
+                    <Text style={{ width: '30%' }}>{Number(t.startHm).toLocaleString('id-ID')} - {Number(t.endHm).toLocaleString('id-ID')}</Text>
+                    <Text style={{ width: '20%', textAlign: 'right' }}>{Number(t.effectiveHours).toLocaleString('id-ID')} jam</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
             {/* Footer */}
-            <View style={styles.pageFooter}>
+            <View style={styles.pageFooter} fixed>
               <Text>Unit {data.unit.unitCode} ({data.unit.brandModel}) · {settings.companyName}</Text>
-              <Text>Hal. {index + 1} dari {fleetsData.length}</Text>
+              <Text render={({ pageNumber, totalPages }) => `Hal. ${pageNumber} / ${totalPages}`} />
             </View>
           </Page>
         );
