@@ -73,7 +73,7 @@ node scripts/bast-check.ts      # regresi siklus hidup & snapshot BAST (M4.1) �
     - **Akses foto BAST (M4.2, F6):** GET `/api/bast-photos` memakai daftar role eksplisit (`admin`/`operations`/`operator`/`finance`), menolak path traversal (`..`) & null-byte sebelum query DB, me-resolve BAST pemilik lewat `photo_urls = ANY(...)`, lalu `isUserAuthorizedForBastPhoto()` (operator hanya kontrak tertugas; peran lain ditolak). Baca foto hanya via signed URL 1 jam dari bucket privat `bast-photos` — **jangan** membuat bucket publik / `getPublicUrl`. POST tetap `admin`/`operations`/`operator` (selaras migrasi 0012).
     - Uji wajib: `node scripts/bast-check.ts` (dijalankan CI bersama `finance-check.ts`).
 
-## 6. Status terakhir (per 15 September 2026)
+## 6. Status terakhir (per 16 September 2026)
 
 - ✅ **Audit & Fondasi Awal Selesai (`audit.md`)** — 4 Quick Wins Utama, audit UI/UX (`.zcode/audit/`), lazy-init DB (build tanpa env), shell follow-up (scroll nav + sticky header), serta dokumentasi handoff awal.
 - ✅ **Media Layer Foto Fleet (R2)** — `media_files` (migrasi 0023) + Cloudflare Worker Media API (`media-worker/`, belum deploy) + kompresi WebP di browser + UI foto fleet (cover/galeri + thumbnail). Foto BAST tetap di Supabase Storage (migrasi 0012).
@@ -101,8 +101,14 @@ node scripts/bast-check.ts      # regresi siklus hidup & snapshot BAST (M4.1) �
   - PDF BAST (termasuk variabel template) memakai snapshot historis dengan fail-closed "Data historis tidak tersedia" / "Data tarif historis tidak tersedia" — tidak pernah jatuh ke data live.
   - Regresi baru `scripts/bast-check.ts` (**76 assertion** = 53 M4.1 + 23 M4.2/F8 (S14-S16), dijalankan CI) di samping `finance-check.ts` yang tetap 0 FAIL.
   - Follow-up PR #31 (concurrency): penyuntingan BAST draf kini **mengunci baris kontrak `FOR UPDATE` sebelum validasi tanggal** sehingga serialisasi dengan `reviseContract()`; urutan lock `handovers → contracts` didokumentasikan di `src/app/actions.ts` dan dijaga uji invarian statis (bukan uji konkurensi PostgreSQL).
-  - Migrasi 0027 **belum dijalankan di produksi** (review terpisah). Baris lama tetap `draft` dengan snapshot NULL dan difinalkan secara eksplisit oleh admin/operations.
+  - **M4.1 SELESAI & TERDELIVER DI PRODUKSI.** Migrasi 0027 **telah diterapkan dan diverifikasi di production** lewat verifikasi READ-ONLY skema produksi (16 Sep 2026): kolom `status` + keempat kolom snapshot ada, constraint `handovers_status_valid` / `handovers_rate_at_handover_positive` / `handovers_contract_type_unique` / `handovers_document_number_key` / `handovers_type_check` / `handovers_contract_id_fkey` / `handovers_pkey` ada, dan `handovers` berisi **0 baris** (data uji M4 sudah dibersihkan). Tanggal/operator/alat penerapan **tidak dicatat di repo** — jangan dikarang; lihat ledger `supabase/README.md` §1a. Baris warisan tetap `draft` dengan snapshot NULL dan difinalkan secara eksplisit oleh admin/operations.
+- ✅ **M4.2 · Hardening Otorisasi, Duplikat & Foto BAST (PR #32, tanpa migrasi)** —
+  - Penanganan duplikat: pelanggaran unique (23505) pada INSERT BAST menjadi pesan bisnis Indonesia via `isUniqueViolation()` + `classifyBastUniqueError()` + `bastDuplicateMessage()` (`src/lib/bast.ts`); constraint DB tetap otoritas final, pre-check `siblings` hanya UX.
+  - Otorisasi foto: GET `/api/bast-photos` memakai daftar role eksplisit + menolak traversal/null-byte/non-string sebelum query DB + otorisasi per-entitas (`isUserAuthorizedForBastPhoto`; operator hanya kontrak tertugas); POST tetap `admin`/`operations`/`operator`; PDF BAST tetap login-internal (tanpa IDOR publik).
+  - **F3 penomoran dokumen: TETAP DITUNDA EKSPLISIT** (disepakati Audit Final M4) — `nextDocNumber()` sudah atomik via `pg_advisory_xact_lock` per prefix+tahun, edit tidak menulis ulang nomor, UNIQUE + pesan 23505 memadai.
+  - **Arsitektur foto ditegaskan ulang (by design, bukan tunggakan M4):** foto BAST = Supabase Storage bucket privat `bast-photos` (signed URL 1 jam, migrasi 0012); foto fleet = Cloudflare R2 (`media-worker/`).
+- ✅ **M4 · CLOSED — hasil Audit Final M4: APPROVE WITH FINDINGS.** Tidak ada P0/P1 tersisa; seluruh temuan lanjutan berstatus **P2/P3** dan tercatat sebagai backlog di `audit.md` #21. **Jangan** mengerjakan item backlog itu sebagai "perbaikan M4" tanpa triase tersendiri, dan **jangan** memigrasi foto BAST ke R2 sebagai bagian penutupan M4.
 - ⏭️ **Berikutnya**:
-  - **Terapkan migrasi `0027_bast_lifecycle_snapshots.sql`** ke produksi (review terpisah setelah PR #31) — sebelum itu baris lama tetap `draft` dan PDF BAST menampilkan pesan aman untuk nilai historis yang belum terbukti.
+  - Tindak lanjuti backlog P2/P3 Audit Final M4 yang tercatat di `audit.md` #21 (mis. satu model kanonis otorisasi baca BAST/foto, field historis PDF tambahan, validasi `photo_urls` saat tulis) — masing-masing butuh keputusan/triage, **bukan** bagian dari penutupan M4.
   - Deploy bucket R2 + Cloudflare Worker Media API (operator, panduan di `media-worker/README.md`) + set `MEDIA_API_URL`.
   - Lanjutkan isu Fase 0 & Fase 2 sesuai prioritas di `roadmap.md` (mis. audit log viewer per-record, notifikasi jatuh tempo otomatis).

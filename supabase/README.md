@@ -25,13 +25,54 @@
 
 ## 1. Status Saat Ini
 
-| Komponen | Kondisi di branch ini |
+| Komponen | Kondisi terkini (per 16 September 2026) |
 |---|---|
 | Integrasi Supabase Auth di aplikasi | ✅ Sudah ada (`src/lib/auth.ts`, `src/proxy.ts`, `src/app/actions.ts`) |
 | Skema produksi satu file | ✅ Ada di root: `schema.sql` (legacy, lihat §3) |
 | Skema Drizzle untuk lokal/pratinjau | ✅ Ada di `src/db/schema.ts` |
-| **Folder `supabase/migrations/`** | ✅ **Baru dibuat di branch ini** — skema dipecah jadi migration berurutan (jalur kanonik baru) |
-| Project Supabase produksi | ⬜ Belum dibuat — mulai dari [Tahap 0](#tahap-0--persiapan) |
+| **Folder `supabase/migrations/`** | ✅ Jalur kanonik skema produksi — kini berisi `0001`–`0027`, diterapkan bertahap (bukan "baru" lagi) |
+| Project Supabase produksi | ✅ **Sudah dibuat dan aktif digunakan** — aplikasi berjalan terhadapnya; sebagian migration sudah diterapkan (lihat ledger §1a), sebagian **tidak punya catatan state** dan belum diverifikasi |
+| State migrasi per-file di produksi | ⚠️ **Ledger manual di §1a** — belum ada tooling pencatat otomatis; perbarui §1a setiap kali sebuah file migration diterapkan ke staging/produksi |
+
+### 1a. Ledger State Migrasi Produksi
+
+> **Kenapa ledger ini ada.** Audit Final M4 sempat mengembalikan **BLOCK — M4 NOT READY** bukan karena cacat kode, melainkan karena repository tidak punya catatan andal tentang migrasi mana yang sudah terpasang di produksi: `AGENTS.md` masih menyebut "0027 belum dijalankan" sementara kode `main` sudah bergantung penuh pada kolom 0027. Verifikasi READ-ONLY terpisah terhadap produksi kemudian mengonfirmasi 0027 **terpasang**, dan blokir itu ditutup. **Aturan rawat:** setiap file migration yang diterapkan ke staging/produksi wajib ditambahkan/diperbarui di tabel ini. Catat tanggal/alat/operator **hanya bila memang diketahui** — jangan mengarang.
+
+| Migrasi | Status | Environment | Verifikasi |
+|---|---|---|---|
+| `0002_operations_tables.sql` (`handovers`) | ⚠️ Skema terkonfirmasi, jalur tidak tercatat | Produksi | Constraint `handovers_pkey`, `handovers_contract_id_fkey`, `handovers_document_number_key`, `handovers_type_check` ADA (verifikasi READ-ONLY 16 Sep 2026) — tetapi definisi ini juga ada di `schema.sql` legacy, sehingga **jalur penerapannya** (`0002` vs bootstrap `schema.sql`) tidak dapat disimpulkan dari state skema |
+| `0021_handover_uniqueness.sql` + `0022_handover_uniqueness_idempotent.sql` | ✅ Terpasang | Produksi | Constraint `handovers_contract_type_unique` ADA (verifikasi READ-ONLY 16 Sep 2026) — nama constraint ini **hanya** didefinisikan di `0021`/`0022` (tidak ada di `schema.sql`), jadi keberadaannya membuktikan kedua file itu dijalankan |
+| `0026_timesheet_billing_snapshots.sql` | ✅ Terpasang | Produksi | Tercatat di `AGENTS.md` §6 (M1.3: "dibuat dan diaplikasikan ke database produksi"); tanpa tanggal/alat penerapan |
+| `0027_bast_lifecycle_snapshots.sql` | ✅ **Terpasang (M4)** | Produksi | **Verifikasi READ-ONLY skema produksi 16 Sep 2026:** kolom `status` (text, NOT NULL, default `'draft'`) + `client_name_snapshot` + `unit_code_snapshot` + `unit_model_snapshot` + `rate_at_handover` ADA; constraint `handovers_status_valid` & `handovers_rate_at_handover_positive` ADA; `SELECT status, COUNT(*) FROM handovers GROUP BY status` → **NO ROWS** (konsisten dengan pembersihan data uji M4). **Bukti ini unik & conclusif:** keenam artefak tersebut hanya lahir dari `0027` — tidak ada di `schema.sql` legacy maupun migration lain — sehingga kehadirannya di produksi membuktikan `0027` benar-benar diterapkan, bukan sekadar terasumsi. Tanggal, operator, dan alat penerapan **tidak tercatat** |
+| `0001`, `0003`–`0020`, `0023`–`0025` | ⬜ Tidak ada catatan state | Produksi | Belum diverifikasi dan belum dicatat di repo — **jangan disimpulkan** oleh audit berikutnya; jalankan kueri §1a.1 di bawah terhadap tabel target masing-masing |
+| Seluruh `0001`–`0027` | ⬜ Tidak tercatat | Staging | Tidak ada catatan project staging di repo (lihat §7 aturan 2) |
+
+**Cara mencatat yang benar:** satu baris per file migration; `Status` = `Terpasang` / `Sebagian` / `Tidak terpasang` / `Tidak ada catatan`; `Verifikasi` = cara + tanggal bukti (contoh: "READ-ONLY schema check, 16 Sep 2026"). Jangan menuliskan "terpasang" berdasarkan asumsi bahwa aplikasi berjalan normal.
+
+#### §1a.1 Kueri verifikasi READ-ONLY (tidak mengubah apa pun)
+
+```sql
+-- 1. Kolom M4.1 pada handovers (ekspektasi: 5 baris status + snapshot, + photo_urls dari 0012)
+SELECT column_name, data_type, is_nullable, column_default
+  FROM information_schema.columns
+ WHERE table_schema = 'public' AND table_name = 'handovers'
+   AND column_name IN ('status','client_name_snapshot','unit_code_snapshot',
+                       'unit_model_snapshot','rate_at_handover','photo_urls')
+ ORDER BY column_name;
+
+-- 2. Constraint & indeks (ekspektasi: handovers_pkey, handovers_contract_id_fkey,
+--    handovers_document_number_key, handovers_contract_type_unique,
+--    handovers_status_valid, handovers_rate_at_handover_positive, handovers_type_check)
+SELECT conname, pg_get_constraintdef(oid)
+  FROM pg_constraint WHERE conrelid = 'public.handovers'::regclass ORDER BY conname;
+SELECT indexname FROM pg_indexes WHERE tablename = 'handovers' ORDER BY indexname;
+
+-- 3. Sisa data uji (ekspektasi 0 baris pasca-pembersihan M4)
+SELECT status, COUNT(*) FROM handovers GROUP BY status;
+```
+
+Bila project produksi dikelola dengan `supabase migration` CLI, tabel `supabase_migrations.schema_migrations` dapat dibaca read-only sebagai pembanding — **tetapi tabel itu bisa kosong** (migration juga bisa dijalankan manual lewat SQL editor), sehingga `information_schema` / `pg_constraint` di atas tetap otoritas. Dilarang menjalankan `INSERT/UPDATE/DELETE` atau DDL apa pun sebagai bagian dari verifikasi state.
+
 
 ---
 
@@ -341,6 +382,7 @@ Aturan change management:
 2. Selalu uji di **staging** (bisa clone project Supabase atau project kedua gratis tier) sebelum produksi.
 3. Sinkronkan `src/db/schema.ts` di commit yang sama, agar pratinjau lokal & produksi tidak drift (temuan §4.4 roadmap.md).
 4. Bila perubahan menyentuh RLS/fungsi role, uji dengan **ketiga role** (admin, operations/operator, finance) sebelum merge.
+5. **Perbarui ledger §1a di commit yang sama** saat migration diterapkan ke staging/produksi (baris baru + cara & tanggal verifikasi READ-ONLY). Ledger ini adalah satu-satunya sumber kebenaran state migrasi di repo — tanpanya, audit penutupan milestone bisa terblokir hanya karena catatan yang hilang (kasus nyata: Audit Final M4 vs migrasi `0027`).
 
 ---
 
